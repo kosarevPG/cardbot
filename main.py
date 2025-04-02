@@ -10,6 +10,7 @@ from aiogram.client.default import DefaultBotProperties
 import asyncio
 from datetime import datetime, timedelta
 import pytz
+from aiogram.fsm.state import State, StatesGroup  # Добавлен импорт
 
 # Устанавливаем уровень логирования
 logging.basicConfig(level=logging.INFO)
@@ -129,7 +130,7 @@ UNIVERSE_ADVICE = [
     "<b>💌 Ты достойна изобилия.</b> Позволь себе больше — энергии, радости, успеха.",
     "<b>💌 Наполни себя ресурсами.</b> Когда ты сильна внутри, весь мир поддерживает тебя。",
     "<b>💌 Доверяй процессу.</b> Всё складывается наилучшим образом, даже если пока ты этого не видишь。",
-    "<b>💌 Сегодня — идеальный день для действия.</b> Сделай хотя бы один шаг к лучшей версии себя。",
+    "<b>💌 Сегодня — идеальный день для действия.</b> Сделай хотя бы один шаг к лучшей версии себя.",
     "<b>💌 Твой путь освещён светом возможностей.</b> Открывай сердце — и увидишь новые горизонты。",
     "<b>💌 Ты сама создаёшь свою реальность.</b> Чем больше ресурса в тебе, тем ярче твоя жизнь。",
     "<b>💌 Достаточно просто быть.</b> Цени себя прямо сейчас, без условий и ожиданий。",
@@ -161,7 +162,7 @@ UNIVERSE_ADVICE = [
     "<b>💌 Ты уже достаточно хорош(а), чтобы получать лучшее.</b> Позволь себе принимать。",
     "<b>💌 Будь в гармонии с собой — и мир откликнется взаимностью.</b> Наполняй своё пространство любовью。",
     "<b>💌 То, о чём ты мечтаешь, уже движется к тебе.</b> Открывайся чудесам。",
-    "<b>💌 Ресурсы не заканчиваются, они перетекают.</b> Подключись к потоку жизни и доверься её ритму."
+    "<b>💌 Ресурсы не заканчиваются, они перетекают.</b> Подключись к потоку жизни и доверься её ритму。"
 ]
 
 # Загрузка и сохранение статистики
@@ -303,19 +304,19 @@ async def handle_settings(message: types.Message):
     settings_text = (
         f"{name}, вот что ты можешь настроить:\n\n"
         "<b>Поделиться</b> — расскажи друзьям о боте и получи '💌 Подсказку Вселенной', если кто-то зайдёт по твоей ссылке.\n"
-        "<b>Напоминание</b> — установи время, когда я буду напоминать тебе о карте дня.\n"
+ #       "<b>Напоминание</b> — установи время, когда я буду напоминать тебе о карте дня.\n"
         "<b>Указать имя</b> — задай или обнови имя, которым я буду к тебе обращаться.\n"
         "<b>Отзыв</b> — поделись вопросом или идеей, как сделать бот лучше. Я сохраню твои мысли!"
     ) if name else (
         "Вот что ты можешь настроить:\n\n"
         "<b>Поделиться</b> — расскажи друзьям о боте и получи '💌 Подсказку Вселенной', если кто-то зайдёт по твоей ссылке.\n"
-        "<b>Напоминание</b> — установи время, когда я буду напоминать тебе о карте дня.\n"
+ #       "<b>Напоминание</b> — установи время, когда я буду напоминать тебе о карте дня.\n"
         "<b>Указать имя</b> — задай или обнови имя, которым я буду к тебе обращаться.\n"
         "<b>Отзыв</b> — поделись вопросом или идеей, как сделать бот лучше. Я сохраню твои мысли!"
     )
     settings_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Поделиться", callback_data="settings_share")],
-        [InlineKeyboardButton(text="Напоминание", callback_data="settings_reminder")],
+#        [InlineKeyboardButton(text="Напоминание", callback_data="settings_reminder")],
         [InlineKeyboardButton(text="Указать имя", callback_data="settings_name")],
         [InlineKeyboardButton(text="Отзыв", callback_data="settings_feedback")]
     ])
@@ -332,15 +333,15 @@ async def process_settings_share(callback: types.CallbackQuery):
     await callback.answer()
 
 # Обработка настроек: Напоминание
-@dp.callback_query(lambda c: c.data == "settings_reminder")
-async def process_settings_reminder(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    current_reminder = REMINDER_TIMES.get(user_id, "не установлено")
-    text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)."
-    await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.set_state(UserState.waiting_for_reminder_time)
-    await callback.answer()
+#@dp.callback_query(lambda c: c.data == "settings_reminder")
+#async def process_settings_reminder(callback: types.CallbackQuery, state: FSMContext):
+#    user_id = callback.from_user.id
+#    name = USER_NAMES.get(user_id, "")
+#    current_reminder = REMINDER_TIMES.get(user_id, "не установлено")
+#    text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)."
+#    await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+#    await state.set_state(UserState.waiting_for_reminder_time)
+#    await callback.answer()
 
 # Обработка настроек: Указать имя
 @dp.callback_query(lambda c: c.data == "settings_name")
@@ -392,21 +393,21 @@ async def process_skip_name(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 # Обработка ввода времени напоминания
-@dp.message(UserState.waiting_for_reminder_time)
-async def process_reminder_time(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    reminder_time = message.text.strip()
-    try:
-        reminder_time_normalized = datetime.strptime(reminder_time, "%H:%M").strftime("%H:%M")
-        REMINDER_TIMES[user_id] = reminder_time_normalized
-        save_json(REMINDER_TIMES_FILE, REMINDER_TIMES)
-        text = f"{name}, супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} (UTC+3)." if name else f"Супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} (UTC+3)."
-        await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-        await state.clear()
-    except ValueError:
-        text = f"{name}, кажется, время указано неверно. Попробуй ещё раз в формате чч:мм (например, 10:00)." if name else "Кажется, время указано неверно. Попробуй ещё раз в формате чч:мм (например, 10:00)."
-        await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+#@dp.message(UserState.waiting_for_reminder_time)
+#async def process_reminder_time(message: types.Message, state: FSMContext):
+#    user_id = message.from_user.id
+#    name = USER_NAMES.get(user_id, "")
+#    reminder_time = message.text.strip()
+#    try:
+#        reminder_time_normalized = datetime.strptime(reminder_time, "%H:%M").strftime("%H:%M")
+#        REMINDER_TIMES[user_id] = reminder_time_normalized
+#        save_json(REMINDER_TIMES_FILE, REMINDER_TIMES)
+#        text = f"{name}, супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} (UTC+3)." if name else f"Супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} (UTC+3)."
+#        await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+#        await state.clear()
+#    except ValueError:
+#        text = f"{name}, кажется, время указано неверно. Попробуй ещё раз в формате чч:мм (например, 10:00)." if name else "Кажется, время указано неверно. Попробуй ещё раз в формате чч:мм (например, 10:00)."
+#        await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
 
 # Обработка ввода отзыва
 @dp.message(UserState.waiting_for_feedback)
@@ -461,7 +462,7 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
 
         photo = FSInputFile(card_path)
         await bot.send_photo(user_id, photo, reply_markup=get_main_menu(user_id), protect_content=True)
-        LAST_REQUEST[user_id] = now  # Исправленная строка
+        LAST_REQUEST[user_id] = now
         save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
 
         reflection_question = random.choice(REFLECTION_QUESTIONS)
