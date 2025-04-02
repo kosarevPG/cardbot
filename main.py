@@ -216,7 +216,7 @@ async def check_reminders():
         for user_id, reminder_time in list(REMINDER_TIMES.items()):
             reminder_time_normalized = datetime.strptime(reminder_time, "%H:%M").strftime("%H:%M")
             last_request_time = LAST_REQUEST.get(user_id)
-            card_available = not last_request_time or (now - last_request_time >= timedelta(minutes=1))
+            card_available = not last_request_time or (now - last_request_time >= timedelta(days=1))
             logging.info(f"User {user_id}: reminder_time={reminder_time_normalized}, current_time={current_time}, card_available={card_available}, last_request={last_request_time}")
             if current_time == reminder_time_normalized and card_available:
                 name = USER_NAMES.get(user_id, "")
@@ -349,8 +349,8 @@ async def handle_card_request(message: types.Message, state: FSMContext):
     name = USER_NAMES.get(user_id, "")
     now = datetime.now(TIMEZONE)
 
-    if user_id in LAST_REQUEST and now - LAST_REQUEST[user_id] < timedelta(minutes=1):
-        text = f"{name}, карту дня можно вытянуть только раз в минуту – всему своё время! 🌿 Подожди немного." if name else "Карту дня можно вытянуть только раз в минуту – всему своё время! 🌿 Подожди немного."
+    if user_id in LAST_REQUEST and now - LAST_REQUEST[user_id] < timedelta(days=1):
+        text = f"{name}, карту дня можно вытянуть только раз в сутки – всему своё время! 🌿 Подожди немного." if name else "Карту дня можно вытянуть только раз в сутки – всему своё время! 🌿 Подожди немного."
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         return
 
