@@ -1,15 +1,17 @@
-async def main():
-    logging.info("Bot starting...")
-    asyncio.create_task(check_reminders())
-    while True:
-        try:
-            await dp.start_polling(bot, skip_updates=True)
-        except Exception as e:
-            logging.error(f"Polling failed: {e}, restarting in 10 seconds...")
-            await asyncio.sleep(10)
-        else:
-            break
+import logging
+logging.basicConfig(level=logging.DEBUG)
+logging.debug("Starting script...")
+
+# ... твои импорты ...
+
+logging.debug("Imports completed, initializing bot...")
+
+# ... остальной код ...
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG)  # Для отладки
-    asyncio.run(main())
+    try:
+        logging.debug("Starting main...")
+        asyncio.run(main())
+    except Exception as e:
+        logging.error(f"Failed to start bot: {e}")
+        raise
