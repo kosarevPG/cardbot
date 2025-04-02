@@ -9,8 +9,6 @@ from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 import asyncio
 from datetime import datetime, timedelta
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 import pytz
 
 # Устанавливаем уровень логирования
@@ -21,9 +19,7 @@ logging.debug("Starting script...")
 TOKEN = "8054930534:AAFDdyp5_xiX0ZPQnSEZKpfOhk2PCdchKvg"
 CHANNEL_ID = "@TopPsyGame"
 BOT_LINK = "t.me/choose_a_card_bot"
-TIMEZONE = pytz.timezone("Europe/Moscow")
-
-logging.debug("Settings loaded, initializing bot...")
+TIMEZONE = pytz.timezone("Europe/Moscow")  # Часовой пояс Москва (UTC+3)
 
 # Инициализация бота
 bot = Bot(
@@ -39,8 +35,9 @@ class UserState(StatesGroup):
     waiting_for_name = State()
     waiting_for_reminder_time = State()
     waiting_for_request_confirmation = State()
+    waiting_for_feedback = State()
 
-# Файлы для хранения данных (используем /data для персистентного хранилища)
+# Файлы для хранения данных
 DATA_DIR = "/data"
 LAST_REQUEST_FILE = f"{DATA_DIR}/last_request.json"
 USER_NAMES_FILE = f"{DATA_DIR}/user_names.json"
@@ -48,6 +45,7 @@ REFERRALS_FILE = f"{DATA_DIR}/referrals.json"
 BONUS_AVAILABLE_FILE = f"{DATA_DIR}/bonus_available.json"
 REMINDER_TIMES_FILE = f"{DATA_DIR}/reminder_times.json"
 STATS_FILE = f"{DATA_DIR}/card_feedback.json"
+FEEDBACK_FILE = f"{DATA_DIR}/feedback.json"
 
 # Создаём папку, если её нет
 if not os.path.exists(DATA_DIR):
@@ -78,13 +76,14 @@ USER_NAMES = load_json(USER_NAMES_FILE, {})
 REFERRALS = load_json(REFERRALS_FILE, {})
 BONUS_AVAILABLE = load_json(BONUS_AVAILABLE_FILE, {})
 REMINDER_TIMES = load_json(REMINDER_TIMES_FILE, {})
+FEEDBACK = load_json(FEEDBACK_FILE, {})
 
 for user_id, timestamp in LAST_REQUEST.items():
     LAST_REQUEST[user_id] = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(TIMEZONE)
 
 logging.debug("Data initialized.")
 
-# Список вопросов и советов (сокращено для примера)
+# Список вопросов и советов
 REFLECTION_QUESTIONS = [
     "Какой ресурс даёт мне эта карта?",
     "Как этот образ может поддержать меня в сложившейся ситуации?",
@@ -138,30 +137,30 @@ UNIVERSE_ADVICE = [
     "<b>💌 Ты магнит для благополучия.</b> Позволь хорошему прийти легко и естественно.",
     "<b>💌 Смелость меняет реальность.</b> Позволь себе выйти за границы привычного.",
     "<b>💌 Радость — твой естественный ресурс.</b> Найди её в простых вещах, и жизнь наполнится смыслом.",
-    "<b>💌 Сей добро — и оно вернётся.</b> Чем больше света ты даёшь, тем больше получаешь.",
-    "<b>💌 Природа поддерживает тебя.</b> Наполнись её энергией и почувствуй свою силу.",
-    "<b>💌 Нет предела твоему развитию.</b> Позволь себе стать ещё лучше, ещё счастливее.",
-    "<b>💌 У тебя уже есть всё необходимое для успеха.</b> Доверься себе и сделай шаг вперёд.",
+    "<b>💌 Сей добро — и оно вернётся.</b> Чем больше света ты даёшь, тем больше получаешь。",
+    "<b>💌 Природа поддерживает тебя.</b> Наполнись её энергией и почувствуй свою силу。",
+    "<b>💌 Нет предела твоему развитию.</b> Позволь себе стать ещё лучше, ещё счастливее。",
+    "<b>💌 У тебя уже есть всё необходимое для успеха.</b> Доверься себе и сделай шаг вперёд。",
     "<b>💌 Ты заслуживаешь самого лучшего.</b> Вселенная щедра к тем, кто открыт её дарам.",
-    "<b>💌 Всё в тебе уже готово для нового этапа.</b> Просто начни двигаться вперёд.",
-    "<b>💌 Ты ценность для этого мира.</b> Твой свет нужен другим, не скрывай его.",
-    "<b>💌 Ресурсы вокруг тебя, просто позволь себе их принять.</b> Ты достоин(а) поддержки и благополучия.",
-    "<b>💌 Сегодня – лучший день, чтобы позаботиться о себе.</b> Наполни себя тем, что приносит радость.",
-    "<b>💌 Вселенная всегда даёт тебе именно то, что нужно для роста.</b> Используй этот момент.",
-    "<b>💌 Ты сильнее, чем тебе кажется.</b> Сделай шаг, и ты увидишь, как легко всё меняется.",
-    "<b>💌 Любая ситуация — это возможность.</b> Найди ресурс даже там, откуда его не ждёшь.",
-    "<b>💌 Твои мечты достижимы.</b> Главное — верить и действовать.",
-    "<b>💌 Ты творец своей жизни.</b> Прямо сейчас можешь изменить её к лучшему.",
-    "<b>💌 Пусть энергия потока ведёт тебя.</b> Доверься и отпусти контроль — всё сложится идеально.",
-    "<b>💌 Ты заслуживаешь лёгкости.</b> Позволь себе радоваться жизни здесь и сейчас.",
-    "<b>💌 Природа всегда возрождается — и ты тоже можешь.</b> Новый день — новые возможности.",
-    "<b>💌 Чем больше ты наполняешь себя ресурсами, тем больше можешь дать миру.</b> Начни с себя.",
-    "<b>💌 Ты находишься в идеальном месте в своей жизни.</b> Всё происходит вовремя.",
-    "<b>💌 Любое препятствие — это лишь ступенька к твоему росту.</b> Твои способности безграничны.",
-    "<b>💌 Открываясь новому, ты расширяешь свои границы.</b> Не бойся идти в неизведанное.",
-    "<b>💌 Ты уже достаточно хорош(а), чтобы получать лучшее.</b> Позволь себе принимать.",
-    "<b>💌 Будь в гармонии с собой — и мир откликнется взаимностью.</b> Наполняй своё пространство любовью.",
-    "<b>💌 То, о чём ты мечтаешь, уже движется к тебе.</b> Открывайся чудесам.",
+    "<b>💌 Всё в тебе уже готово для нового этапа.</b> Просто начни двигаться вперёд。",
+    "<b>💌 Ты ценность для этого мира.</b> Твой свет нужен другим, не скрывай его。",
+    "<b>💌 Ресурсы вокруг тебя, просто позволь себе их принять.</b> Ты достоин(а) поддержки и благополучия。",
+    "<b>💌 Сегодня – лучший день, чтобы позаботиться о себе.</b> Наполни себя тем, что приносит радость。",
+    "<b>💌 Вселенная всегда даёт тебе именно то, что нужно для роста.</b> Используй этот момент。",
+    "<b>💌 Ты сильнее, чем тебе кажется.</b> Сделай шаг, и ты увидишь, как легко всё меняется。",
+    "<b>💌 Любая ситуация — это возможность.</b> Найди ресурс даже там, откуда его не ждёшь。",
+    "<b>💌 Твои мечты достижимы.</b> Главное — верить и действовать。",
+    "<b>💌 Ты творец своей жизни.</b> Прямо сейчас можешь изменить её к лучшему。",
+    "<b>💌 Пусть энергия потока ведёт тебя.</b> Доверься и отпусти контроль — всё сложится идеально。",
+    "<b>💌 Ты заслуживаешь лёгкости.</b> Позволь себе радоваться жизни здесь и сейчас。",
+    "<b>💌 Природа всегда возрождается — и ты тоже можешь.</b> Новый день — новые возможности。",
+    "<b>💌 Чем больше ты наполняешь себя ресурсами, тем больше можешь дать миру.</b> Начни с себя。",
+    "<b>💌 Ты находишься в идеальном месте в своей жизни.</b> Всё происходит вовремя。",
+    "<b>💌 Любое препятствие — это лишь ступенька к твоему росту.</b> Твои способности безграничны。",
+    "<b>💌 Открываясь новому, ты расширяешь свои границы.</b> Не бойся идти в неизведанное。",
+    "<b>💌 Ты уже достаточно хорош(а), чтобы получать лучшее.</b> Позволь себе принимать。",
+    "<b>💌 Будь в гармонии с собой — и мир откликнется взаимностью.</b> Наполняй своё пространство любовью。",
+    "<b>💌 То, о чём ты мечтаешь, уже движется к тебе.</b> Открывайся чудесам。",
     "<b>💌 Ресурсы не заканчиваются, они перетекают.</b> Подключись к потоку жизни и доверься её ритму."
 ]
 
@@ -174,11 +173,10 @@ def save_stats(stats):
 
 logging.debug("Stats functions defined.")
 
-# Генерация меню
+# Генерация главного меню
 def get_main_menu(user_id):
     keyboard = [
-        [KeyboardButton(text="✨ Карта дня"), KeyboardButton(text="🕊 Поделиться")],
-        [KeyboardButton(text="⏰ Напоминание")]
+        [KeyboardButton(text="✨ Карта дня"), KeyboardButton(text="⚙️ Настройки")]
     ]
     if BONUS_AVAILABLE.get(user_id, False):
         keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной")])
@@ -207,17 +205,42 @@ class SubscriptionMiddleware:
 dp.message.middleware(SubscriptionMiddleware())
 logging.debug("Subscription middleware registered.")
 
+# --- Новая функциональность: Рассылка сообщений ---
+BROADCAST = {
+    "datetime": datetime(2025, 4, 10, 12, 0, tzinfo=TIMEZONE),  # Дата и время (год, месяц, день, час, минута)
+    "text": "Привет! Это новость от бота: скоро добавим новые карты! 🌟",  # Текст сообщения
+    "recipients": "all"  # "all" или список ID, например: [123456, 789101]
+}
+BROADCAST_SENT = False  # Флаг, чтобы не отправлять повторно
+
+async def check_broadcast():
+    global BROADCAST_SENT
+    while True:
+        now = datetime.now(TIMEZONE)
+        if not BROADCAST_SENT and now >= BROADCAST["datetime"]:
+            recipients = USER_NAMES.keys() if BROADCAST["recipients"] == "all" else BROADCAST["recipients"]
+            for user_id in recipients:
+                name = USER_NAMES.get(user_id, "")
+                text = f"{name}, {BROADCAST['text']}" if name else BROADCAST["text"]
+                try:
+                    await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
+                    logging.info(f"Broadcast sent to {user_id}")
+                except Exception as e:
+                    logging.error(f"Failed to send broadcast to {user_id}: {e}")
+            BROADCAST_SENT = True
+            logging.info("Broadcast completed")
+        await asyncio.sleep(60)  # Проверка каждую минуту
+
 # Фоновая задача для проверки напоминаний
 async def check_reminders():
     while True:
         now = datetime.now(TIMEZONE)
         current_time = now.strftime("%H:%M")
-        logging.info(f"Checking reminders at {current_time}, REMINDER_TIMES: {REMINDER_TIMES}")
+        today = now.date()
         for user_id, reminder_time in list(REMINDER_TIMES.items()):
             reminder_time_normalized = datetime.strptime(reminder_time, "%H:%M").strftime("%H:%M")
             last_request_time = LAST_REQUEST.get(user_id)
-            card_available = not last_request_time or (now - last_request_time >= timedelta(days=1))
-            logging.info(f"User {user_id}: reminder_time={reminder_time_normalized}, current_time={current_time}, card_available={card_available}, last_request={last_request_time}")
+            card_available = not last_request_time or last_request_time.date() < today
             if current_time == reminder_time_normalized and card_available:
                 name = USER_NAMES.get(user_id, "")
                 text = f"{name}, привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!" if name else "Привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!"
@@ -233,17 +256,12 @@ logging.debug("Reminder check function defined.")
 # Предложение напоминания
 async def suggest_reminder(user_id, state: FSMContext):
     name = USER_NAMES.get(user_id, "")
-    logging.info(f"Suggesting reminder to {user_id}: in REMINDER_TIMES={user_id in REMINDER_TIMES}")
     if user_id not in REMINDER_TIMES:
-        text = f"{name}, если хочешь, я могу напоминать тебе о карте дня! Введи время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)." if name else "Если хочешь, я могу напоминать тебе о карте дня! Введи время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)."
+        text = f"{name}, если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание'." if name else "Если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание'."
         try:
             await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
-            await state.set_state(UserState.waiting_for_reminder_time)
-            logging.info(f"Reminder suggestion sent to {user_id}")
         except Exception as e:
             logging.error(f"Failed to suggest reminder to {user_id}: {e}")
-    else:
-        logging.info(f"No reminder suggestion for {user_id}: already has reminder time")
 
 # Команда /start
 @dp.message(Command("start"))
@@ -277,25 +295,73 @@ async def start_command(message: types.Message, state: FSMContext):
             protect_content=True
         )
 
-# Команда /reminder
-@dp.message(Command("reminder"))
-async def reminder_command(message: types.Message, state: FSMContext):
+# Обработка кнопки "⚙️ Настройки"
+@dp.message(lambda message: message.text == "⚙️ Настройки")
+async def handle_settings(message: types.Message):
     user_id = message.from_user.id
     name = USER_NAMES.get(user_id, "")
-    current_reminder = REMINDER_TIMES.get(user_id, "не установлено")
-    text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)."
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.set_state(UserState.waiting_for_reminder_time)
+    settings_text = (
+        f"{name}, вот что ты можешь настроить:\n\n"
+        "<b>Поделиться</b> — расскажи друзьям о боте и получи '💌 Подсказку Вселенной', если кто-то зайдёт по твоей ссылке.\n"
+        "<b>Напоминание</b> — установи время, когда я буду напоминать тебе о карте дня.\n"
+        "<b>Указать имя</b> — задай или обнови имя, которым я буду к тебе обращаться.\n"
+        "<b>Отзыв</b> — поделись вопросом или идеей, как сделать бот лучше. Я сохраню твои мысли!"
+    ) if name else (
+        "Вот что ты можешь настроить:\n\n"
+        "<b>Поделиться</b> — расскажи друзьям о боте и получи '💌 Подсказку Вселенной', если кто-то зайдёт по твоей ссылке.\n"
+        "<b>Напоминание</b> — установи время, когда я буду напоминать тебе о карте дня.\n"
+        "<b>Указать имя</b> — задай или обнови имя, которым я буду к тебе обращаться.\n"
+        "<b>Отзыв</b> — поделись вопросом или идеей, как сделать бот лучше. Я сохраню твои мысли!"
+    )
+    settings_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Поделиться", callback_data="settings_share")],
+        [InlineKeyboardButton(text="Напоминание", callback_data="settings_reminder")],
+        [InlineKeyboardButton(text="Указать имя", callback_data="settings_name")],
+        [InlineKeyboardButton(text="Отзыв", callback_data="settings_feedback")]
+    ])
+    await message.answer(settings_text, reply_markup=settings_keyboard, protect_content=True)
 
-# Обработка кнопки "⏰ Напоминание"
-@dp.message(lambda message: message.text == "⏰ Напоминание")
-async def handle_reminder_button(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
+# Обработка настроек: Поделиться
+@dp.callback_query(lambda c: c.data == "settings_share")
+async def process_settings_share(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    ref_link = f"{BOT_LINK}?start=ref_{user_id}"
+    text = f"{name}, этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
+    await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=False)
+    await callback.answer()
+
+# Обработка настроек: Напоминание
+@dp.callback_query(lambda c: c.data == "settings_reminder")
+async def process_settings_reminder(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
     name = USER_NAMES.get(user_id, "")
     current_reminder = REMINDER_TIMES.get(user_id, "не установлено")
     text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)."
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
     await state.set_state(UserState.waiting_for_reminder_time)
+    await callback.answer()
+
+# Обработка настроек: Указать имя
+@dp.callback_query(lambda c: c.data == "settings_name")
+async def process_settings_name(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    text = f"{name}, как тебя зовут? Введи новое имя или нажми 'Пропустить', если не хочешь его менять." if name else "Как тебя зовут? Введи имя или нажми 'Пропустить', если не хочешь его указывать."
+    skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]])
+    await callback.message.answer(text, reply_markup=skip_keyboard, protect_content=True)
+    await state.set_state(UserState.waiting_for_name)
+    await callback.answer()
+
+# Обработка настроек: Отзыв
+@dp.callback_query(lambda c: c.data == "settings_feedback")
+async def process_settings_feedback(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    text = f"{name}, напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!" if name else "Напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!"
+    await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.set_state(UserState.waiting_for_feedback)
+    await callback.answer()
 
 # Обработка ввода имени
 @dp.message(UserState.waiting_for_name)
@@ -342,19 +408,33 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
         text = f"{name}, кажется, время указано неверно. Попробуй ещё раз в формате чч:мм (например, 10:00)." if name else "Кажется, время указано неверно. Попробуй ещё раз в формате чч:мм (например, 10:00)."
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
 
+# Обработка ввода отзыва
+@dp.message(UserState.waiting_for_feedback)
+async def process_feedback_submission(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    feedback_text = message.text.strip()
+    FEEDBACK[user_id] = {"name": name, "feedback": feedback_text, "timestamp": datetime.now(TIMEZONE).isoformat()}
+    save_json(FEEDBACK_FILE, FEEDBACK)
+    text = f"{name}, спасибо за твой отзыв! Я сохранила его." if name else "Спасибо за твой отзыв! Я сохранила его."
+    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.clear()
+
 # Обработка "Карта дня"
 @dp.message(lambda message: message.text == "✨ Карта дня")
 async def handle_card_request(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = USER_NAMES.get(user_id, "")
     now = datetime.now(TIMEZONE)
+    today = now.date()
 
-    if user_id in LAST_REQUEST and now - LAST_REQUEST[user_id] < timedelta(days=1):
-        text = f"{name}, карту дня можно вытянуть только раз в сутки – всему своё время! 🌿 Подожди немного." if name else "Карту дня можно вытянуть только раз в сутки – всему своё время! 🌿 Подожди немного."
+    last_request_time = LAST_REQUEST.get(user_id)
+    if last_request_time and last_request_time.date() == today:
+        text = f"{name}, ты уже вытянул(а) карту сегодня! Новая будет доступна завтра в 00:00 (UTC+3)." if name else "Ты уже вытянул(а) карту сегодня! Новая будет доступна завтра в 00:00 (UTC+3)."
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         return
 
-    text = f"{name}, давай сделаем это осознанно! 🌿 Подумай: какой вопрос ты хочешь задать карте? Нажми кнопку, когда будешь готова!" if name else "Давай сделаем это осознанно! 🌿 Подумай: какой вопрос ты хочешь задать карте? Нажми кнопку, когда будешь готова!"
+    text = f"{name}, давай сделаем это осознанно! 🌿 Подумай: какой вопрос ты хочешь задать карте? Нажми кнопку, когда будешь готов(а)!" if name else "Давай сделаем это осознанно! 🌿 Подумай: какой вопрос ты хочешь задать карте? Нажми кнопку, когда будешь готов(а)!"
     confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Запрос готов!", callback_data="confirm_request")]])
     await message.answer(text, reply_markup=confirmation_keyboard, protect_content=True)
     await state.set_state(UserState.waiting_for_request_confirmation)
@@ -365,6 +445,7 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
     user_id = callback.from_user.id
     name = USER_NAMES.get(user_id, "")
     now = datetime.now(TIMEZONE)
+    today = now.date()
 
     try:
         card_numbers = list(range(1, 41))
@@ -380,6 +461,7 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
 
         photo = FSInputFile(card_path)
         await bot.send_photo(user_id, photo, reply_markup=get_main_menu(user_id), protect_content=True)
+        LAST_REQUEST[user_id] = nowascopy now
         LAST_REQUEST[user_id] = now
         save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
 
@@ -401,22 +483,13 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
         await state.clear()
     await callback.answer()
 
-# Обработка "Поделиться"
-@dp.message(lambda message: message.text == "🕊 Поделиться")
-async def handle_share_info(message: types.Message):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    ref_link = f"{BOT_LINK}?start=ref_{user_id}"
-    text = f"{name}, этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=False)
-
 # Обработка "Совет от Вселенной"
 @dp.message(lambda message: message.text == "💌 Подсказка Вселенной")
 async def handle_bonus_request(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = USER_NAMES.get(user_id, "")
     if not BONUS_AVAILABLE.get(user_id, False):
-        text = f"{name}, этот совет пока спрятан! Поделись ботом через 'Поделиться', и он откроется, когда кто-то зайдёт!" if name else "Этот совет пока спрятан! Поделись ботом через 'Поделиться', и он откроется, когда кто-то зайдёт!"
+        text = f"{name}, этот совет пока спрятан! В 'Настройках' выбери 'Поделиться', чтобы получить его, когда кто-то зайдёт по твоей ссылке!" if name else "Этот совет пока спрятан! В 'Настройках' выбери 'Поделиться', чтобы получить его, когда кто-то зайдёт по твоей ссылке!"
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         return
 
@@ -424,7 +497,7 @@ async def handle_bonus_request(message: types.Message, state: FSMContext):
     text = f"{name}, вот послание для тебя:\n{advice}" if name else f"Вот послание для тебя:\n{advice}"
     await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
 
-# Обработка обратной связи
+# Обработка обратной связи по картам
 @dp.callback_query(lambda c: c.data.startswith("feedback_"))
 async def process_feedback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -447,6 +520,7 @@ async def process_feedback(callback: types.CallbackQuery):
 async def main():
     logging.info("Bot starting...")
     asyncio.create_task(check_reminders())
+    asyncio.create_task(check_broadcast())  # Добавляем задачу для рассылки
     while True:
         try:
             await dp.start_polling(bot, skip_updates=True)
