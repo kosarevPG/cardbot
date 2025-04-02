@@ -209,9 +209,9 @@ logging.debug("Subscription middleware registered.")
 
 # --- Новая функциональность: Рассылка сообщений ---
 BROADCAST = {
-    "datetime": datetime(2025, 4, 2, 23, 48, tzinfo=TIMEZONE),
-    "text": "Спишь?",
-    "recipients": "392141189, 6682555021"
+    "datetime": datetime(2025, 4, 3, 0, 10, tzinfo=TIMEZONE),  # 03.04.2025 00:15 по Москве
+    "text": "Привет! У нас обновления! Чтобы увидеть их отправь мне /start",  # Ваш текст сообщения
+    "recipients": [392141189, 6682555021]  # Список с одним ID
 }
 BROADCAST_SENT = False
 
