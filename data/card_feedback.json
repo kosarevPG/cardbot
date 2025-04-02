@@ -1,0 +1,52 @@
+{
+  "users": {
+    "6682555021": {
+      "name": "",
+      "username": "",
+      "responses": [
+        {
+          "card": "30",
+          "answer": "yes"
+        },
+        {
+          "card": "9",
+          "answer": "yes"
+        },
+        {
+          "card": "39",
+          "answer": "yes"
+        },
+        {
+          "card": "14",
+          "answer": "yes"
+        },
+        {
+          "card": "25",
+          "answer": "yes"
+        },
+        {
+          "card": "14",
+          "answer": "yes"
+        },
+        {
+          "card": "20",
+          "answer": "yes"
+        }
+      ]
+    },
+    "7426810672": {
+      "name": "",
+      "username": "",
+      "responses": [
+        {
+          "card": "9",
+          "answer": "yes"
+        }
+      ]
+    }
+  },
+  "total": {
+    "yes": 8,
+    "no": 0
+  }
+}
