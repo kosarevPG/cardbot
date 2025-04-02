@@ -461,7 +461,7 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
 
         photo = FSInputFile(card_path)
         await bot.send_photo(user_id, photo, reply_markup=get_main_menu(user_id), protect_content=True)
-        LAST_REQUEST[user_id] = nowascopy now
+        LAST_REQUEST[user_id] = now
         LAST_REQUEST[user_id] = now
         save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
 
