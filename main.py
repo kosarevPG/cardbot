@@ -14,7 +14,7 @@ from aiogram.fsm.state import State, StatesGroup
 import pytz
 
 # Устанавливаем уровень логирования (можно снизить до INFO после отладки)
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logging.debug("Starting script...")
 
 # Настройки
@@ -40,8 +40,8 @@ class UserState(StatesGroup):
     waiting_for_reminder_time = State()
     waiting_for_request_confirmation = State()
 
-# Файлы для хранения данных (используем /tmp)
-DATA_DIR = "/tmp/data"
+# Файлы для хранения данных (используем /data для персистентного хранилища)
+DATA_DIR = "/data"
 LAST_REQUEST_FILE = f"{DATA_DIR}/last_request.json"
 USER_NAMES_FILE = f"{DATA_DIR}/user_names.json"
 REFERRALS_FILE = f"{DATA_DIR}/referrals.json"
@@ -68,6 +68,7 @@ def load_json(file_path, default):
 def save_json(file_path, data):
     with open(file_path, "w") as f:
         json.dump(data, f, indent=2)
+    logging.info(f"Saved file {file_path}: {os.listdir(DATA_DIR)}")
 
 logging.debug("JSON functions defined.")
 
@@ -142,7 +143,7 @@ async def check_reminders():
             logging.info(f"User {user_id}: reminder_time={reminder_time_normalized}, current_time={current_time}, card_available={card_available}, last_request={last_request_time}")
             if current_time == reminder_time_normalized and card_available:
                 name = USER_NAMES.get(user_id, "")
-                text = f"{name}, привет! Пришло время вытянуть свою карту дня.✨ Она уже ждет тебя!" if name else "Привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!"
+                text = f"{name}, привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!" if name else "Привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!"
                 try:
                     await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
                     logging.info(f"Reminder sent to {user_id} at {reminder_time_normalized}")
