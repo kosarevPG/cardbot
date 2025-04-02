@@ -13,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import pytz
 
-# Устанавливаем уровень логирования на DEBUG для отладки
+# Устанавливаем уровень логирования (можно снизить до INFO после отладки)
 logging.basicConfig(level=logging.DEBUG)
 logging.debug("Starting script...")
 
@@ -40,8 +40,8 @@ class UserState(StatesGroup):
     waiting_for_reminder_time = State()
     waiting_for_request_confirmation = State()
 
-# Файлы для хранения данных (временно отключаем работу с файлами)
-DATA_DIR = "data"
+# Файлы для хранения данных (используем /tmp)
+DATA_DIR = "/tmp/data"
 LAST_REQUEST_FILE = f"{DATA_DIR}/last_request.json"
 USER_NAMES_FILE = f"{DATA_DIR}/user_names.json"
 REFERRALS_FILE = f"{DATA_DIR}/referrals.json"
@@ -49,55 +49,52 @@ BONUS_AVAILABLE_FILE = f"{DATA_DIR}/bonus_available.json"
 REMINDER_TIMES_FILE = f"{DATA_DIR}/reminder_times.json"
 STATS_FILE = f"{DATA_DIR}/card_feedback.json"
 
-# Временно отключаем создание папки и работу с файлами
-# if not os.path.exists(DATA_DIR):
-#     os.makedirs(DATA_DIR)
+# Создаём папку, если её нет
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
 
-logging.debug("File paths defined, skipping directory creation for now.")
+logging.debug("File paths defined, directory created if needed.")
 
-# Функции для работы с JSON (временно возвращаем заглушки)
+# Функции для работы с JSON
 def load_json(file_path, default):
-    # if os.path.exists(file_path):
- #        with open(file_path, "r") as f:
- #            data = json.load(f)
- #            if isinstance(data, dict):
- #                return {int(k) if k.isdigit() else k: v for k, v in data.items()}
- #            return data
-    logging.warning(f"File loading skipped for {file_path}, returning default: {default}")
+    if os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return {int(k) if k.isdigit() else k: v for k, v in data.items()}
+            return data
     return default
 
 def save_json(file_path, data):
-    # with open(file_path, "w") as f:
- #        json.dump(data, f, indent=2)
-    logging.warning(f"File saving skipped for {file_path}, data: {data}")
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=2)
 
-logging.debug("JSON functions defined (stubbed for now).")
+logging.debug("JSON functions defined.")
 
-# Инициализация данных (временно используем заглушки)
+# Инициализация данных
 LAST_REQUEST = load_json(LAST_REQUEST_FILE, {})
 USER_NAMES = load_json(USER_NAMES_FILE, {})
 REFERRALS = load_json(REFERRALS_FILE, {})
 BONUS_AVAILABLE = load_json(BONUS_AVAILABLE_FILE, {})
 REMINDER_TIMES = load_json(REMINDER_TIMES_FILE, {})
 
-# Пропускаем преобразование дат, так как LAST_REQUEST пустой
-# for user_id, timestamp in LAST_REQUEST.items():
-#     LAST_REQUEST[user_id] = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(TIMEZONE)
+for user_id, timestamp in LAST_REQUEST.items():
+    LAST_REQUEST[user_id] = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(TIMEZONE)
 
-logging.debug("Data initialized (using defaults).")
+logging.debug("Data initialized.")
 
 # Список вопросов и советов (сокращено для примера)
 REFLECTION_QUESTIONS = ["Какой ресурс даёт мне эта карта?", "Как этот образ может поддержать меня?"]
 UNIVERSE_ADVICE = ["<b>💌 Ты — источник силы.</b> Всё внутри.", "<b>💌 Вселенная ведёт тебя.</b> Заметь возможности."]
 
-# Загрузка и сохранение статистики (временно заглушки)
+# Загрузка и сохранение статистики
 def load_stats():
     return load_json(STATS_FILE, {"users": {}, "total": {"yes": 0, "no": 0}})
 
 def save_stats(stats):
     save_json(STATS_FILE, stats)
 
-logging.debug("Stats functions defined (stubbed for now).")
+logging.debug("Stats functions defined.")
 
 # Генерация меню
 def get_main_menu(user_id):
@@ -145,7 +142,7 @@ async def check_reminders():
             logging.info(f"User {user_id}: reminder_time={reminder_time_normalized}, current_time={current_time}, card_available={card_available}, last_request={last_request_time}")
             if current_time == reminder_time_normalized and card_available:
                 name = USER_NAMES.get(user_id, "")
-                text = f"{name}, привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!" if name else "Привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!"
+                text = f"{name}, привет! Пришло время вытянуть свою карту дня.✨ Она уже ждет тебя!" if name else "Привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!"
                 try:
                     await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
                     logging.info(f"Reminder sent to {user_id} at {reminder_time_normalized}")
