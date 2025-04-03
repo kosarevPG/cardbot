@@ -2,6 +2,7 @@ import random
 import logging
 import json
 import os
+import asyncpg  # Добавляем библиотеку для PostgreSQL
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
@@ -11,7 +12,7 @@ import asyncio
 from datetime import datetime, timedelta
 import pytz
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext  # Добавлен импорт
+from aiogram.fsm.context import FSMContext
 
 # Устанавливаем уровень логирования
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +33,30 @@ dp = Dispatcher()
 
 logging.debug("Bot and Dispatcher initialized.")
 
+# Подключение к PostgreSQL
+DATABASE_URL = os.getenv("DATABASE_URL")
+db_pool = None
+
+async def init_db():
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable not set")
+    return await asyncpg.create_pool(DATABASE_URL)
+
+async def setup_tables():
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id BIGINT PRIMARY KEY,
+                name TEXT NOT NULL
+            );
+        """)
+        logging.info("Table 'users' created or already exists")
+
+async def get_user_name(user_id):
+    async with db_pool.acquire() as conn:
+        result = await conn.fetchval("SELECT name FROM users WHERE user_id = $1", user_id)
+        return result if result is not None else ""
+
 # Состояния для FSM
 class UserState(StatesGroup):
     waiting_for_name = State()
@@ -39,10 +64,9 @@ class UserState(StatesGroup):
     waiting_for_request_confirmation = State()
     waiting_for_feedback = State()
 
-# Файлы для хранения данных
+# Файлы для хранения данных (кроме USER_NAMES_FILE)
 DATA_DIR = "/data"
 LAST_REQUEST_FILE = f"{DATA_DIR}/last_request.json"
-USER_NAMES_FILE = f"{DATA_DIR}/user_names.json"
 REFERRALS_FILE = f"{DATA_DIR}/referrals.json"
 BONUS_AVAILABLE_FILE = f"{DATA_DIR}/bonus_available.json"
 REMINDER_TIMES_FILE = f"{DATA_DIR}/reminder_times.json"
@@ -74,7 +98,6 @@ logging.debug("JSON functions defined.")
 
 # Инициализация данных
 LAST_REQUEST = load_json(LAST_REQUEST_FILE, {})
-USER_NAMES = load_json(USER_NAMES_FILE, {})
 REFERRALS = load_json(REFERRALS_FILE, {})
 BONUS_AVAILABLE = load_json(BONUS_AVAILABLE_FILE, {})
 REMINDER_TIMES = load_json(REMINDER_TIMES_FILE, {})
@@ -191,7 +214,7 @@ class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
         if isinstance(event, types.Message):
             user_id = event.from_user.id
-            name = USER_NAMES.get(user_id, "")
+            name = await get_user_name(user_id)
             try:
                 user_status = await bot.get_chat_member(CHANNEL_ID, user_id)
                 if user_status.status not in ["member", "administrator", "creator"]:
@@ -211,7 +234,7 @@ logging.debug("Subscription middleware registered.")
 BROADCAST = {
     "datetime": datetime(2025, 4, 3, 10, 0, tzinfo=TIMEZONE),  # 03.04.2025 10:00 по Москве
     "text": "Привет! У нас обновления в боте:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Вместо \"Поделиться\" и \"Напоминание\" появилась кнопка \"Настройки\". Там — удобные функции: \"Поделиться\", \"Напоминание\", \"Указать имя\" и \"Отзыв\" (идеи сохраняются).  \nОтправь /start, чтобы увидеть всё новое!",
-    "recipients": "all"  # Отправить всем пользователям
+    "recipients": "[6682555021]"  # Отправить всем пользователям
 }
 BROADCAST_SENT = False
 
@@ -220,9 +243,12 @@ async def check_broadcast():
     while True:
         now = datetime.now(TIMEZONE)
         if not BROADCAST_SENT and now >= BROADCAST["datetime"]:
-            recipients = USER_NAMES.keys() if BROADCAST["recipients"] == "all" else BROADCAST["recipients"]
+            # Получаем всех пользователей из базы данных
+            async with db_pool.acquire() as conn:
+                recipients = await conn.fetch("SELECT user_id FROM users")
+            recipients = [row["user_id"] for row in recipients] if BROADCAST["recipients"] == "all" else BROADCAST["recipients"]
             for user_id in recipients:
-                name = USER_NAMES.get(user_id, "")
+                name = await get_user_name(user_id)
                 text = f"{name}, {BROADCAST['text']}" if name else BROADCAST["text"]
                 try:
                     await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
@@ -244,7 +270,7 @@ async def check_reminders():
             last_request_time = LAST_REQUEST.get(user_id)
             card_available = not last_request_time or last_request_time.date() < today
             if current_time == reminder_time_normalized and card_available:
-                name = USER_NAMES.get(user_id, "")
+                name = await get_user_name(user_id)
                 text = f"{name}, привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!" if name else "Привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!"
                 try:
                     await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
@@ -257,7 +283,7 @@ logging.debug("Reminder check function defined.")
 
 # Предложение напоминания
 async def suggest_reminder(user_id, state: FSMContext):
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     if user_id not in REMINDER_TIMES:
         text = f"{name}, если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание'." if name else "Если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание'."
         try:
@@ -279,20 +305,24 @@ async def start_command(message: types.Message, state: FSMContext):
                 if not BONUS_AVAILABLE.get(referrer_id, False):
                     BONUS_AVAILABLE[referrer_id] = True
                     save_json(BONUS_AVAILABLE_FILE, BONUS_AVAILABLE)
-                    referrer_name = USER_NAMES.get(referrer_id, "")
+                    referrer_name = await get_user_name(referrer_id)
                     text = f"{referrer_name}, ура! Кто-то открыл бот по твоей ссылке! Возьми '💌 Подсказку Вселенной'." if referrer_name else "Ура! Кто-то открыл бот по твоей ссылке! Возьми '💌 Подсказку Вселенной'."
                     await bot.send_message(referrer_id, text, reply_markup=get_main_menu(referrer_id), protect_content=True)
         except ValueError as e:
             logging.error(f"Invalid referrer ID in args: '{args}', error: {e}")
 
-    if user_id not in USER_NAMES:
+    name = await get_user_name(user_id)
+    # Проверяем, есть ли пользователь в базе (если нет, запрашиваем имя)
+    async with db_pool.acquire() as conn:
+        user_exists = await conn.fetchval("SELECT 1 FROM users WHERE user_id = $1", user_id)
+    if not user_exists:
         text = "Привет! Давай знакомиться! Как тебя зовут? (Если не хочешь, чтобы обращалась к тебе по имени - нажми пропустить)"
         skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]])
         await message.answer(text, reply_markup=skip_keyboard, protect_content=True)
         await state.set_state(UserState.waiting_for_name)
     else:
         await message.answer(
-            f"{USER_NAMES[user_id]}, рада тебя видеть! Нажми '✨ Карта дня' в меню." if USER_NAMES[user_id] else "Рада тебя видеть! Нажми '✨ Карта дня' в меню.",
+            f"{name}, рада тебя видеть! Нажми '✨ Карта дня' в меню." if name else "Рада тебя видеть! Нажми '✨ Карта дня' в меню.",
             reply_markup=get_main_menu(user_id),
             protect_content=True
         )
@@ -301,19 +331,19 @@ async def start_command(message: types.Message, state: FSMContext):
 @dp.message(lambda message: message.text == "⚙️ Настройки")
 async def handle_settings(message: types.Message):
     user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     settings_text = (
         f"{name}, вот что ты можешь настроить:\n\n"
-	"<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться.\n"        
-	"<b>2️⃣ Напоминание</b> — установи время для уведомлений.\n"	
-	"<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы.\n"      
-       	"<b>4️⃣ Отзыв</b> — поделись идеями."
+        "<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться.\n"        
+        "<b>2️⃣ Напоминание</b> — установи время для уведомлений.\n"    
+        "<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы.\n"      
+        "<b>4️⃣ Отзыв</b> — поделись идеями."
     ) if name else (
         "Вот что ты можешь настроить:\n\n"
-	"<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться.\n"        
-	"<b>2️⃣ Напоминание</b> — установи время для уведомлений.\n"	
-	"<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы.\n"      
-       	"<b>4️⃣ Отзыв</b> — поделись идеями."
+        "<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться.\n"        
+        "<b>2️⃣ Напоминание</b> — установи время для уведомлений.\n"    
+        "<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы.\n"      
+        "<b>4️⃣ Отзыв</b> — поделись идеями."
     )
     settings_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🧑 Указать имя", callback_data="settings_name")],
@@ -327,7 +357,7 @@ async def handle_settings(message: types.Message):
 @dp.callback_query(lambda c: c.data == "settings_share")
 async def process_settings_share(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     ref_link = f"{BOT_LINK}?start=ref_{user_id}"
     text = f"{name}, этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
     await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=False)
@@ -337,7 +367,7 @@ async def process_settings_share(callback: types.CallbackQuery):
 @dp.callback_query(lambda c: c.data == "settings_reminder")
 async def process_settings_reminder(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     current_reminder = REMINDER_TIMES.get(user_id, "не установлено")
     text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)."
     await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
@@ -348,7 +378,7 @@ async def process_settings_reminder(callback: types.CallbackQuery, state: FSMCon
 @dp.callback_query(lambda c: c.data == "settings_name")
 async def process_settings_name(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     text = f"{name}, как тебя зовут? Введи новое имя или нажми 'Пропустить', если не хочешь его менять." if name else "Как тебя зовут? Введи имя или нажми 'Пропустить', если не хочешь его указывать."
     skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]])
     await callback.message.answer(text, reply_markup=skip_keyboard, protect_content=True)
@@ -359,7 +389,7 @@ async def process_settings_name(callback: types.CallbackQuery, state: FSMContext
 @dp.callback_query(lambda c: c.data == "settings_feedback")
 async def process_settings_feedback(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     text = f"{name}, напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!" if name else "Напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!"
     await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
     await state.set_state(UserState.waiting_for_feedback)
@@ -370,8 +400,11 @@ async def process_settings_feedback(callback: types.CallbackQuery, state: FSMCon
 async def process_name(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = message.text.strip()
-    USER_NAMES[user_id] = name
-    save_json(USER_NAMES_FILE, USER_NAMES)
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO users (user_id, name) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET name = $2",
+            user_id, name
+        )
     await message.answer(
         f"{name}, рада тебя видеть! Нажми '✨ Карта дня' в меню.",
         reply_markup=get_main_menu(user_id),
@@ -383,8 +416,11 @@ async def process_name(message: types.Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "skip_name")
 async def process_skip_name(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    USER_NAMES[user_id] = ""
-    save_json(USER_NAMES_FILE, USER_NAMES)
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO users (user_id, name) VALUES ($1, $2) ON CONFLICT (user_id) DO UPDATE SET name = $2",
+            user_id, ""
+        )
     await callback.message.answer(
         "Хорошо, без имени тоже здорово! Выбери '✨ Карта дня' в меню!",
         reply_markup=get_main_menu(user_id),
@@ -397,7 +433,7 @@ async def process_skip_name(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(UserState.waiting_for_reminder_time)
 async def process_reminder_time(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     reminder_time = message.text.strip()
     try:
         reminder_time_normalized = datetime.strptime(reminder_time, "%H:%M").strftime("%H:%M")
@@ -414,7 +450,7 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
 @dp.message(UserState.waiting_for_feedback)
 async def process_feedback_submission(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     feedback_text = message.text.strip()
     FEEDBACK[user_id] = {"name": name, "feedback": feedback_text, "timestamp": datetime.now(TIMEZONE).isoformat()}
     save_json(FEEDBACK_FILE, FEEDBACK)
@@ -426,7 +462,7 @@ async def process_feedback_submission(message: types.Message, state: FSMContext)
 @dp.message(lambda message: message.text == "✨ Карта дня")
 async def handle_card_request(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     now = datetime.now(TIMEZONE)
     today = now.date()
 
@@ -445,7 +481,7 @@ async def handle_card_request(message: types.Message, state: FSMContext):
 @dp.callback_query(lambda c: c.data == "confirm_request")
 async def process_request_confirmation(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     now = datetime.now(TIMEZONE)
     today = now.date()
 
@@ -488,7 +524,7 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
 @dp.message(lambda message: message.text == "💌 Подсказка Вселенной")
 async def handle_bonus_request(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     if not BONUS_AVAILABLE.get(user_id, False):
         text = f"{name}, этот совет пока спрятан! В 'Настройках' выбери 'Поделиться', чтобы получить его, когда кто-то зайдёт по твоей ссылке!" if name else "Этот совет пока спрятан! В 'Настройках' выбери 'Поделиться', чтобы получить его, когда кто-то зайдёт по твоей ссылке!"
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
@@ -503,7 +539,7 @@ async def handle_bonus_request(message: types.Message, state: FSMContext):
 async def process_feedback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     username = callback.from_user.username or ""
-    name = USER_NAMES.get(user_id, "")
+    name = await get_user_name(user_id)
     feedback, card_number = callback.data.split("_")[1], callback.data.split("_")[2]
     stats = load_stats()
 
@@ -519,7 +555,10 @@ async def process_feedback(callback: types.CallbackQuery):
 
 # Запуск бота
 async def main():
-    logging.info("Bot starting...")
+    global db_pool
+    db_pool = await init_db()
+    await setup_tables()
+    logging.info("Database pool initialized")
     asyncio.create_task(check_reminders())
     asyncio.create_task(check_broadcast())
     while True:
