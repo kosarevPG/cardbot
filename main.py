@@ -181,7 +181,7 @@ def get_main_menu(user_id):
         [KeyboardButton(text="✨ Карта дня"), KeyboardButton(text="⚙️ Настройки")]
     ]
     if BONUS_AVAILABLE.get(user_id, False):
-        keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной")])
+        keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной#")])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
 
 logging.debug("Menu generation function defined.")
@@ -292,7 +292,7 @@ async def start_command(message: types.Message, state: FSMContext):
         await state.set_state(UserState.waiting_for_name)
     else:
         await message.answer(
-            f"{USER_NAMES[user_id]}, рада тебя видеть! Нажми '✨ Карта дня ' в меню." if USER_NAMES[user_id] else "Рада тебя видеть! Нажми '✨ Карта дня' в меню.",
+            f"{USER_NAMES[user_id]}, рада тебя видеть! Нажми '✨ Карта дня' в меню." if USER_NAMES[user_id] else "Рада тебя видеть! Нажми '✨ Карта дня' в меню.",
             reply_markup=get_main_menu(user_id),
             protect_content=True
         )
@@ -485,7 +485,7 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
     await callback.answer()
 
 # Обработка "Совет от Вселенной"
-@dp.message(lambda message: message.text == "💌 Подсказка Вселенной")
+@dp.message(lambda message: message.text == "💌 Подсказка Вселенной#")
 async def handle_bonus_request(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = USER_NAMES.get(user_id, "")
