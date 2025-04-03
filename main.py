@@ -292,7 +292,7 @@ async def start_command(message: types.Message, state: FSMContext):
         await state.set_state(UserState.waiting_for_name)
     else:
         await message.answer(
-            f"{USER_NAMES[user_id]}, рада тебя видеть! Нажми '✨ Карта дня  ' в меню." if USER_NAMES[user_id] else "Рада тебя видеть! Нажми '✨ Карта дня' в меню.",
+            f"{USER_NAMES[user_id]}, рада тебя видеть! Нажми '✨ Карта дня ' в меню." if USER_NAMES[user_id] else "Рада тебя видеть! Нажми '✨ Карта дня' в меню.",
             reply_markup=get_main_menu(user_id),
             protect_content=True
         )
