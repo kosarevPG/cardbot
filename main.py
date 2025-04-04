@@ -106,6 +106,16 @@ def get_logs_for_today():
             logs_today.append(log)
     return logs_today
 
+# Функция для получения последнего действия пользователя
+def get_last_action(user_id):
+    user_actions = load_user_actions()
+    user_actions = [action for action in user_actions if action["user_id"] == user_id]
+    if not user_actions:
+        return None
+    # Сортируем по времени, чтобы получить последнее действие
+    user_actions.sort(key=lambda x: x["timestamp"], reverse=True)
+    return user_actions[0]
+
 logging.debug("JSON functions defined.")
 
 # Инициализация данных
@@ -212,13 +222,13 @@ def save_stats(stats):
 
 logging.debug("Stats functions defined.")
 
-# Генерация главного меню (убрали "⚙️ Настройки")
+# Генерация главного меню
 def get_main_menu(user_id):
     keyboard = [
         [KeyboardButton(text="✨ Карта дня")]
     ]
     if BONUS_AVAILABLE.get(user_id, False):
-        keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной ")])
+        keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной")])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
 
 logging.debug("Menu generation function defined.")
@@ -246,7 +256,7 @@ logging.debug("Subscription middleware registered.")
 
 # --- Новая функциональность: Рассылка сообщений ---
 BROADCAST = {
-    "datetime": datetime(2025, 4, 3, 10, 0, tzinfo=TIMEZONE),  # 03.04.2025 10A:00 по Москве
+    "datetime": datetime(2025, 4, 4, 14, 0, tzinfo=TIMEZONE),  # 03.04.2025 10:00 по Москве
     "text": "Привет! У нас обновления в боте:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Теперь вместо кнопок используй команды: /name, /remind, /share, /feedback.  \nОтправь /start, чтобы увидеть всё новое!",
     "recipients": "[6682555021]"  # Отправить всем пользователям
 }
@@ -408,6 +418,43 @@ async def logs_command(message: types.Message):
             await message.answer(part, protect_content=True)
             await asyncio.sleep(0.5)  # Небольшая задержка между сообщениями
 
+# Команда /users (для администратора)
+@dp.message(Command("users"))
+async def users_command(message: types.Message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        await message.answer("Эта команда доступна только администратору.", protect_content=True)
+        return
+
+    if not USER_NAMES:
+        await message.answer("Активных пользователей нет.", protect_content=True)
+        return
+
+    # Формируем текст с информацией о пользователях
+    users_text = "Активные пользователи:\n\n"
+    for user_id, name in USER_NAMES.items():
+        # Получаем username из последнего действия пользователя
+        last_action = get_last_action(user_id)
+        username = last_action["username"] if last_action else "неизвестно"
+        user_info = f"Пользователь: {name if name else 'Без имени'} (@{username}, ID: {user_id})\n"
+        if last_action:
+            user_info += f"Последнее действие: {last_action['action']} ({last_action['timestamp']})\n"
+            user_info += f"Детали: {json.dumps(last_action['details'], ensure_ascii=False)}\n"
+        else:
+            user_info += "Действий не совершал.\n"
+        user_info += "-" * 30 + "\n"
+        users_text += user_info
+
+    # Отправляем информацию (разбиваем, если текст слишком длинный)
+    MAX_MESSAGE_LENGTH = 4096
+    if len(users_text) <= MAX_MESSAGE_LENGTH:
+        await message.answer(users_text, protect_content=True)
+    else:
+        parts = [users_text[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(users_text), MAX_MESSAGE_LENGTH)]
+        for part in parts:
+            await message.answer(part, protect_content=True)
+            await asyncio.sleep(0.5)  # Небольшая задержка между сообщениями
+
 # Обработка ввода имени
 @dp.message(UserState.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
@@ -546,8 +593,8 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
         await state.clear()
     await callback.answer()
 
-# Обработка "Совет от Вселенной"
-@dp.message(lambda message: message.text == "💌 Подсказка Вселенной ")
+# Обработка "Совет от Вселенной" (убрали пробел в конце)
+@dp.message(lambda message: message.text == "💌 Подсказка Вселенной")
 async def handle_bonus_request(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = USER_NAMES.get(user_id, "")
