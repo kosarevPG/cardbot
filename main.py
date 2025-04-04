@@ -22,6 +22,7 @@ TOKEN = "8054930534:AAFDdyp5_xiX0ZPQnSEZKpfOhk2PCdchKvg"
 CHANNEL_ID = "@TopPsyGame"
 BOT_LINK = "t.me/choose_a_card_bot"
 TIMEZONE = pytz.timezone("Europe/Moscow")
+ADMIN_ID = 6682555021  # Укажите ваш Telegram ID как администратора
 
 # Инициализация бота
 bot = Bot(
@@ -48,7 +49,7 @@ BONUS_AVAILABLE_FILE = f"{DATA_DIR}/bonus_available.json"
 REMINDER_TIMES_FILE = f"{DATA_DIR}/reminder_times.json"
 STATS_FILE = f"{DATA_DIR}/card_feedback.json"
 FEEDBACK_FILE = f"{DATA_DIR}/feedback.json"
-USER_ACTIONS_FILE = f"{DATA_DIR}/user_actions.json"  # Новый файл для логов
+USER_ACTIONS_FILE = f"{DATA_DIR}/user_actions.json"  # Файл для логов
 
 # Создаём папку, если её нет
 if not os.path.exists(DATA_DIR):
@@ -93,6 +94,17 @@ async def save_user_action(user_id, action, details=None):
     user_actions.append(log_entry)
     save_json(USER_ACTIONS_FILE, user_actions)
     logging.info(f"Logged action for user {user_id}: {action}, details: {details}")
+
+# Функция для получения логов за текущий день
+def get_logs_for_today():
+    user_actions = load_user_actions()
+    today = datetime.now(TIMEZONE).date()
+    logs_today = []
+    for log in user_actions:
+        log_date = datetime.fromisoformat(log["timestamp"]).date()
+        if log_date == today:
+            logs_today.append(log)
+    return logs_today
 
 logging.debug("JSON functions defined.")
 
@@ -170,7 +182,7 @@ UNIVERSE_ADVICE = [
     "<b>💌 У тебя уже есть всё необходимое для успеха.</b> Доверься себе и сделай шаг вперёд.",
     "<b>💌 Ты заслуживаешь самого лучшего.</b> Вселенная щедра к тем, кто открыт её дарам.",
     "<b>💌 Всё в тебе уже готово для нового этапа.</b> Просто начни двигаться вперёд.",
-    "<b>💌 Ты ценность для этого мира.</b> Твой свет нужен другим, не скрывай его。",
+    "<b>💌 Ты ценность для этого мира.</b> Твой свет нужен другим, не скрывай его.",
     "<b>💌 Ресурсы вокруг тебя, просто позволь себе их принять.</b> Ты достоина поддержки и благополучия。",
     "<b>💌 Сегодня – лучший день, чтобы позаботиться о себе.</b> Наполни себя тем, что приносит радость。",
     "<b>💌 Вселенная всегда даёт тебе именно то, что нужно для роста.</b> Используй этот момент。",
@@ -206,7 +218,7 @@ def get_main_menu(user_id):
         [KeyboardButton(text="✨ Карта дня"), KeyboardButton(text="⚙️ Настройки")]
     ]
     if BONUS_AVAILABLE.get(user_id, False):
-        keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной ")])
+        keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной")])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
 
 logging.debug("Menu generation function defined.")
@@ -284,7 +296,7 @@ logging.debug("Reminder check function defined.")
 async def suggest_reminder(user_id, state: FSMContext):
     name = USER_NAMES.get(user_id, "")
     if user_id not in REMINDER_TIMES:
-        text = f"{name}, если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание'." if name else "Если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание'."
+        text = f"{name}, если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание' или используй /remind." if name else "Если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание' или используй /remind."
         try:
             await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
         except Exception as e:
@@ -333,16 +345,16 @@ async def handle_settings(message: types.Message):
     name = USER_NAMES.get(user_id, "")
     settings_text = (
         f"{name}, вот что ты можешь настроить:\n\n"
-        "<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться.\n"        
-        "<b>2️⃣ Напоминание</b> — установи время для уведомлений.\n"    
-        "<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы.\n"      
-        "<b>4️⃣ Отзыв</b> — поделись идеями."
+        "<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться (/name).\n"        
+        "<b>2️⃣ Напоминание</b> — установи время для уведомлений (/remind).\n"    
+        "<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы (/share).\n"      
+        "<b>4️⃣ Отзыв</b> — поделись идеями (/feedback)."
     ) if name else (
         "Вот что ты можешь настроить:\n\n"
-        "<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться.\n"        
-        "<b>2️⃣ Напоминание</b> — установи время для уведомлений.\n"    
-        "<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы.\n"      
-        "<b>4️⃣ Отзыв</b> — поделись идеями."
+        "<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться (/name).\n"        
+        "<b>2️⃣ Напоминание</b> — установи время для уведомлений (/remind).\n"    
+        "<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы (/share).\n"      
+        "<b>4️⃣ Отзыв</b> — поделись идеями (/feedback)."
     )
     settings_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🧑 Указать имя", callback_data="settings_name")],
@@ -352,7 +364,7 @@ async def handle_settings(message: types.Message):
     ])
     await message.answer(settings_text, reply_markup=settings_keyboard, protect_content=True)
 
-# Обработка настроек: Поделиться
+# Обработка настроек: Поделиться (кнопка)
 @dp.callback_query(lambda c: c.data == "settings_share")
 async def process_settings_share(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -362,7 +374,16 @@ async def process_settings_share(callback: types.CallbackQuery):
     await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=False)
     await callback.answer()
 
-# Обработка настроек: Напоминание
+# Команда /share (дублирует "Поделиться")
+@dp.message(Command("share"))
+async def share_command(message: types.Message):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    ref_link = f"{BOT_LINK}?start=ref_{user_id}"
+    text = f"{name}, этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
+    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=False)
+
+# Обработка настроек: Напоминание (кнопка)
 @dp.callback_query(lambda c: c.data == "settings_reminder")
 async def process_settings_reminder(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -373,7 +394,17 @@ async def process_settings_reminder(callback: types.CallbackQuery, state: FSMCon
     await state.set_state(UserState.waiting_for_reminder_time)
     await callback.answer()
 
-# Обработка настроек: Указать имя
+# Команда /remind (дублирует "Напоминание")
+@dp.message(Command("remind"))
+async def remind_command(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    current_reminder = REMINDER_TIMES.get(user_id, "не установлено")
+    text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)."
+    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.set_state(UserState.waiting_for_reminder_time)
+
+# Обработка настроек: Указать имя (кнопка)
 @dp.callback_query(lambda c: c.data == "settings_name")
 async def process_settings_name(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -384,7 +415,17 @@ async def process_settings_name(callback: types.CallbackQuery, state: FSMContext
     await state.set_state(UserState.waiting_for_name)
     await callback.answer()
 
-# Обработка настроек: Отзыв
+# Команда /name (дублирует "Указать имя")
+@dp.message(Command("name"))
+async def name_command(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    text = f"{name}, как тебя зовут? Введи новое имя или нажми 'Пропустить', если не хочешь его менять." if name else "Как тебя зовут? Введи имя или нажми 'Пропустить', если не хочешь его указывать."
+    skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]])
+    await message.answer(text, reply_markup=skip_keyboard, protect_content=True)
+    await state.set_state(UserState.waiting_for_name)
+
+# Обработка настроек: Отзыв (кнопка)
 @dp.callback_query(lambda c: c.data == "settings_feedback")
 async def process_settings_feedback(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -393,6 +434,47 @@ async def process_settings_feedback(callback: types.CallbackQuery, state: FSMCon
     await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
     await state.set_state(UserState.waiting_for_feedback)
     await callback.answer()
+
+# Команда /feedback (дублирует "Отзыв")
+@dp.message(Command("feedback"))
+async def feedback_command(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    text = f"{name}, напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!" if name else "Напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!"
+    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.set_state(UserState.waiting_for_feedback)
+
+# Команда /logs (для администратора)
+@dp.message(Command("logs"))
+async def logs_command(message: types.Message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        await message.answer("Эта команда доступна только администратору.", protect_content=True)
+        return
+
+    logs = get_logs_for_today()
+    if not logs:
+        await message.answer("Логов за сегодня нет.", protect_content=True)
+        return
+
+    # Формируем текст логов
+    log_text = "Логи за сегодня:\n\n"
+    for log in logs:
+        log_text += f"Время: {log['timestamp']}\n"
+        log_text += f"Пользователь: {log['name']} (@{log['username']}, ID: {log['user_id']})\n"
+        log_text += f"Действие: {log['action']}\n"
+        log_text += f"Детали: {json.dumps(log['details'], ensure_ascii=False)}\n"
+        log_text += "-" * 30 + "\n"
+
+    # Отправляем логи (разбиваем, если текст слишком длинный)
+    MAX_MESSAGE_LENGTH = 4096
+    if len(log_text) <= MAX_MESSAGE_LENGTH:
+        await message.answer(log_text, protect_content=True)
+    else:
+        parts = [log_text[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(log_text), MAX_MESSAGE_LENGTH)]
+        for part in parts:
+            await message.answer(part, protect_content=True)
+            await asyncio.sleep(0.5)  # Небольшая задержка между сообщениями
 
 # Обработка ввода имени
 @dp.message(UserState.waiting_for_name)
@@ -533,12 +615,12 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
     await callback.answer()
 
 # Обработка "Совет от Вселенной"
-@dp.message(lambda message: message.text == "💌 Подсказка Вселенной ")
+@dp.message(lambda message: message.text == "💌 Подсказка Вселенной")
 async def handle_bonus_request(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = USER_NAMES.get(user_id, "")
     if not BONUS_AVAILABLE.get(user_id, False):
-        text = f"{name}, этот совет пока спрятан! В 'Настройках' выбери 'Поделиться', чтобы получить его, когда кто-то зайдёт по твоей ссылке!" if name else "Этот совет пока спрятан! В 'Настройках' выбери 'Поделиться', чтобы получить его, когда кто-то зайдёт по твоей ссылке!"
+        text = f"{name}, этот совет пока спрятан! В 'Настройках' выбери 'Поделиться' или используй /share, чтобы получить его, когда кто-то зайдёт по твоей ссылке!" if name else "Этот совет пока спрятан! В 'Настройках' выбери 'Поделиться' или используй /share, чтобы получить его, когда кто-то зайдёт по твоей ссылке!"
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         return
 
