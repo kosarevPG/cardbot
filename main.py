@@ -212,13 +212,13 @@ def save_stats(stats):
 
 logging.debug("Stats functions defined.")
 
-# Генерация главного меню
+# Генерация главного меню (убрали "⚙️ Настройки")
 def get_main_menu(user_id):
     keyboard = [
-        [KeyboardButton(text="✨ Карта дня"), KeyboardButton(text="⚙️ Настройки")]
+        [KeyboardButton(text="✨ Карта дня")]
     ]
     if BONUS_AVAILABLE.get(user_id, False):
-        keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной")])
+        keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной ")])
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
 
 logging.debug("Menu generation function defined.")
@@ -246,8 +246,8 @@ logging.debug("Subscription middleware registered.")
 
 # --- Новая функциональность: Рассылка сообщений ---
 BROADCAST = {
-    "datetime": datetime(2025, 4, 3, 10, 0, tzinfo=TIMEZONE),  # 03.04.2025 10:00 по Москве
-    "text": "Привет! У нас обновления в боте:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Вместо \"Поделиться\" и \"Напоминание\" появилась кнопка \"Настройки\". Там — удобные функции: \"Поделиться\", \"Напоминание\", \"Указать имя\" и \"Отзыв\" (идеи сохраняются).  \nОтправь /start, чтобы увидеть всё новое!",
+    "datetime": datetime(2025, 4, 3, 10, 0, tzinfo=TIMEZONE),  # 03.04.2025 10A:00 по Москве
+    "text": "Привет! У нас обновления в боте:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Теперь вместо кнопок используй команды: /name, /remind, /share, /feedback.  \nОтправь /start, чтобы увидеть всё новое!",
     "recipients": "[6682555021]"  # Отправить всем пользователям
 }
 BROADCAST_SENT = False
@@ -296,7 +296,7 @@ logging.debug("Reminder check function defined.")
 async def suggest_reminder(user_id, state: FSMContext):
     name = USER_NAMES.get(user_id, "")
     if user_id not in REMINDER_TIMES:
-        text = f"{name}, если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание' или используй /remind." if name else "Если хочешь, я могу напоминать тебе о карте дня! В меню 'Настройки' выбери 'Напоминание' или используй /remind."
+        text = f"{name}, если хочешь, я могу напоминать тебе о карте дня! Используй /remind, чтобы установить время." if name else "Если хочешь, я могу напоминать тебе о карте дня! Используй /remind, чтобы установить время."
         try:
             await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
         except Exception as e:
@@ -338,43 +338,7 @@ async def start_command(message: types.Message, state: FSMContext):
             protect_content=True
         )
 
-# Обработка кнопки "⚙️ Настройки"
-@dp.message(lambda message: message.text == "⚙️ Настройки")
-async def handle_settings(message: types.Message):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    settings_text = (
-        f"{name}, вот что ты можешь настроить:\n\n"
-        "<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться (/name).\n"        
-        "<b>2️⃣ Напоминание</b> — установи время для уведомлений (/remind).\n"    
-        "<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы (/share).\n"      
-        "<b>4️⃣ Отзыв</b> — поделись идеями (/feedback)."
-    ) if name else (
-        "Вот что ты можешь настроить:\n\n"
-        "<b>1️⃣ Указать имя</b> — напиши, как к тебе обращаться (/name).\n"        
-        "<b>2️⃣ Напоминание</b> — установи время для уведомлений (/remind).\n"    
-        "<b>3️⃣ Поделиться</b> — приглашай друзей и получай бонусы (/share).\n"      
-        "<b>4️⃣ Отзыв</b> — поделись идеями (/feedback)."
-    )
-    settings_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🧑 Указать имя", callback_data="settings_name")],
-        [InlineKeyboardButton(text="⏰ Напоминание", callback_data="settings_reminder")],
-        [InlineKeyboardButton(text="🕊 Поделиться", callback_data="settings_share")],
-        [InlineKeyboardButton(text="📩 Отзыв", callback_data="settings_feedback")]
-    ])
-    await message.answer(settings_text, reply_markup=settings_keyboard, protect_content=True)
-
-# Обработка настроек: Поделиться (кнопка)
-@dp.callback_query(lambda c: c.data == "settings_share")
-async def process_settings_share(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    ref_link = f"{BOT_LINK}?start=ref_{user_id}"
-    text = f"{name}, этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
-    await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=False)
-    await callback.answer()
-
-# Команда /share (дублирует "Поделиться")
+# Команда /share
 @dp.message(Command("share"))
 async def share_command(message: types.Message):
     user_id = message.from_user.id
@@ -383,39 +347,17 @@ async def share_command(message: types.Message):
     text = f"{name}, этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
     await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=False)
 
-# Обработка настроек: Напоминание (кнопка)
-@dp.callback_query(lambda c: c.data == "settings_reminder")
-async def process_settings_reminder(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    current_reminder = REMINDER_TIMES.get(user_id, "не установлено")
-    text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)."
-    await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.set_state(UserState.waiting_for_reminder_time)
-    await callback.answer()
-
-# Команда /remind (дублирует "Напоминание")
+# Команда /remind
 @dp.message(Command("remind"))
 async def remind_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = USER_NAMES.get(user_id, "")
     current_reminder = REMINDER_TIMES.get(user_id, "не установлено")
-    text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по московскому времени (UTC+3)."
+    text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по Москве (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по Москве (UTC+3)."
     await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
     await state.set_state(UserState.waiting_for_reminder_time)
 
-# Обработка настроек: Указать имя (кнопка)
-@dp.callback_query(lambda c: c.data == "settings_name")
-async def process_settings_name(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    text = f"{name}, как тебя зовут? Введи новое имя или нажми 'Пропустить', если не хочешь его менять." if name else "Как тебя зовут? Введи имя или нажми 'Пропустить', если не хочешь его указывать."
-    skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]])
-    await callback.message.answer(text, reply_markup=skip_keyboard, protect_content=True)
-    await state.set_state(UserState.waiting_for_name)
-    await callback.answer()
-
-# Команда /name (дублирует "Указать имя")
+# Команда /name
 @dp.message(Command("name"))
 async def name_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -425,17 +367,7 @@ async def name_command(message: types.Message, state: FSMContext):
     await message.answer(text, reply_markup=skip_keyboard, protect_content=True)
     await state.set_state(UserState.waiting_for_name)
 
-# Обработка настроек: Отзыв (кнопка)
-@dp.callback_query(lambda c: c.data == "settings_feedback")
-async def process_settings_feedback(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    text = f"{name}, напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!" if name else "Напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!"
-    await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.set_state(UserState.waiting_for_feedback)
-    await callback.answer()
-
-# Команда /feedback (дублирует "Отзыв")
+# Команда /feedback
 @dp.message(Command("feedback"))
 async def feedback_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -526,7 +458,7 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
         # Логируем установку времени напоминания
         await save_user_action(user_id, "set_reminder_time", {"reminder_time": reminder_time_normalized})
 
-        text = f"{name}, супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} (UTC+3)." if name else f"Супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} (UTC+3)."
+        text = f"{name}, супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} по Москве (UTC+3)." if name else f"Супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} по Москве (UTC+3)."
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         await state.clear()
     except ValueError:
@@ -559,7 +491,7 @@ async def handle_card_request(message: types.Message, state: FSMContext):
 
     last_request_time = LAST_REQUEST.get(user_id)
     if last_request_time and last_request_time.date() == today:
-        text = f"{name}, ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 (UTC+3)." if name else "Ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 (UTC+3)."
+        text = f"{name}, ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3)." if name else "Ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3)."
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         return
 
@@ -615,12 +547,12 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
     await callback.answer()
 
 # Обработка "Совет от Вселенной"
-@dp.message(lambda message: message.text == "💌 Подсказка Вселенной")
+@dp.message(lambda message: message.text == "💌 Подсказка Вселенной ")
 async def handle_bonus_request(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = USER_NAMES.get(user_id, "")
     if not BONUS_AVAILABLE.get(user_id, False):
-        text = f"{name}, этот совет пока спрятан! В 'Настройках' выбери 'Поделиться' или используй /share, чтобы получить его, когда кто-то зайдёт по твоей ссылке!" if name else "Этот совет пока спрятан! В 'Настройках' выбери 'Поделиться' или используй /share, чтобы получить его, когда кто-то зайдёт по твоей ссылке!"
+        text = f"{name}, этот совет пока спрятан! Используй /share, чтобы получить его, когда кто-то зайдёт по твоей ссылке!" if name else "Этот совет пока спрятан! Используй /share, чтобы получить его, когда кто-то зайдёт по твоей ссылке!"
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         return
 
