@@ -188,9 +188,9 @@ dp.message.middleware(SubscriptionMiddleware())
 
 # Рассылка сообщений и проверка напоминаний (без изменений)
 BROADCAST = {
-    "datetime": datetime(2025, 4, 4, 14, 0, tzinfo=TIMEZONE),
+    "datetime": datetime(2025, 4, 6, 1, 55, tzinfo=TIMEZONE),
     "text": "Привет! У нас обновления в боте:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Теперь вместо кнопок используй команды: /name, /remind, /share, /feedback.  \nОтправь /start, чтобы увидеть всё новое!",
-    "recipients": "[6682555021]"
+    "recipients": [6682555021] # "recipients": [6682555021]  # Список ID, без кавычек вокруг числа или "recipients": "all"
 }
 BROADCAST_SENT = False
 
