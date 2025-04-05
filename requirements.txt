@@ -1,3 +1,4 @@
 aiogram==3.13.1
+requests==2.31.0
 pytz
 asyncpg
