@@ -25,7 +25,7 @@ BOT_LINK = "t.me/choose_a_card_bot"
 TIMEZONE = pytz.timezone("Europe/Moscow")
 ADMIN_ID = 6682555021  # Укажите ваш Telegram ID как администратора
 GROK_API_KEY = "xai-F86KOKXr4PzZitmUfevOpUQdP4TLndRlLJjLnxFsJZ33SoWDm7rXJVn91rfluMrc0glE56OmDchEVqSW"
-GROK_API_URL = "https://api.xai.com/v1/grok"  # Уточните актуальный URL в документации xAI
+GROK_API_URL = "https://api.x.ai/v1/chat/completions"  # Уточните актуальный URL в документации xAI
 GROK_USERS = [6682555021, 392141189]  # Пользователи, для которых работает Grok
 
 # Инициализация бота
@@ -243,19 +243,42 @@ async def get_grok_question(user_request, user_response, feedback_type):
         "Authorization": f"Bearer {GROK_API_KEY}",
         "Content-Type": "application/json"
     }
-    prompt = (
-        f"Ты работаешь с метафорическими ассоциативными картами (МАК). На основе запроса пользователя '{user_request}' "
-        f"и его ответа '{user_response}' после реакции '{feedback_type}' на карту, задай один открытый вопрос для рефлексии. "
-        f"Не интерпретируй карту, только помоги пользователю глубже исследовать свои ассоциации. Вопрос должен быть кратким и связанным с контекстом."
+    system_prompt = (
+        "Ты работаешь с метафорическими ассоциативными картами (МАК). "
+        "На основе запроса пользователя и его ответа после реакции на карту, "
+        "задай один открытый вопрос для рефлексии. Не интерпретируй карту, "
+        "только помоги пользователю глубже исследовать свои ассоциации. "
+        "Вопрос должен быть кратким и связанным с контекстом."
+    )
+    user_prompt = (
+        f"Запрос пользователя: '{user_request}'. "
+        f"Ответ пользователя: '{user_response}'. "
+        f"Реакция на карту: '{feedback_type}'."
     )
     payload = {
-        "prompt": prompt,
-        "max_tokens": 50  # Ограничение длины для краткости
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "model": "grok-2-latest",  # Модель указана в документации
+        "max_tokens": 50,
+        "stream": False,
+        "temperature": 0
     }
     try:
         response = requests.post(GROK_API_URL, headers=headers, json=payload)
+        logging.info(f"API Response Status: {response.status_code}")
+        logging.info(f"API Response Text: {response.text}")
+        
         if response.status_code == 200:
-            return response.json()["response"]
+            data = response.json()
+            logging.info(f"API Response JSON: {data}")
+            # Ожидаемая структура ответа: {"choices": [{"message": {"content": "текст"}}]}
+            if "choices" in data and data["choices"]:
+                return data["choices"][0]["message"]["content"].strip()
+            else:
+                logging.error(f"Unexpected JSON structure: {data}")
+                return "Что ещё ты можешь сказать о своих ассоциациях с картой?"
         else:
             logging.error(f"Grok API error: {response.status_code}, {response.text}")
             return "Что ещё ты можешь сказать о своих ассоциациях с картой?"
