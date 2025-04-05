@@ -39,6 +39,7 @@ class UserState(StatesGroup):
     waiting_for_reminder_time = State()
     waiting_for_request_confirmation = State()
     waiting_for_feedback = State()
+    waiting_for_request_text = State()  # Состояние для текста запроса
 
 # Файлы для хранения данных
 DATA_DIR = "/data"
@@ -49,7 +50,8 @@ BONUS_AVAILABLE_FILE = f"{DATA_DIR}/bonus_available.json"
 REMINDER_TIMES_FILE = f"{DATA_DIR}/reminder_times.json"
 STATS_FILE = f"{DATA_DIR}/card_feedback.json"
 FEEDBACK_FILE = f"{DATA_DIR}/feedback.json"
-USER_ACTIONS_FILE = f"{DATA_DIR}/user_actions.json"  # Файл для логов
+USER_ACTIONS_FILE = f"{DATA_DIR}/user_actions.json"
+USER_REQUESTS_FILE = f"{DATA_DIR}/user_requests.json"  # Файл для запросов
 
 # Создаём папку, если её нет
 if not os.path.exists(DATA_DIR):
@@ -79,7 +81,7 @@ def load_user_actions():
 # Функция для записи логов (добавление, а не перезапись)
 async def save_user_action(user_id, action, details=None):
     user_actions = load_user_actions()
-    chat = await bot.get_chat(user_id)  # Добавляем await
+    chat = await bot.get_chat(user_id)
     username = chat.username if chat.username else ""
     name = USER_NAMES.get(user_id, "")
     timestamp = datetime.now(TIMEZONE).isoformat()
@@ -112,7 +114,6 @@ def get_last_action(user_id):
     user_actions = [action for action in user_actions if action["user_id"] == user_id]
     if not user_actions:
         return None
-    # Сортируем по времени, чтобы получить последнее действие
     user_actions.sort(key=lambda x: x["timestamp"], reverse=True)
     return user_actions[0]
 
@@ -125,7 +126,8 @@ REFERRALS = load_json(REFERRALS_FILE, {})
 BONUS_AVAILABLE = load_json(BONUS_AVAILABLE_FILE, {})
 REMINDER_TIMES = load_json(REMINDER_TIMES_FILE, {})
 FEEDBACK = load_json(FEEDBACK_FILE, {})
-USER_ACTIONS = load_user_actions()  # Инициализация логов
+USER_ACTIONS = load_user_actions()
+USER_REQUESTS = load_json(USER_REQUESTS_FILE, {})
 
 for user_id, timestamp in LAST_REQUEST.items():
     LAST_REQUEST[user_id] = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(TIMEZONE)
@@ -179,20 +181,20 @@ UNIVERSE_ADVICE = [
     "<b>💌 Наполни себя ресурсами.</b> Когда ты сильна внутри, весь мир поддерживает тебя.",
     "<b>💌 Доверяй процессу.</b> Всё складывается наилучшим образом, даже если пока ты этого не видишь.",
     "<b>💌 Сегодня — идеальный день для действия.</b> Сделай хотя бы один шаг к лучшей версии себя.",
-    "<b>💌 Твой путь освещён светом возможностей.</b> Открывай сердце — и увидишь новые горизонты.",
+    "<b>💌 Твой путь освещён светом возможностей.</b> Открывай сердце — и увидишь новые горизонты。",
     "<b>💌 Ты сама создаёшь свою реальность.</b> Чем больше ресурса в тебе, тем ярче твоя жизнь.",
     "<b>💌 Достаточно просто быть.</b> Цени себя прямо сейчас, без условий и ожиданий.",
     "<b>💌 Все ответы внутри тебя.</b> Прислушайся — Вселенная говорит с тобой через интуицию.",
-    "<b>💌 Ты магнит для благополучия.</b> Позволь хорошему прийти легко и естественно.",
-    "<b>💌 Смелость меняет реальность.</b> Позволь себе выйти за границы привычного.",
-    "<b>💌 Радость — твой естественный ресурс.</b> Найди её в простых вещах, и жизнь наполнится смыслом.",
-    "<b>💌 Сей добро — и оно вернётся.</b> Чем больше света ты даёшь, тем больше получаешь.",
-    "<b>💌 Природа поддерживает тебя.</b> Наполнись её энергией и почувствуй свою силу.",
-    "<b>💌 Нет предела твоему развитию.</b> Позволь себе стать ещё лучше, ещё счастливее.",
-    "<b>💌 У тебя уже есть всё необходимое для успеха.</b> Доверься себе и сделай шаг вперёд.",
-    "<b>💌 Ты заслуживаешь самого лучшего.</b> Вселенная щедра к тем, кто открыт её дарам.",
-    "<b>💌 Всё в тебе уже готово для нового этапа.</b> Просто начни двигаться вперёд.",
-    "<b>💌 Ты ценность для этого мира.</b> Твой свет нужен другим, не скрывай его.",
+    "<b>💌 Ты магнит для благополучия.</b> Позволь хорошему прийти легко и естественно。",
+    "<b>💌 Смелость меняет реальность.</b> Позволь себе выйти за границы привычного。",
+    "<b>💌 Радость — твой естественный ресурс.</b> Найди её в простых вещах, и жизнь наполнится смыслом。",
+    "<b>💌 Сей добро — и оно вернётся.</b> Чем больше света ты даёшь, тем больше получаешь。",
+    "<b>💌 Природа поддерживает тебя.</b> Наполнись её энергией и почувствуй свою силу。",
+    "<b>💌 Нет предела твоему развитию.</b> Позволь себе стать ещё лучше, ещё счастливее。",
+    "<b>💌 У тебя уже есть всё необходимое для успеха.</b> Доверься себе и сделай шаг вперёд。",
+    "<b>💌 Ты заслуживаешь самого лучшего.</b> Вселенная щедра к тем, кто открыт её дарам。",
+    "<b>💌 Всё в тебе уже готово для нового этапа.</b> Просто начни двигаться вперёд。",
+    "<b>💌 Ты ценность для этого мира.</b> Твой свет нужен другим, не скрывай его。",
     "<b>💌 Ресурсы вокруг тебя, просто позволь себе их принять.</b> Ты достоина поддержки и благополучия。",
     "<b>💌 Сегодня – лучший день, чтобы позаботиться о себе.</b> Наполни себя тем, что приносит радость。",
     "<b>💌 Вселенная всегда даёт тебе именно то, что нужно для роста.</b> Используй этот момент。",
@@ -254,11 +256,11 @@ class SubscriptionMiddleware:
 dp.message.middleware(SubscriptionMiddleware())
 logging.debug("Subscription middleware registered.")
 
-# --- Новая функциональность: Рассылка сообщений ---
+# Рассылка сообщений
 BROADCAST = {
-    "datetime": datetime(2025, 4, 4, 14, 0, tzinfo=TIMEZONE),  # 03.04.2025 10:00 по Москве
+    "datetime": datetime(2025, 4, 4, 14, 0, tzinfo=TIMEZONE),
     "text": "Привет! У нас обновления в боте:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Теперь вместо кнопок используй команды: /name, /remind, /share, /feedback.  \nОтправь /start, чтобы увидеть всё новое!",
-    "recipients": "[6682555021]"  # Отправить всем пользователям
+    "recipients": "[6682555021]"
 }
 BROADCAST_SENT = False
 
@@ -318,7 +320,6 @@ async def start_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     args = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
     
-    # Логируем запуск бота
     await save_user_action(user_id, "start", {"args": args})
 
     if args.startswith("ref_"):
@@ -399,7 +400,6 @@ async def logs_command(message: types.Message):
         await message.answer("Логов за сегодня нет.", protect_content=True)
         return
 
-    # Формируем текст логов
     log_text = "Логи за сегодня:\n\n"
     for log in logs:
         log_text += f"Время: {log['timestamp']}\n"
@@ -408,7 +408,6 @@ async def logs_command(message: types.Message):
         log_text += f"Детали: {json.dumps(log['details'], ensure_ascii=False)}\n"
         log_text += "-" * 30 + "\n"
 
-    # Отправляем логи (разбиваем, если текст слишком длинный)
     MAX_MESSAGE_LENGTH = 4096
     if len(log_text) <= MAX_MESSAGE_LENGTH:
         await message.answer(log_text, protect_content=True)
@@ -416,7 +415,7 @@ async def logs_command(message: types.Message):
         parts = [log_text[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(log_text), MAX_MESSAGE_LENGTH)]
         for part in parts:
             await message.answer(part, protect_content=True)
-            await asyncio.sleep(0.5)  # Небольшая задержка между сообщениями
+            await asyncio.sleep(0.5)
 
 # Команда /users (для администратора)
 @dp.message(Command("users"))
@@ -430,10 +429,8 @@ async def users_command(message: types.Message):
         await message.answer("Активных пользователей нет.", protect_content=True)
         return
 
-    # Формируем текст с информацией о пользователях
     users_text = "Активные пользователи:\n\n"
     for user_id, name in USER_NAMES.items():
-        # Получаем username из последнего действия пользователя
         last_action = get_last_action(user_id)
         username = last_action["username"] if last_action else "неизвестно"
         user_info = f"Пользователь: {name if name else 'Без имени'} (@{username}, ID: {user_id})\n"
@@ -445,7 +442,6 @@ async def users_command(message: types.Message):
         user_info += "-" * 30 + "\n"
         users_text += user_info
 
-    # Отправляем информацию (разбиваем, если текст слишком длинный)
     MAX_MESSAGE_LENGTH = 4096
     if len(users_text) <= MAX_MESSAGE_LENGTH:
         await message.answer(users_text, protect_content=True)
@@ -453,7 +449,7 @@ async def users_command(message: types.Message):
         parts = [users_text[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(users_text), MAX_MESSAGE_LENGTH)]
         for part in parts:
             await message.answer(part, protect_content=True)
-            await asyncio.sleep(0.5)  # Небольшая задержка между сообщениями
+            await asyncio.sleep(0.5)
 
 # Обработка ввода имени
 @dp.message(UserState.waiting_for_name)
@@ -463,7 +459,6 @@ async def process_name(message: types.Message, state: FSMContext):
     USER_NAMES[user_id] = name
     save_json(USER_NAMES_FILE, USER_NAMES)
     
-    # Логируем установку имени
     await save_user_action(user_id, "set_name", {"name": name})
 
     await message.answer(
@@ -473,14 +468,13 @@ async def process_name(message: types.Message, state: FSMContext):
     )
     await state.clear()
 
-# Обработка кнопки "Пропустить"
+# Обработка кнопки "Пропустить" для имени
 @dp.callback_query(lambda c: c.data == "skip_name")
 async def process_skip_name(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     USER_NAMES[user_id] = ""
     save_json(USER_NAMES_FILE, USER_NAMES)
     
-    # Логируем пропуск имени
     await save_user_action(user_id, "skip_name")
 
     await callback.message.answer(
@@ -502,7 +496,6 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
         REMINDER_TIMES[user_id] = reminder_time_normalized
         save_json(REMINDER_TIMES_FILE, REMINDER_TIMES)
         
-        # Логируем установку времени напоминания
         await save_user_action(user_id, "set_reminder_time", {"reminder_time": reminder_time_normalized})
 
         text = f"{name}, супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} по Москве (UTC+3)." if name else f"Супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} по Москве (UTC+3)."
@@ -521,7 +514,6 @@ async def process_feedback_submission(message: types.Message, state: FSMContext)
     FEEDBACK[user_id] = {"name": name, "feedback": feedback_text, "timestamp": datetime.now(TIMEZONE).isoformat()}
     save_json(FEEDBACK_FILE, FEEDBACK)
     
-    # Логируем отправку отзыва
     await save_user_action(user_id, "submit_feedback", {"feedback": feedback_text})
 
     text = f"{name}, спасибо за твой отзыв! Я сохранила его." if name else "Спасибо за твой отзыв! Я сохранила его."
@@ -542,8 +534,8 @@ async def handle_card_request(message: types.Message, state: FSMContext):
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         return
 
-    text = f"{name}, давай сделаем это осознанно! 🌿 Подумай: какой вопрос ты хочешь задать карте? Нажми кнопку, когда будешь готова!" if name else "Давай сделаем это осознанно! 🌿 Подумай: какой вопрос ты хочешь задать карте? Нажми кнопку, когда будешь готова!"
-    confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Запрос готов!", callback_data="confirm_request")]])
+    text = f"{name}, хочешь сделать это ещё глубже? 🌿 Если желаешь, напиши свой вопрос (например, 'Как мне найти вдохновение?'), чтобы карта ответила точнее. Или просто подумай о нём — как тебе удобно! Нажми кнопку, когда будешь готова!" if name else "Хочешь сделать это ещё глубже? 🌿 Если желаешь, напиши свой вопрос (например, 'Как мне найти вдохновение?'), чтобы карта ответила точнее. Или просто подумай о нём — как тебе удобно! Нажми кнопку, когда будешь готова!"
+    confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Готова!", callback_data="confirm_request")]])
     await message.answer(text, reply_markup=confirmation_keyboard, protect_content=True)
     await state.set_state(UserState.waiting_for_request_confirmation)
 
@@ -552,8 +544,21 @@ async def handle_card_request(message: types.Message, state: FSMContext):
 async def process_request_confirmation(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     name = USER_NAMES.get(user_id, "")
+    if name:
+        text = f"{name}, если хочешь, напиши свой вопрос прямо сейчас! Или нажми 'Пропустить', чтобы получить карту."
+    else:
+        text = "Если хочешь, напиши свой вопрос прямо сейчас! Или нажми 'Пропустить', чтобы получить карту."
+    skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data="skip_request")]])
+    await callback.message.answer(text, reply_markup=skip_keyboard, protect_content=True)
+    await state.set_state(UserState.waiting_for_request_text)
+    await callback.answer()
+
+# Обработка пропуска запроса
+@dp.callback_query(lambda c: c.data == "skip_request")
+async def process_skip_request(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    name = USER_NAMES.get(user_id, "")
     now = datetime.now(TIMEZONE)
-    today = now.date()
 
     try:
         card_numbers = list(range(1, 41))
@@ -581,7 +586,6 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
         text = f"{name}, эта карта тебе откликается?" if name else "Эта карта тебе откликается?"
         await callback.message.answer(text, reply_markup=feedback_keyboard, protect_content=True)
 
-        # Логируем выбор карты
         await save_user_action(user_id, "card_request", {"card_number": card_number, "reflection_question": reflection_question})
 
         await suggest_reminder(user_id, state)
@@ -593,7 +597,56 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
         await state.clear()
     await callback.answer()
 
-# Обработка "Совет от Вселенной" (убрали пробел в конце)
+# Обработка текста запроса
+@dp.message(UserState.waiting_for_request_text)
+async def process_request_text(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    request_text = message.text.strip()
+    now = datetime.now(TIMEZONE)
+
+    # Сохраняем запрос пользователя в JSON
+    USER_REQUESTS[user_id] = {"request": request_text, "timestamp": now.isoformat()}
+    save_json(USER_REQUESTS_FILE, USER_REQUESTS)
+    await save_user_action(user_id, "set_request", {"request": request_text})
+
+    try:
+        card_numbers = list(range(1, 41))
+        random.shuffle(card_numbers)
+        card_number = card_numbers[0]
+        card_path = f"cards/card_{card_number}.jpg"
+        logging.debug(f"Attempting to load card: {card_path}")
+
+        if not os.path.exists(card_path):
+            logging.error(f"Card file not found: {card_path}")
+            await message.answer("Ошибка: карта не найдена.", reply_markup=get_main_menu(user_id))
+            return
+
+        photo = FSInputFile(card_path)
+        await bot.send_photo(user_id, photo, reply_markup=get_main_menu(user_id), protect_content=True)
+        LAST_REQUEST[user_id] = now
+        save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
+
+        reflection_question = random.choice(REFLECTION_QUESTIONS)
+        await message.answer(reflection_question, protect_content=True)
+
+        feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"), InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
+        ])
+        text = f"{name}, эта карта тебе откликается?" if name else "Эта карта тебе откликается?"
+        await message.answer(text, reply_markup=feedback_keyboard, protect_content=True)
+
+        await save_user_action(user_id, "card_request", {"card_number": card_number, "reflection_question": reflection_question})
+
+        await suggest_reminder(user_id, state)
+
+        await state.clear()
+    except Exception as e:
+        logging.error(f"Ошибка при отправке карты: {e}")
+        await message.answer("Что-то пошло не так... попробуй позже.", reply_markup=get_main_menu(user_id), protect_content=True)
+        await state.clear()
+
+# Обработка "Совет от Вселенной"
 @dp.message(lambda message: message.text == "💌 Подсказка Вселенной")
 async def handle_bonus_request(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -607,7 +660,6 @@ async def handle_bonus_request(message: types.Message, state: FSMContext):
     text = f"{name}, вот послание для тебя:\n{advice}" if name else f"Вот послание для тебя:\n{advice}"
     await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
 
-    # Логируем получение совета
     await save_user_action(user_id, "bonus_request", {"advice": advice})
 
 # Обработка обратной связи по картам
@@ -626,7 +678,6 @@ async def process_feedback(callback: types.CallbackQuery):
     stats["total"][feedback] += 1
     save_stats(stats)
 
-    # Логируем обратную связь
     await save_user_action(user_id, "card_feedback", {"card_number": card_number, "feedback": feedback})
 
     await callback.message.answer("Спасибо за ответ!", reply_markup=get_main_menu(user_id), protect_content=True)
