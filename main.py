@@ -244,12 +244,13 @@ async def get_grok_question(user_request, user_response, feedback_type):
         "Content-Type": "application/json"
     }
     prompt = (
-        f"На основе запроса '{user_request}' и ответа '{user_response}' после '{feedback_type}', "
-        "задай один открытый вопрос в контексте этих данных. Не добавляй лишних слов, только вопрос."
+        f"Ты работаешь с метафорическими ассоциативными картами (МАК). На основе запроса пользователя '{user_request}' "
+        f"и его ответа '{user_response}' после реакции '{feedback_type}' на карту, задай один открытый вопрос для рефлексии. "
+        f"Не интерпретируй карту, только помоги пользователю глубже исследовать свои ассоциации. Вопрос должен быть кратким и связанным с контекстом."
     )
     payload = {
         "prompt": prompt,
-        "max_tokens": 50
+        "max_tokens": 50  # Ограничение длины для краткости
     }
     try:
         response = requests.post(GROK_API_URL, headers=headers, json=payload)
@@ -257,10 +258,10 @@ async def get_grok_question(user_request, user_response, feedback_type):
             return response.json()["response"]
         else:
             logging.error(f"Grok API error: {response.status_code}, {response.text}")
-            return "Что ещё ты можешь сказать об этом?"
+            return "Что ещё ты можешь сказать о своих ассоциациях с картой?"
     except Exception as e:
         logging.error(f"Failed to call Grok API: {e}")
-        return "Что ещё ты можешь сказать об этом?"
+        return "Что ещё ты можешь сказать о своих ассоциациях с картой?"
 
 # Команда /start (без изменений)
 @dp.message(Command("start"))
@@ -661,7 +662,7 @@ async def process_feedback(callback: types.CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-# Обработка ответа после "Да" (доработанная с Grok API)
+# Обработка ответа после "Да"
 @dp.message(UserState.waiting_for_yes_response)
 async def process_yes_response(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -688,7 +689,7 @@ async def process_yes_response(message: types.Message, state: FSMContext):
 
     await state.clear()
 
-# Обработка ответа после "Нет" (доработанная с Grok API)
+# Обработка ответа после "Нет"
 @dp.message(UserState.waiting_for_no_response)
 async def process_no_response(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
