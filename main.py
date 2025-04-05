@@ -39,7 +39,9 @@ class UserState(StatesGroup):
     waiting_for_reminder_time = State()
     waiting_for_request_confirmation = State()
     waiting_for_feedback = State()
-    waiting_for_request_text = State()  # Состояние для текста запроса
+    waiting_for_request_text = State()
+    waiting_for_yes_response = State()  # Состояние для ответа после "Да"
+    waiting_for_no_response = State()   # Состояние для ответа после "Нет"
 
 # Файлы для хранения данных
 DATA_DIR = "/data"
@@ -51,7 +53,7 @@ REMINDER_TIMES_FILE = f"{DATA_DIR}/reminder_times.json"
 STATS_FILE = f"{DATA_DIR}/card_feedback.json"
 FEEDBACK_FILE = f"{DATA_DIR}/feedback.json"
 USER_ACTIONS_FILE = f"{DATA_DIR}/user_actions.json"
-USER_REQUESTS_FILE = f"{DATA_DIR}/user_requests.json"  # Файл для запросов
+USER_REQUESTS_FILE = f"{DATA_DIR}/user_requests.json"
 
 # Создаём папку, если её нет
 if not os.path.exists(DATA_DIR):
@@ -195,7 +197,7 @@ UNIVERSE_ADVICE = [
     "<b>💌 Ты заслуживаешь самого лучшего.</b> Вселенная щедра к тем, кто открыт её дарам。",
     "<b>💌 Всё в тебе уже готово для нового этапа.</b> Просто начни двигаться вперёд。",
     "<b>💌 Ты ценность для этого мира.</b> Твой свет нужен другим, не скрывай его。",
-    "<b>💌 Ресурсы вокруг тебя, просто позволь себе их принять.</b> Ты достоина поддержки и благополучия。",
+    "<b>💌 Ресурсы вокруг тебя, просто позволь себе их принять.</b> Ты достойна поддержки и благополучия。",
     "<b>💌 Сегодня – лучший день, чтобы позаботиться о себе.</b> Наполни себя тем, что приносит радость。",
     "<b>💌 Вселенная всегда даёт тебе именно то, что нужно для роста.</b> Используй этот момент。",
     "<b>💌 Ты сильнее, чем тебе кажется.</b> Сделай шаг, и ты увидишь, как легко всё меняется。",
@@ -545,7 +547,7 @@ async def process_request_confirmation(callback: types.CallbackQuery, state: FSM
     user_id = callback.from_user.id
     name = USER_NAMES.get(user_id, "")
     if name:
-        text = f"{name}, очешь сделать это ещё глубже? 🌿 Если желаешь, напиши свой вопрос, чтобы карта ответила точнее. Или просто подумай о нём — как тебе удобно и нажми 'Дальше'"
+        text = f"{name}, хочешь сделать это ещё глубже? 🌿 Если желаешь, напиши свой вопрос, чтобы карта ответила точнее. Или просто подумай о нём — как тебе удобно и нажми 'Дальше'"
     else:
         text = "Хочешь сделать это ещё глубже? 🌿 Если желаешь, напиши свой вопрос, чтобы карта ответила точнее. Или просто подумай о нём — как тебе удобно и нажми 'Дальше'"
     skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Дальше", callback_data="skip_request")]])
@@ -588,8 +590,10 @@ async def process_skip_request(callback: types.CallbackQuery, state: FSMContext)
 
         await save_user_action(user_id, "card_request", {"card_number": card_number, "reflection_question": reflection_question})
 
+        # Сохраняем пустой запрос в контекст, если пользователь пропустил
+        await state.update_data(card_number=card_number, user_request="")
+        
         await suggest_reminder(user_id, state)
-
         await state.clear()
     except Exception as e:
         logging.error(f"Ошибка при отправке карты: {e}")
@@ -638,8 +642,10 @@ async def process_request_text(message: types.Message, state: FSMContext):
 
         await save_user_action(user_id, "card_request", {"card_number": card_number, "reflection_question": reflection_question})
 
-        await suggest_reminder(user_id, state)
+        # Сохраняем запрос и номер карты в контекст состояния
+        await state.update_data(card_number=card_number, user_request=request_text)
 
+        await suggest_reminder(user_id, state)
         await state.clear()
     except Exception as e:
         logging.error(f"Ошибка при отправке карты: {e}")
@@ -664,7 +670,7 @@ async def handle_bonus_request(message: types.Message, state: FSMContext):
 
 # Обработка обратной связи по картам
 @dp.callback_query(lambda c: c.data.startswith("feedback_"))
-async def process_feedback(callback: types.CallbackQuery):
+async def process_feedback(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     username = callback.from_user.username or ""
     name = USER_NAMES.get(user_id, "")
@@ -680,8 +686,65 @@ async def process_feedback(callback: types.CallbackQuery):
 
     await save_user_action(user_id, "card_feedback", {"card_number": card_number, "feedback": feedback})
 
-    await callback.message.answer("Спасибо за ответ!", reply_markup=get_main_menu(user_id), protect_content=True)
+    # Сохраняем номер карты в контекст состояния
+    await state.update_data(card_number=card_number)
+
+    if feedback == "yes":
+        text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
+        await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+        await state.set_state(UserState.waiting_for_yes_response)
+    elif feedback == "no":
+        text = f"{name}, что ты видишь в этом образе?" if name else "Что ты видишь в этом образе?"
+        await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+        await state.set_state(UserState.waiting_for_no_response)
+
     await callback.answer()
+
+# Обработка ответа после "Да"
+@dp.message(UserState.waiting_for_yes_response)
+async def process_yes_response(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    response_text = message.text.strip()
+    
+    # Получаем данные из контекста состояния
+    data = await state.get_data()
+    card_number = data.get("card_number")
+    user_request = data.get("user_request", "")  # Запрос пользователя, если был
+
+    # Сохраняем ответ пользователя с запросом
+    await save_user_action(user_id, "yes_response", {
+        "card_number": card_number,
+        "request": user_request,
+        "response": response_text
+    })
+
+    text = f"{name}, спасибо за ответы!" if name else "Спасибо за ответы!"
+    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.clear()
+
+# Обработка ответа после "Нет"
+@dp.message(UserState.waiting_for_no_response)
+async def process_no_response(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    response_text = message.text.strip()
+    
+    # Получаем данные из контекста состояния
+    data = await state.get_data()
+    card_number = data.get("card_number")
+    user_request = data.get("user_request", "")  # Запрос пользователя, если был
+
+    # Сохраняем ответ пользователя с запросом
+    await save_user_action(user_id, "no_response", {
+        "card_number": card_number,
+        "request": user_request,
+        "response": response_text
+    })
+
+    text = f"{name}, спасибо за ответы!" if name else "Спасибо за ответы!"
+    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.clear()
 
 # Запуск бота
 async def main():
