@@ -253,7 +253,22 @@ async def suggest_reminder(user_id, state: FSMContext):
         except Exception as e:
             logging.error(f"Не удалось предложить напоминание пользователю {user_id}: {e}")
 
-# Функция для запроса к Grok API
+# Функция для отправки отложенного вопроса через 2 минуты
+async def send_delayed_feedback_question(user_id, card_number):
+    await asyncio.sleep(120)  # Задержка в 2 минуты (120 секунд)
+    name = USER_NAMES.get(user_id, "")
+    feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"),
+         InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
+    ])
+    text = f"{name}, довольна ли ты сегодняшней картой?" if name else "Довольна ли ты сегодняшней картой?"
+    try:
+        await bot.send_message(user_id, text, reply_markup=feedback_keyboard, protect_content=True)
+        await save_user_action(user_id, "delayed_feedback_prompt", {"card_number": card_number})
+    except Exception as e:
+        logging.error(f"Не удалось отправить отложенный вопрос пользователю {user_id}: {e}")
+
+# Функция для запроса к Grok API с таймаутом и запасными вопросами
 async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None):
     headers = {
         "Authorization": f"Bearer {GROK_API_KEY}",
@@ -310,26 +325,26 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         "stream": False,
         "temperature": 0
     }
+    
+    universal_questions = {
+        1: "Какие чувства или эмоции вызывает у тебя этот образ?",
+        2: "Как этот образ связан с тем, что происходит в твоей жизни сейчас?",
+        3: "Что бы ты хотела изменить или добавить к этому образу, чтобы он стал ближе к твоему запросу?"
+    }
+    
     try:
-        response = requests.post(GROK_API_URL, headers=headers, json=payload)
-        if response.status_code == 200:
-            data = response.json()
-            if "choices" in data and data["choices"]:
-                question_text = data["choices"][0]["message"]["content"].strip()
-                return f"Вопрос ({step}/3): {question_text}"
-            # Если API вернул пустой ответ, используем универсальный вопрос
-            raise Exception("Пустой ответ от API")
+        # Используем requests с таймаутом 10 секунд
+        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()  # Вызывает исключение для кодов 4xx/5xx
+        data = response.json()
+        if "choices" in data and data["choices"]:
+            question_text = data["choices"][0]["message"]["content"].strip()
+            return f"Вопрос ({step}/3): {question_text}"
         else:
-            logging.error(f"Ошибка API Grok: {response.status_code}, {response.text}")
-            raise Exception("Ошибка API")
+            logging.warning(f"Пустой ответ от Grok API для user_id={user_id}")
+            return f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё ты можешь сказать о своих ассоциациях с картой?')}"
     except Exception as e:
-        logging.error(f"Не удалось вызвать API Grok: {e}")
-        # Возвращаем один из трёх универсальных вопросов в зависимости от шага
-        universal_questions = {
-            1: "Какие чувства или эмоции вызывает у тебя этот образ?",
-            2: "Как этот образ связан с тем, что происходит в твоей жизни сейчас?",
-            3: "Что бы ты хотела изменить или добавить к этому образу, чтобы он стал ближе к твоему запросу?"
-        }
+        logging.error(f"Ошибка вызова Grok API для user_id={user_id}: {e}")
         return f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё ты можешь сказать о своих ассоциациях с картой?')}"
 
 # Команда /start
