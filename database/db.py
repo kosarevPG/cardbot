@@ -1,11 +1,11 @@
 import sqlite3
 import json
 from datetime import datetime
-from config import TIMEZONE
 import os
+from config import TIMEZONE
 
 class Database:
-    def __init__(self, path="bot.db"):  # Используем относительный путь по умолчанию
+    def __init__(self, path="database/bot.db"):  # Относительный путь внутри репозитория
         # Убедимся, что директория существует
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
         self.conn = sqlite3.connect(path, check_same_thread=False)
