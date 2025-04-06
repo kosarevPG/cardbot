@@ -1,10 +1,13 @@
 import sqlite3
 import json
 from datetime import datetime
-from config import DATA_DIR, TIMEZONE
+from config import TIMEZONE
+import os
 
 class Database:
-    def __init__(self, path=f"{DATA_DIR}/bot.db"):
+    def __init__(self, path="bot.db"):  # Используем относительный путь по умолчанию
+        # Убедимся, что директория существует
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.create_tables()
@@ -79,7 +82,7 @@ class Database:
                 "reminder_time": row["reminder_time"],
                 "bonus_available": bool(row["bonus_available"])
             }
-        return {"user_id": user_id, "name": "", "last_request": None, "reminder_time": None, "bonus_available": False}
+        return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
 
     def update_user(self, user_id, data):
         with self.conn:
