@@ -43,6 +43,7 @@ class UserState(StatesGroup):
     waiting_for_reminder_time = State()
     waiting_for_feedback = State()
     waiting_for_request_text = State()
+    waiting_for_initial_response = State()  # Новое состояние для первого ответа
     waiting_for_yes_response = State()
     waiting_for_no_response = State()
     waiting_for_first_grok_response = State()
@@ -161,7 +162,7 @@ UNIVERSE_ADVICE = [
     "<b>💌 Отдых — это сила.</b> Позволь себе остановиться и восстановиться.",
     "<b>💌 Ты растешь.</b> Каждый опыт — это шаг к твоей лучшей версии.",
     "<b>💌 Будь здесь и сейчас.</b> Всё, что нужно, уже с тобой в этом моменте.",
-    "<b>💌 Смелость — твоя природа.</b> Сделай то, что пугает, и увидишь, как открываются новые горизонты。",
+    "<b>💌 Смелость — твоя природа.</b> Сделай то, что пугает, и увидишь, как открываются новые горизонты.",
     "<b>💌 Ресурсы не заканчиваются, они перетекают.</b> Подключись к потоку жизни и доверься её ритму."
 ]
 
@@ -658,9 +659,9 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
         await save_user_action(user_id, "card_request", {"card_number": card_number})
 
         await state.update_data(card_number=card_number, user_request="")
-        
+        await state.set_state(UserState.waiting_for_initial_response)  # Переход в новое состояние
+
         await suggest_reminder(user_id, state)
-        await state.clear()
         logging.info(f"Карта {card_number} успешно отправлена для user_id={user_id}, использовано карт: {len(used_cards)}/40")
     except Exception as e:
         logging.error(f"Ошибка при отправке карты для user_id={user_id}: {e}")
@@ -717,14 +718,112 @@ async def process_request_text(message: types.Message, state: FSMContext):
         await save_user_action(user_id, "card_request", {"card_number": card_number})
 
         await state.update_data(card_number=card_number, user_request=request_text)
+        await state.set_state(UserState.waiting_for_initial_response)  # Переход в новое состояние
 
         await suggest_reminder(user_id, state)
-        await state.clear()
         logging.info(f"Карта {card_number} успешно отправлена для user_id={user_id}, использовано карт: {len(used_cards)}/40")
     except Exception as e:
         logging.error(f"Ошибка при отправке карты: {e}")
         await message.answer("Что-то пошло не так... попробуй позже.", reply_markup=get_main_menu(user_id), protect_content=True)
         await state.clear()
+
+# Обработка первого ответа пользователя
+@dp.message(UserState.waiting_for_initial_response)
+async def process_initial_response(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    response_text = message.text.strip()
+    
+    data = await state.get_data()
+    card_number = data.get("card_number")
+    user_request = data.get("user_request", "")
+
+    await save_user_action(user_id, "initial_response", {
+        "card_number": card_number,
+        "request": user_request,
+        "response": response_text
+    })
+
+    # Отправляем отложенный вопрос через 2 минуты
+    asyncio.create_task(send_delayed_feedback_question(user_id, card_number))
+
+    # Запрашиваем первый вопрос от Grok
+    grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Начало", step=1)
+    await message.answer(grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.update_data(first_grok_question=grok_question, initial_response=response_text)
+    await state.set_state(UserState.waiting_for_first_grok_response)
+
+# Обработка ответов на вопросы Grok
+@dp.message(UserState.waiting_for_first_grok_response)
+async def process_first_grok_response(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    first_response = message.text.strip()
+    
+    data = await state.get_data()
+    card_number = data.get("card_number")
+    user_request = data.get("user_request", "")
+    first_grok_question = data.get("first_grok_question")
+    initial_response = data.get("initial_response", "")
+
+    await save_user_action(user_id, "first_grok_response", {
+        "card_number": card_number,
+        "request": user_request,
+        "first_question": first_grok_question,
+        "response": first_response
+    })
+
+    previous_responses = {"first_question": first_grok_question, "first_response": first_response}
+    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", initial_response, "Начало", step=2, previous_responses=previous_responses)
+    await message.answer(second_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.update_data(second_grok_question=second_grok_question, previous_responses=previous_responses)
+    await state.set_state(UserState.waiting_for_second_grok_response)
+
+@dp.message(UserState.waiting_for_second_grok_response)
+async def process_second_grok_response(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    second_response = message.text.strip()
+    
+    data = await state.get_data()
+    card_number = data.get("card_number")
+    user_request = data.get("user_request", "")
+    second_grok_question = data.get("second_grok_question")
+    previous_responses = data.get("previous_responses")
+
+    await save_user_action(user_id, "second_grok_response", {
+        "card_number": card_number,
+        "request": user_request,
+        "second_question": second_grok_question,
+        "response": second_response
+    })
+
+    previous_responses.update({"second_question": second_grok_question, "second_response": second_response})
+    third_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", second_response, "Начало", step=3, previous_responses=previous_responses)
+    await message.answer(third_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.update_data(third_grok_question=third_grok_question)
+    await state.set_state(UserState.waiting_for_third_grok_response)
+
+@dp.message(UserState.waiting_for_third_grok_response)
+async def process_third_grok_response(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    third_response = message.text.strip()
+    
+    data = await state.get_data()
+    card_number = data.get("card_number")
+    user_request = data.get("user_request", "")
+
+    await save_user_action(user_id, "third_grok_response", {
+        "card_number": card_number,
+        "request": user_request,
+        "third_question": data.get("third_grok_question"),
+        "response": third_response
+    })
+
+    text = "Спасибо, что поделилась!"
+    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.clear()
 
 # Обработка "Совет от Вселенной"
 @dp.message(lambda message: message.text == "💌 Подсказка Вселенной")
@@ -742,7 +841,7 @@ async def handle_bonus_request(message: types.Message, state: FSMContext):
 
     await save_user_action(user_id, "bonus_request", {"advice": advice})
 
-# Обработка обратной связи по картам (перенесена на отложенный вызов)
+# Обработка обратной связи по картам (отложенный вызов)
 @dp.callback_query(lambda c: c.data.startswith("feedback_"))
 async def process_feedback(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -771,7 +870,7 @@ async def process_feedback(callback: types.CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-# Обработка ответа после "Да" (Grok для всех)
+# Обработка ответа после "Да" (дополнительно, если пользователь выберет "Да" позже)
 @dp.message(UserState.waiting_for_yes_response)
 async def process_yes_response(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -793,82 +892,7 @@ async def process_yes_response(message: types.Message, state: FSMContext):
     await state.update_data(first_grok_question=grok_question, response_text=response_text)
     await state.set_state(UserState.waiting_for_first_grok_response)
 
-@dp.message(UserState.waiting_for_first_grok_response)
-async def process_first_grok_yes_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    first_response = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-    first_grok_question = data.get("first_grok_question")
-    response_text = data.get("response_text", "")
-
-    await save_user_action(user_id, "first_grok_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "first_question": first_grok_question,
-        "response": first_response
-    })
-
-    previous_responses = {"first_question": first_grok_question, "first_response": first_response}
-    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Да", step=2, previous_responses=previous_responses)
-    await message.answer(second_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(second_grok_question=second_grok_question, previous_responses=previous_responses)
-    await state.set_state(UserState.waiting_for_second_grok_response)
-
-@dp.message(UserState.waiting_for_second_grok_response)
-async def process_second_grok_yes_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    second_response = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-    second_grok_question = data.get("second_grok_question")
-    previous_responses = data.get("previous_responses")
-
-    await save_user_action(user_id, "second_grok_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "second_question": second_grok_question,
-        "response": second_response
-    })
-
-    previous_responses.update({"second_question": second_grok_question, "second_response": second_response})
-    third_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", second_response, "Да", step=3, previous_responses=previous_responses)
-    await message.answer(third_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(third_grok_question=third_grok_question)
-    await state.set_state(UserState.waiting_for_third_grok_response)
-
-@dp.message(UserState.waiting_for_third_grok_response)
-async def process_third_grok_yes_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    third_response = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-
-    await save_user_action(user_id, "third_grok_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "third_question": data.get("third_grok_question"),
-        "response": third_response
-    })
-
-    text = "Спасибо, что поделилась!"
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    
-    # Запускаем отложенный вопрос через 2 минуты
-    asyncio.create_task(send_delayed_feedback_question(user_id, card_number))
-    
-    await state.clear()
-
-# Обработка ответа после "Нет" (Grok для всех)
+# Обработка ответа после "Нет" (дополнительно, если пользователь выберет "Нет" позже)
 @dp.message(UserState.waiting_for_no_response)
 async def process_no_response(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -889,81 +913,6 @@ async def process_no_response(message: types.Message, state: FSMContext):
     await message.answer(grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
     await state.update_data(first_grok_question=grok_question, response_text=response_text)
     await state.set_state(UserState.waiting_for_first_grok_response)
-
-@dp.message(UserState.waiting_for_first_grok_response)
-async def process_first_grok_no_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    first_response = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-    first_grok_question = data.get("first_grok_question")
-    response_text = data.get("response_text", "")
-
-    await save_user_action(user_id, "first_grok_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "first_question": first_grok_question,
-        "response": first_response
-    })
-
-    previous_responses = {"first_question": first_grok_question, "first_response": first_response}
-    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Нет", step=2, previous_responses=previous_responses)
-    await message.answer(second_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(second_grok_question=second_grok_question, previous_responses=previous_responses)
-    await state.set_state(UserState.waiting_for_second_grok_response)
-
-@dp.message(UserState.waiting_for_second_grok_response)
-async def process_second_grok_no_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    second_response = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-    second_grok_question = data.get("second_grok_question")
-    previous_responses = data.get("previous_responses")
-
-    await save_user_action(user_id, "second_grok_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "second_question": second_grok_question,
-        "response": second_response
-    })
-
-    previous_responses.update({"second_question": second_grok_question, "second_response": second_response})
-    third_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", second_response, "Нет", step=3, previous_responses=previous_responses)
-    await message.answer(third_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(third_grok_question=third_grok_question)
-    await state.set_state(UserState.waiting_for_third_grok_response)
-
-@dp.message(UserState.waiting_for_third_grok_response)
-async def process_third_grok_no_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    third_response = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-
-    await save_user_action(user_id, "third_grok_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "third_question": data.get("third_grok_question"),
-        "response": third_response
-    })
-
-    text = "Спасибо, что поделилась!"
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    
-    # Запускаем отложенный вопрос через 2 минуты
-    asyncio.create_task(send_delayed_feedback_question(user_id, card_number))
-    
-    await state.clear()
 
 # Запуск бота
 async def main():
