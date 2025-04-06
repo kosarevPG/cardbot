@@ -7,13 +7,13 @@ from database.db import Database
 
 # Пути к JSON-файлам (предполагаем, что они в корне проекта)
 JSON_FILES = {
-    "last_request": "last_request.json",
-    "user_names": "user_names.json",
-    "referrals": "referrals.json",
-    "bonus_available": "bonus_available.json",
-    "reminder_times": "reminder_times.json",
-    "user_actions": "user_actions.json",
-    "user_cards": "user_cards.json"
+    "last_request": "data/last_request.json",
+    "user_names": "data/user_names.json",
+    "referrals": "data/referrals.json",
+    "bonus_available": "data/bonus_available.json",
+    "reminder_times": "data/reminder_times.json",
+    "user_actions": "data/user_actions.json",
+    "user_cards": "data/user_cards.json"
 }
 
 def load_json(file_path, default):
@@ -37,7 +37,7 @@ def load_json(file_path, default):
 def migrate_data():
     """Миграция данных из JSON в SQLite."""
     # Инициализация базы данных
-    db = Database(path="database/bot.db")  # Используем тот же путь
+    db = Database(path="/data/bot.db")  # Используем тот же путь, что и в db.py
     conn = db.conn
     conn.row_factory = sqlite3.Row
 
