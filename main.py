@@ -43,9 +43,7 @@ class UserState(StatesGroup):
     waiting_for_reminder_time = State()
     waiting_for_feedback = State()
     waiting_for_request_text = State()
-    waiting_for_initial_response = State()  # Новое состояние для первого ответа
-    waiting_for_yes_response = State()
-    waiting_for_no_response = State()
+    waiting_for_initial_response = State()
     waiting_for_first_grok_response = State()
     waiting_for_second_grok_response = State()
     waiting_for_third_grok_response = State()
@@ -261,7 +259,7 @@ async def send_delayed_feedback_question(user_id, card_number):
         [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"),
          InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
     ])
-    text = f"{name}, довольна ли ты сегодняшней картой?" if name else "Довольна ли ты сегодняшней картой?"
+    text = f"{name}, была ли сегодняшняя карта для тебя полезна?" if name else "Была ли сегодняшняя карта для тебя полезна?"
     try:
         await bot.send_message(user_id, text, reply_markup=feedback_keyboard, protect_content=True)
         await save_user_action(user_id, "delayed_feedback_prompt", {"card_number": card_number})
@@ -871,60 +869,14 @@ async def process_feedback(callback: types.CallbackQuery, state: FSMContext):
 
     await save_user_action(user_id, "card_feedback", {"card_number": card_number, "feedback": feedback})
 
-    await state.update_data(card_number=card_number)
-
     if feedback == "yes":
-        await state.set_state(UserState.waiting_for_yes_response)
-    elif feedback == "no":
-        text = f"{name}, что ты видишь в этом образе?" if name else "Что ты видишь в этом образе?"
+        text = "Здорово! Жду тебя завтра!"
         await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-        await state.set_state(UserState.waiting_for_no_response)
+    elif feedback == "no":
+        text = f"{name}, мне важно твое мнение! Оставь отзыв с помощью /feedback." if name else "Мне важно твое мнение! Оставь отзыв с помощью /feedback."
+        await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
 
     await callback.answer()
-
-# Обработка ответа после "Да" (дополнительно, если пользователь выберет "Да" позже)
-@dp.message(UserState.waiting_for_yes_response)
-async def process_yes_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    response_text = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-
-    await save_user_action(user_id, "yes_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "response": response_text
-    })
-
-    grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Да", step=1)
-    await message.answer(grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(first_grok_question=grok_question, response_text=response_text)
-    await state.set_state(UserState.waiting_for_first_grok_response)
-
-# Обработка ответа после "Нет" (дополнительно, если пользователь выберет "Нет" позже)
-@dp.message(UserState.waiting_for_no_response)
-async def process_no_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    response_text = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-
-    await save_user_action(user_id, "no_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "response": response_text
-    })
-
-    grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Нет", step=1)
-    await message.answer(grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(first_grok_question=grok_question, response_text=response_text)
-    await state.set_state(UserState.waiting_for_first_grok_response)
 
 # Запуск бота
 async def main():
