@@ -205,7 +205,7 @@ dp.message.middleware(SubscriptionMiddleware())
 # Рассылка сообщений и проверка напоминаний
 BROADCAST = {
     "datetime": datetime(2025, 4, 6, 2, 8, tzinfo=TIMEZONE),
-    "text": "Привет! У нас обновления в боте:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Теперь вместо кнопок используй команды: /name, /remind, /share, /feedback.  \nОтправь /start, чтобы увидеть всё новое!",
+    "text": "Привет! У нас обновления:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Теперь вместо кнопок используй команды: /name, /remind, /share, /feedback.  \nОтправь /start, чтобы увидеть всё новое!",
     "recipients": [6682555021]
 }
 BROADCAST_SENT = False
@@ -260,7 +260,7 @@ async def send_delayed_feedback_question(user_id, card_number):
     feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"), InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
     ])
-    text = f"{name}, ...довольна ли ты сегодняшней картой?" if name else "...довольна ли ты сегодняшней картой?"
+    text = f"{name}, довольна ли ты сегодняшней картой?" if name else "Довольна ли ты сегодняшней картой?"
     try:
         await bot.send_message(user_id, text, reply_markup=feedback_keyboard, protect_content=True)
         await save_user_action(user_id, "delayed_feedback_prompt", {"card_number": card_number})
@@ -357,7 +357,7 @@ async def start_command(message: types.Message, state: FSMContext):
                     BONUS_AVAILABLE[referrer_id] = True
                     save_json(BONUS_AVAILABLE_FILE, BONUS_AVAILABLE)
                     referrer_name = USER_NAMES.get(referrer_id, "")
-                    text = f"{referrer_name}, ура! Кто-то открыл бот по твоей ссылке! Возьми '💌 Подсказку Вселенной'." if referrer_name else "Ура! Кто-то открыл бот по твоей ссылке! Возьми '💌 Подсказку Вселенной'."
+                    text = f"{referrer_name}, ура! Кто-то открыл карту по твоей ссылке! Возьми '💌 Подсказку Вселенной'." if referrer_name else "Ура! Кто-то открыл карту по твоей ссылке! Возьми '💌 Подсказку Вселенной'."
                     await bot.send_message(referrer_id, text, reply_markup=get_main_menu(referrer_id), protect_content=True)
         except ValueError as e:
             logging.error(f"Неверный ID реферера в аргументах: '{args}', ошибка: {e}")
@@ -380,7 +380,7 @@ async def share_command(message: types.Message):
     user_id = message.from_user.id
     name = USER_NAMES.get(user_id, "")
     ref_link = f"{BOT_LINK}?start=ref_{user_id}"
-    text = f"{name}, этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Этот бот — находка для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
+    text = f"{name}, стань источником для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Стань источником для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
     await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=False)
 
 # Команда /remind
@@ -653,7 +653,7 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
         LAST_REQUEST[user_id] = now
         save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
 
-        text = f"{name}, ...как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "...как этот образ отвечает на твой запрос? Напиши свои мысли!"
+        text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
         await callback.message.answer(text, protect_content=True)
 
         await save_user_action(user_id, "card_request", {"card_number": card_number})
