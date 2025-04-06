@@ -2,12 +2,12 @@ import json
 import os
 import sqlite3
 from datetime import datetime
-from config import DATA_DIR, TIMEZONE
+from config import TIMEZONE
 from database.db import Database
 
-# Пути к JSON-файлам из оригинального кода
+# Пути к JSON-файлам (предполагаем, что они в корне проекта)
 JSON_FILES = {
-    "last_request": "last_request.json",  # Используем относительный путь
+    "last_request": "last_request.json",
     "user_names": "user_names.json",
     "referrals": "referrals.json",
     "bonus_available": "bonus_available.json",
@@ -37,7 +37,7 @@ def load_json(file_path, default):
 def migrate_data():
     """Миграция данных из JSON в SQLite."""
     # Инициализация базы данных
-    db = Database(path="bot.db")  # Используем относительный путь
+    db = Database(path="database/bot.db")  # Используем тот же путь
     conn = db.conn
     conn.row_factory = sqlite3.Row
 
@@ -124,7 +124,7 @@ def migrate_data():
 
 def verify_migration():
     """Проверка корректности миграции."""
-    db = Database(path="bot.db")  # Используем относительный путь
+    db = Database(path="database/bot.db")  # Используем тот же путь
     conn = db.conn
 
     # Проверка пользователей
