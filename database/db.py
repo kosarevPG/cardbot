@@ -124,7 +124,7 @@ class Database:
 
     def get_reminder_times(self):
         cursor = self.conn.execute("SELECT user_id, reminder_time FROM users WHERE reminder_time IS NOT NULL")
-        return {row["user_id"]: row["reminder_time"] for row in cursor.fetchall()]
+        return {row["user_id"]: row["reminder_time"] for row in cursor.fetchall()}
 
     def get_all_users(self):
         cursor = self.conn.execute("SELECT user_id FROM users")
