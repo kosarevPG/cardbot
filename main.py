@@ -472,7 +472,16 @@ async def users_command(message: types.Message):
         await message.answer("Активных пользователей нет.", protect_content=True)
         return
 
-    stats = load_stats()  # Загружаем статистику из STATS_FILE
+    # Функция для экранирования специальных символов Markdown
+    def escape_markdown(text):
+        if not isinstance(text, str):
+            text = str(text)
+        characters_to_escape = r"_*[]()~`>#+-=|{}.!"
+        for char in characters_to_escape:
+            text = text.replace(char, f"\\{char}")
+        return text
+
+    stats = load_stats()
     response = "*Список пользователей:*\n\n"
     for user_id_key, name in USER_NAMES.items():
         user_id_key_str = str(user_id_key)
@@ -489,13 +498,19 @@ async def users_command(message: types.Message):
         reminder = REMINDER_TIMES.get(user_id_key, "Не установлено")
         ref_count = len(REFERRALS.get(user_id_key, []))
 
+        # Экранируем все потенциально проблемные строки
+        name_escaped = escape_markdown(name or "Не указано")
+        username_escaped = escape_markdown(username or "Нет")
+        last_request_escaped = escape_markdown(last_request)
+        reminder_escaped = escape_markdown(reminder)
+
         response += (
             f"👤 *ID*: `{user_id_key}`\n"
-            f"   Имя: {name or 'Не указано'} (@{username or 'Нет'})\n"
-            f"   Последний запрос: {last_request}\n"
+            f"   Имя: {name_escaped} (@{username_escaped})\n"
+            f"   Последний запрос: {last_request_escaped}\n"
             f"   Карты: {card_count} (Да: {yes_percent:.1f}%)\n"
             f"   Бонус: {bonus}\n"
-            f"   Напоминание: {reminder}\n"
+            f"   Напоминание: {reminder_escaped}\n"
             f"   Рефералы: {ref_count}\n\n"
         )
 
