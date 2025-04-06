@@ -3,8 +3,8 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-from aiogram.fsm.context import FSMContext  # Импорт FSMContext
-from aiogram.fsm.storage.memory import MemoryStorage  # Хранилище состояний
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
 from config import TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK, TIMEZONE
 from database.db import Database
 from modules.logging_service import LoggingService
@@ -16,8 +16,8 @@ from datetime import datetime
 
 # Инициализация
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-storage = MemoryStorage()  # Добавляем хранилище состояний
-dp = Dispatcher(storage=storage)  # Передаём хранилище в Dispatcher
+storage = MemoryStorage()
+dp = Dispatcher(storage=storage)
 db = Database()
 logger = LoggingService(db)
 notifier = NotificationService(bot, db)
@@ -135,14 +135,50 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
         text = f"{name}, время указано неверно. Попробуй ещё раз (чч:мм)." if name else "Время указано неверно. Попробуй ещё раз (чч:мм)."
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
 
+# Фабрики обработчиков
+def make_card_request_handler(db, logger):
+    async def wrapped_handler(message: types.Message, state: FSMContext):
+        return await handle_card_request(message, state, db, logger)
+    return wrapped_handler
+
+def make_draw_card_handler(db, logger):
+    async def wrapped_handler(callback: types.CallbackQuery, state: FSMContext):
+        return await draw_card(callback, state, db, logger)
+    return wrapped_handler
+
+def make_process_request_text_handler(db, logger):
+    async def wrapped_handler(message: types.Message, state: FSMContext):
+        return await process_request_text(message, state, db, logger)
+    return wrapped_handler
+
+def make_process_initial_response_handler(db, logger):
+    async def wrapped_handler(message: types.Message, state: FSMContext):
+        return await process_initial_response(message, state, db, logger)
+    return wrapped_handler
+
+def make_process_first_grok_response_handler(db, logger):
+    async def wrapped_handler(message: types.Message, state: FSMContext):
+        return await process_first_grok_response(message, state, db, logger)
+    return wrapped_handler
+
+def make_process_second_grok_response_handler(db, logger):
+    async def wrapped_handler(message: types.Message, state: FSMContext):
+        return await process_second_grok_response(message, state, db, logger)
+    return wrapped_handler
+
+def make_process_third_grok_response_handler(db, logger):
+    async def wrapped_handler(message: types.Message, state: FSMContext):
+        return await process_third_grok_response(message, state, db, logger)
+    return wrapped_handler
+
 # Обработка "Карта дня"
-dp.message.register(handle_card_request, lambda m: m.text == "✨ Карта дня")
-dp.callback_query.register(draw_card, lambda c: c.data == "draw_card")
-dp.message.register(process_request_text, UserState.waiting_for_request_text)
-dp.message.register(process_initial_response, UserState.waiting_for_initial_response)
-dp.message.register(process_first_grok_response, UserState.waiting_for_first_grok_response)
-dp.message.register(process_second_grok_response, UserState.waiting_for_second_grok_response)
-dp.message.register(process_third_grok_response, UserState.waiting_for_third_grok_response)
+dp.message.register(make_card_request_handler(db, logger), lambda m: m.text == "✨ Карта дня")
+dp.callback_query.register(make_draw_card_handler(db, logger), lambda c: c.data == "draw_card")
+dp.message.register(make_process_request_text_handler(db, logger), UserState.waiting_for_request_text)
+dp.message.register(make_process_initial_response_handler(db, logger), UserState.waiting_for_initial_response)
+dp.message.register(make_process_first_grok_response_handler(db, logger), UserState.waiting_for_first_grok_response)
+dp.message.register(make_process_second_grok_response_handler(db, logger), UserState.waiting_for_second_grok_response)
+dp.message.register(make_process_third_grok_response_handler(db, logger), UserState.waiting_for_third_grok_response)
 
 # Обработка "Подсказка Вселенной"
 @dp.message(lambda m: m.text == "💌 Подсказка Вселенной")
