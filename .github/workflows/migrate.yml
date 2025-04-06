@@ -8,13 +8,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.12'  # Используем Python 3.12 для надежности
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          default: true
-          override: true
+          python-version: '3.12'
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -27,6 +21,5 @@ jobs:
           git config --global user.email "action@github.com"
           git add database/bot.db
           git commit -m "Update SQLite database after migration" || echo "No changes to commit"
+          git remote set-url origin https://x-access-token:${{ secrets.REPO_ACCESS_TOKEN }}@github.com/kosarevPG/cardbot.git
           git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
