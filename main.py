@@ -22,11 +22,11 @@ logging.debug("Запуск скрипта...")
 TOKEN = "8054930534:AAFDdyp5_xiX0ZPQnSEZKpfOhk2PCdchKvg"
 CHANNEL_ID = "@TopPsyGame"
 BOT_LINK = "t.me/choose_a_card_bot"
-TIMEZONE = pytz.timezone("Europe/Moscow")  # Исправлено на корректный timezone
+TIMEZONE = pytz.timezone("Europe/Moscow")
 ADMIN_ID = 6682555021  # Ваш Telegram ID как администратора
 GROK_API_KEY = "xai-evhYnqiJGigtW5fiRU28PVovE11kfvkNlg0PnYtF6Iv1jGLFiar6YyePD9L45Qbl7LoGJwJfx6haZktx"
-GROK_API_URL = "https://api.x.ai/v1/chat/completions"  # Уточните актуальный URL в документации xAI
-GROK_USERS = [6682555021, 392141189, 239719200]  # Пользователи, для которых работает Grok
+GROK_API_URL = "https://api.x.ai/v1/chat/completions"
+GROK_USERS = [6682555021, 392141189, 239719200]
 NO_CARD_LIMIT_USERS = [6682555021, 392141189, 239719200]
 
 # Инициализация бота
@@ -42,13 +42,12 @@ logging.debug("Бот и диспетчер инициализированы.")
 class UserState(StatesGroup):
     waiting_for_name = State()
     waiting_for_reminder_time = State()
-    waiting_for_request_confirmation = State()
     waiting_for_feedback = State()
     waiting_for_request_text = State()
     waiting_for_yes_response = State()
     waiting_for_no_response = State()
-    waiting_for_first_grok_response = State()  # Новый статус для первого ответа Grok
-    waiting_for_second_grok_response = State()  # Новый статус для второго ответа Grok
+    waiting_for_first_grok_response = State()
+    waiting_for_second_grok_response = State()
 
 # Файлы для хранения данных
 DATA_DIR = "/data"
@@ -280,7 +279,6 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         "Content-Type": "application/json"
     }
     
-    # Загружаем историю пользователя
     user_requests = load_json(USER_REQUESTS_FILE, {})
     user_actions = load_user_actions()
     card_history = [action for action in user_actions if action["user_id"] == user_id and action["action"] in ["card_request", "yes_response", "no_response"]]
@@ -424,13 +422,11 @@ async def logs_command(message: types.Message):
         await message.answer("Сегодня пока нет действий.", protect_content=True)
         return
 
-    # Фильтруем, чтобы получить только последнее действие каждого пользователя
     user_last_actions = {}
     for log in logs:
         user_id_log = log["user_id"]
-        user_last_actions[user_id_log] = log  # Перезаписываем последним логом для каждого пользователя
+        user_last_actions[user_id_log] = log
 
-    # Сортируем по времени (от старых к новым)
     sorted_logs = sorted(user_last_actions.values(), key=lambda x: x["timestamp"])
 
     response = "*Последние действия пользователей за сегодня:*\n\n"
@@ -438,7 +434,7 @@ async def logs_command(message: types.Message):
     for log in sorted_logs:
         timestamp = datetime.fromisoformat(log["timestamp"]).astimezone(TIMEZONE)
         if timestamp.date() != today:
-            continue  # Пропускаем логи не за сегодня
+            continue
         user_id_log = str(log["user_id"])
         name = USER_NAMES.get(user_id_log, "Не указано")
         action_type = log["action"]
@@ -473,7 +469,6 @@ async def users_command(message: types.Message):
         await message.answer("Активных пользователей нет.", protect_content=True)
         return
 
-    # Функция для экранирования специальных символов Markdown
     def escape_markdown(text):
         if not isinstance(text, str):
             text = str(text)
@@ -499,7 +494,6 @@ async def users_command(message: types.Message):
         reminder = REMINDER_TIMES.get(user_id_key, "Не установлено")
         ref_count = len(REFERRALS.get(user_id_key, []))
 
-        # Экранируем все потенциально проблемные строки
         name_escaped = escape_markdown(name or "Не указано")
         username_escaped = escape_markdown(username or "Нет")
         last_request_escaped = escape_markdown(last_request)
@@ -602,7 +596,6 @@ async def handle_card_request(message: types.Message, state: FSMContext):
     today = now.date()
 
     last_request_time = LAST_REQUEST.get(user_id)
-    # Изменяем условие: исключаем всех пользователей из GROK_USERS
     if user_id not in NO_CARD_LIMIT_USERS and last_request_time and last_request_time.date() == today:
         text = f"{name}, ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3). А пока попробуй /share — поделись с друзьями и получи бонус или оставь отзыв /feedback, чтобы я смог стать полезнее для тебя!" if name else "Ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3). А пока попробуй /share — поделись с друзьями и получи бонус или оставь отзыв /feedback, чтобы я смог стать полезнее для тебя!"
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
@@ -612,27 +605,16 @@ async def handle_card_request(message: types.Message, state: FSMContext):
     draw_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Вытянуть карту", callback_data="draw_card")]])
     await message.answer(text, reply_markup=draw_keyboard, protect_content=True)
     await state.set_state(UserState.waiting_for_request_text)
+    logging.info(f"Отправлено сообщение 'Вытянуть карту' для user_id={user_id}")
 
-# Обработка подтверждения запроса для "Карта дня"
-@dp.callback_query(lambda c: c.data == "confirm_request")
-async def process_request_confirmation(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    if name:
-        text = f"{name}, хочешь сделать это ещё глубже? 🌿 Если желаешь, напиши свой вопрос, чтобы карта ответила точнее. Или просто подумай о нём — как тебе удобно и нажми 'Дальше'"
-    else:
-        text = "Хочешь сделать это ещё глубже? 🌿 Если желаешь, напиши свой вопрос, чтобы карта ответила точнее. Или просто подумай о нём — как тебе удобно и нажми 'Дальше'"
-    skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Дальше", callback_data="skip_request")]])
-    await callback.message.answer(text, reply_markup=skip_keyboard, protect_content=True)
-    await state.set_state(UserState.waiting_for_request_text)
-    await callback.answer()
-
-# Обработка пропуска запроса
-@dp.callback_query(lambda c: c.data == "skip_request")
-async def process_skip_request(callback: types.CallbackQuery, state: FSMContext):
+# Обработка нажатия кнопки "Вытянуть карту"
+@dp.callback_query(lambda c: c.data == "draw_card")
+async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     name = USER_NAMES.get(user_id, "")
     now = datetime.now(TIMEZONE)
+
+    logging.info(f"Обрабатываем callback 'draw_card' для user_id={user_id}")
 
     try:
         card_numbers = list(range(1, 41))
@@ -644,6 +626,7 @@ async def process_skip_request(callback: types.CallbackQuery, state: FSMContext)
         if not os.path.exists(card_path):
             logging.error(f"Файл карты не найден: {card_path}")
             await callback.message.answer("Ошибка: карта не найдена.", reply_markup=get_main_menu(user_id))
+            await state.clear()
             return
 
         photo = FSInputFile(card_path)
@@ -666,8 +649,9 @@ async def process_skip_request(callback: types.CallbackQuery, state: FSMContext)
         
         await suggest_reminder(user_id, state)
         await state.clear()
+        logging.info(f"Карта {card_number} успешно отправлена для user_id={user_id}")
     except Exception as e:
-        logging.error(f"Ошибка при отправке карты: {e}")
+        logging.error(f"Ошибка при отправке карты для user_id={user_id}: {e}")
         await callback.message.answer("Что-то пошло не так... попробуй позже.", reply_markup=get_main_menu(user_id), protect_content=True)
         await state.clear()
     await callback.answer()
