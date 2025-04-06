@@ -48,6 +48,7 @@ class UserState(StatesGroup):
     waiting_for_no_response = State()
     waiting_for_first_grok_response = State()
     waiting_for_second_grok_response = State()
+    waiting_for_third_grok_response = State()  # Новое состояние для третьего ответа
 
 # Файлы для хранения данных
 DATA_DIR = "/data"
@@ -60,7 +61,7 @@ STATS_FILE = f"{DATA_DIR}/card_feedback.json"
 FEEDBACK_FILE = f"{DATA_DIR}/feedback.json"
 USER_ACTIONS_FILE = f"{DATA_DIR}/user_actions.json"
 USER_REQUESTS_FILE = f"{DATA_DIR}/user_requests.json"
-USER_CARDS_FILE = f"{DATA_DIR}/user_cards.json"  # Новый файл для хранения выпавших карт
+USER_CARDS_FILE = f"{DATA_DIR}/user_cards.json"
 
 # Создаем папку, если её нет
 if not os.path.exists(DATA_DIR):
@@ -134,36 +135,14 @@ REMINDER_TIMES = load_json(REMINDER_TIMES_FILE, {})
 FEEDBACK = load_json(FEEDBACK_FILE, {})
 USER_ACTIONS = load_user_actions()
 USER_REQUESTS = load_json(USER_REQUESTS_FILE, {})
-USER_CARDS = load_json(USER_CARDS_FILE, {})  # Загружаем историю выпавших карт
+USER_CARDS = load_json(USER_CARDS_FILE, {})
 
 for user_id, timestamp in LAST_REQUEST.items():
     LAST_REQUEST[user_id] = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(TIMEZONE)
 
 logging.debug("Данные инициализированы.")
 
-# Список вопросов и советов
-REFLECTION_QUESTIONS = [
-    "Какой ресурс даёт мне эта карта?",
-    "Как этот образ может поддержать меня в сложившейся ситуации?",
-    "Какой шаг я могу сделать, вдохновившись этой картой?",
-    "Что я чувствую, глядя на этот образ?",
-    "Какой совет скрыт для меня в этой карте?",
-    "Как эта карта отражает мои сильные стороны?",
-    "Что нового я могу открыть в себе через этот образ?",
-    "Как эта карта помогает мне увидеть ситуацию яснее?",
-    "Какой внутренний ресурс я могу активировать с помощью этой карты?",
-    "Что эта карта говорит о моих возможностях?",
-    "Как этот образ связан с моими текущими задачами?",
-    "Какую энергию я могу взять из этой карты?",
-    "Что я могу отпустить, глядя на эту карту?",
-    "Как эта карта вдохновляет меня на действие?",
-    "Какой урок я могу извлечь из этого образа?",
-    "Как эта карта помогает мне найти баланс?",
-    "Что я могу сделать сегодня, вдохновившись этой картой?",
-    "Как этот образ отражает мои цели?",
-    "Какую поддержку я могу найти в этой карте?",
-    "Как я могу поблагодарить себя за открытие этого ресурса?"
-]
+# Список советов (REFLECTION_QUESTIONS удален, так как больше не используется)
 UNIVERSE_ADVICE = [
     "<b>💌 Ты — источник силы.</b> Всё, что тебе нужно, уже внутри. Просто доверься себе и сделай первый шаг.",
     "<b>💌 Дыши глубже.</b> В каждом вдохе — возможность начать заново.",
@@ -183,7 +162,7 @@ UNIVERSE_ADVICE = [
     "<b>💌 Отдых — это сила.</b> Позволь себе остановиться и восстановиться.",
     "<b>💌 Ты растешь.</b> Каждый опыт — это шаг к твоей лучшей версии.",
     "<b>💌 Будь здесь и сейчас.</b> Всё, что нужно, уже с тобой в этом моменте.",
-    "<b>💌 Смелость — твоя природа.</b> Сделай то, что пугает, и увидишь, как открываются новые горизонты.",
+    "<b>💌 Смелость — твоя природа.</b> Сделай то, что пугает, и увидишь, как открываются новые горизонты。",
     "<b>💌 Ресурсы не заканчиваются, они перетекают.</b> Подключись к потоку жизни и доверься её ритму."
 ]
 
@@ -274,8 +253,8 @@ async def suggest_reminder(user_id, state: FSMContext):
         except Exception as e:
             logging.error(f"Не удалось предложить напоминание пользователю {user_id}: {e}")
 
-# Функция для запроса к Grok API
-async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, first_grok_response=None):
+# Функция для запроса к Grok API (добавлен step=3)
+async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None):
     headers = {
         "Authorization": f"Bearer {GROK_API_KEY}",
         "Content-Type": "application/json"
@@ -305,8 +284,19 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
             f"Запрос пользователя: '{user_request}'. "
             f"Ответ пользователя на карту: '{user_response}'. "
             f"Реакция на карту: '{feedback_type}'. "
-            f"Первый вопрос Grok: '{first_grok_response['question']}'. "
-            f"Ответ на первый вопрос: '{first_grok_response['response']}'. "
+            f"Первый вопрос Grok: '{previous_responses['first_question']}'. "
+            f"Ответ на первый вопрос: '{previous_responses['first_response']}'. "
+            f"История запросов и ответов: {json.dumps(card_history, ensure_ascii=False)}."
+        )
+    elif step == 3:
+        user_prompt = (
+            f"Запрос пользователя: '{user_request}'. "
+            f"Ответ пользователя на карту: '{user_response}'. "
+            f"Реакция на карту: '{feedback_type}'. "
+            f"Первый вопрос Grok: '{previous_responses['first_question']}'. "
+            f"Ответ на первый вопрос: '{previous_responses['first_response']}'. "
+            f"Второй вопрос Grok: '{previous_responses['second_question']}'. "
+            f"Ответ на второй вопрос: '{previous_responses['second_response']}'. "
             f"История запросов и ответов: {json.dumps(card_history, ensure_ascii=False)}."
         )
     
@@ -326,10 +316,7 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
             data = response.json()
             if "choices" in data and data["choices"]:
                 question_text = data["choices"][0]["message"]["content"].strip()
-                if step == 1:
-                    return f"Вопрос (1/2): {question_text}"
-                elif step == 2:
-                    return f"Вопрос (2/2): {question_text}"
+                return f"Вопрос ({step}/3): {question_text}"
             return "Что ещё ты можешь сказать о своих ассоциациях с картой?"
         else:
             logging.error(f"Ошибка API Grok: {response.status_code}, {response.text}")
@@ -495,7 +482,7 @@ async def users_command(message: types.Message):
         bonus = "✅" if BONUS_AVAILABLE.get(user_id_key, False) else "❌"
         reminder = REMINDER_TIMES.get(user_id_key, "Не установлено")
         ref_count = len(REFERRALS.get(user_id_key, []))
-        used_cards = USER_CARDS.get(user_id_key, [])  # Добавляем количество использованных карт
+        used_cards = USER_CARDS.get(user_id_key, [])
         cards_used_count = len(used_cards)
 
         name_escaped = escape_markdown(name or "Не указано")
@@ -623,10 +610,9 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
     try:
         # Получаем список уже выпавших карт для пользователя
         used_cards = USER_CARDS.get(user_id, [])
-        all_cards = list(range(1, 41))  # Список всех карт от 1 до 40
-        available_cards = [card for card in all_cards if card not in used_cards]  # Оставшиеся карты
+        all_cards = list(range(1, 41))
+        available_cards = [card for card in all_cards if card not in used_cards]
 
-        # Если все карты использованы, сбрасываем список
         if not available_cards:
             used_cards = []
             available_cards = all_cards.copy()
@@ -634,7 +620,6 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
             save_json(USER_CARDS_FILE, USER_CARDS)
             logging.info(f"Все карты использованы для user_id={user_id}, список сброшен")
 
-        # Выбираем случайную карту из доступных
         random.shuffle(available_cards)
         card_number = available_cards[0]
         used_cards.append(card_number)
@@ -655,8 +640,9 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
         LAST_REQUEST[user_id] = now
         save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
 
-        reflection_question = random.choice(REFLECTION_QUESTIONS)
-        await callback.message.answer(reflection_question, protect_content=True)
+        # Заменяем REFLECTION_QUESTIONS на фиксированный вопрос
+        text = f"{name}, ...как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "...как этот образ отвечает на твой запрос? Напиши свои мысли!"
+        await callback.message.answer(text, protect_content=True)
 
         feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"), InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
@@ -664,7 +650,7 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
         text = f"{name}, эта карта тебе откликается?" if name else "Эта карта тебе откликается?"
         await callback.message.answer(text, reply_markup=feedback_keyboard, protect_content=True)
 
-        await save_user_action(user_id, "card_request", {"card_number": card_number, "reflection_question": reflection_question})
+        await save_user_action(user_id, "card_request", {"card_number": card_number})
 
         await state.update_data(card_number=card_number, user_request="")
         
@@ -690,12 +676,10 @@ async def process_request_text(message: types.Message, state: FSMContext):
     await save_user_action(user_id, "set_request", {"request": request_text})
 
     try:
-        # Получаем список уже выпавших карт для пользователя
         used_cards = USER_CARDS.get(user_id, [])
-        all_cards = list(range(1, 41))  # Список всех карт от 1 до 40
-        available_cards = [card for card in all_cards if card not in used_cards]  # Оставшиеся карты
+        all_cards = list(range(1, 41))
+        available_cards = [card for card in all_cards if card not in used_cards]
 
-        # Если все карты использованы, сбрасываем список
         if not available_cards:
             used_cards = []
             available_cards = all_cards.copy()
@@ -703,7 +687,6 @@ async def process_request_text(message: types.Message, state: FSMContext):
             save_json(USER_CARDS_FILE, USER_CARDS)
             logging.info(f"Все карты использованы для user_id={user_id}, список сброшен")
 
-        # Выбираем случайную карту из доступных
         random.shuffle(available_cards)
         card_number = available_cards[0]
         used_cards.append(card_number)
@@ -723,8 +706,9 @@ async def process_request_text(message: types.Message, state: FSMContext):
         LAST_REQUEST[user_id] = now
         save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
 
-        reflection_question = random.choice(REFLECTION_QUESTIONS)
-        await message.answer(reflection_question, protect_content=True)
+        # Заменяем REFLECTION_QUESTIONS на фиксированный вопрос
+        text = f"{name}, ...как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "...как этот образ отвечает на твой запрос? Напиши свои мысли!"
+        await message.answer(text, protect_content=True)
 
         feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"), InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
@@ -732,7 +716,7 @@ async def process_request_text(message: types.Message, state: FSMContext):
         text = f"{name}, эта карта тебе откликается?" if name else "Эта карта тебе откликается?"
         await message.answer(text, reply_markup=feedback_keyboard, protect_content=True)
 
-        await save_user_action(user_id, "card_request", {"card_number": card_number, "reflection_question": reflection_question})
+        await save_user_action(user_id, "card_request", {"card_number": card_number})
 
         await state.update_data(card_number=card_number, user_request=request_text)
 
@@ -781,8 +765,6 @@ async def process_feedback(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(card_number=card_number)
 
     if feedback == "yes":
-        text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
-        await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         await state.set_state(UserState.waiting_for_yes_response)
     elif feedback == "no":
         text = f"{name}, что ты видишь в этом образе?" if name else "Что ты видишь в этом образе?"
@@ -807,9 +789,6 @@ async def process_yes_response(message: types.Message, state: FSMContext):
         "request": user_request,
         "response": response_text
     })
-
-    text = f"{name}, спасибо за ответы!" if name else "Спасибо за ответы!"
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
 
     if user_id in GROK_USERS:
         grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Да", step=1)
@@ -838,10 +817,10 @@ async def process_first_grok_yes_response(message: types.Message, state: FSMCont
         "response": first_response
     })
 
-    grok_response_data = {"question": first_grok_question, "response": first_response}
-    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Да", step=2, first_grok_response=grok_response_data)
+    previous_responses = {"first_question": first_grok_question, "first_response": first_response}
+    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Да", step=2, previous_responses=previous_responses)
     await message.answer(second_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(second_grok_question=second_grok_question)
+    await state.update_data(second_grok_question=second_grok_question, previous_responses=previous_responses)
     await state.set_state(UserState.waiting_for_second_grok_response)
 
 @dp.message(UserState.waiting_for_second_grok_response)
@@ -854,12 +833,37 @@ async def process_second_grok_yes_response(message: types.Message, state: FSMCon
     card_number = data.get("card_number")
     user_request = data.get("user_request", "")
     second_grok_question = data.get("second_grok_question")
+    previous_responses = data.get("previous_responses")
 
     await save_user_action(user_id, "second_grok_response", {
         "card_number": card_number,
         "request": user_request,
         "second_question": second_grok_question,
         "response": second_response
+    })
+
+    previous_responses.update({"second_question": second_grok_question, "second_response": second_response})
+    third_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", second_response, "Да", step=3, previous_responses=previous_responses)
+    await message.answer(third_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.update_data(third_grok_question=third_grok_question)
+    await state.set_state(UserState.waiting_for_third_grok_response)
+
+@dp.message(UserState.waiting_for_third_grok_response)
+async def process_third_grok_yes_response(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    third_response = message.text.strip()
+    
+    data = await state.get_data()
+    card_number = data.get("card_number")
+    user_request = data.get("user_request", "")
+    third_grok_question = data.get("third_grok_question")
+
+    await save_user_action(user_id, "third_grok_response", {
+        "card_number": card_number,
+        "request": user_request,
+        "third_question": third_grok_question,
+        "response": third_response
     })
 
     text = "Спасибо, что поделилась!"
@@ -882,9 +886,6 @@ async def process_no_response(message: types.Message, state: FSMContext):
         "request": user_request,
         "response": response_text
     })
-
-    text = f"{name}, спасибо за ответы!" if name else "Спасибо за ответы!"
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
 
     if user_id in GROK_USERS:
         grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Нет", step=1)
@@ -913,10 +914,10 @@ async def process_first_grok_no_response(message: types.Message, state: FSMConte
         "response": first_response
     })
 
-    grok_response_data = {"question": first_grok_question, "response": first_response}
-    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Нет", step=2, first_grok_response=grok_response_data)
+    previous_responses = {"first_question": first_grok_question, "first_response": first_response}
+    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Нет", step=2, previous_responses=previous_responses)
     await message.answer(second_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(second_grok_question=second_grok_question)
+    await state.update_data(second_grok_question=second_grok_question, previous_responses=previous_responses)
     await state.set_state(UserState.waiting_for_second_grok_response)
 
 @dp.message(UserState.waiting_for_second_grok_response)
@@ -929,12 +930,37 @@ async def process_second_grok_no_response(message: types.Message, state: FSMCont
     card_number = data.get("card_number")
     user_request = data.get("user_request", "")
     second_grok_question = data.get("second_grok_question")
+    previous_responses = data.get("previous_responses")
 
     await save_user_action(user_id, "second_grok_response", {
         "card_number": card_number,
         "request": user_request,
         "second_question": second_grok_question,
         "response": second_response
+    })
+
+    previous_responses.update({"second_question": second_grok_question, "second_response": second_response})
+    third_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", second_response, "Нет", step=3, previous_responses=previous_responses)
+    await message.answer(third_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.update_data(third_grok_question=third_grok_question)
+    await state.set_state(UserState.waiting_for_third_grok_response)
+
+@dp.message(UserState.waiting_for_third_grok_response)
+async def process_third_grok_no_response(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = USER_NAMES.get(user_id, "")
+    third_response = message.text.strip()
+    
+    data = await state.get_data()
+    card_number = data.get("card_number")
+    user_request = data.get("user_request", "")
+    third_grok_question = data.get("third_grok_question")
+
+    await save_user_action(user_id, "third_grok_response", {
+        "card_number": card_number,
+        "request": user_request,
+        "third_question": third_grok_question,
+        "response": third_response
     })
 
     text = "Спасибо, что поделилась!"
