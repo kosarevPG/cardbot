@@ -5,6 +5,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}  # Используем PAT для клонирования
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -21,5 +23,4 @@ jobs:
           git config --global user.email "action@github.com"
           git add database/bot.db
           git commit -m "Update SQLite database after migration" || echo "No changes to commit"
-          git remote set-url origin https://x-access-token:${{ secrets.PUSH }}@github.com/kosarevPG/cardbot.git
           git push
