@@ -23,6 +23,13 @@ logger = LoggingService(db)
 notifier = NotificationService(bot, db)
 user_manager = UserManager(db)
 
+# Проверка базы данных
+try:
+    db.get_user(0)  # Тестовый запрос к базе данных
+except Exception as e:
+    logger.log_action(0, "db_init_error", {"error": str(e)})
+    raise
+
 # Middleware для проверки подписки
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
@@ -104,6 +111,9 @@ async def name_command(message: types.Message, state: FSMContext):
 async def process_name(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = message.text.strip()
+    if name == "✨ Карта дня":  # Валидация имени
+        await message.answer("Пожалуйста, выбери другое имя. Это имя зарезервировано.")
+        return
     await user_manager.set_name(user_id, name)
     await logger.log_action(user_id, "set_name", {"name": name})
     await message.answer(f"{name}, рада тебя видеть! Нажми '✨ Карта дня'.", reply_markup=await get_main_menu(user_id, db))
@@ -194,17 +204,26 @@ async def handle_bonus_request(message: types.Message):
     await message.answer(text, reply_markup=await get_main_menu(user_id, db))
     await logger.log_action(user_id, "bonus_request", {"advice": advice})
 
+# Обработчик для неизвестных сообщений
+@dp.message()
+async def handle_unknown_message(message: types.Message):
+    await message.answer("Извините, я не понял ваш запрос. Попробуйте нажать '✨ Карта дня' или используйте команды /start, /share, /remind, /name.")
+
 # Запуск
 async def main():
-    db.bot = bot  # Передаем bot в db для логирования
-    asyncio.create_task(notifier.check_reminders())
-    broadcast_data = {
-        "datetime": datetime(2025, 4, 6, 2, 8, tzinfo=TIMEZONE),
-        "text": "Привет! У нас обновления: 'Карта дня' теперь доступна раз в сутки с 00:00 по Москве.",
-        "recipients": [6682555021]
-    }
-    asyncio.create_task(notifier.send_broadcast(broadcast_data))
-    await dp.start_polling(bot)
+    try:
+        db.bot = bot  # Передаем bot в db для логирования
+        asyncio.create_task(notifier.check_reminders())
+        broadcast_data = {
+            "datetime": datetime(2025, 4, 6, 2, 8, tzinfo=TIMEZONE),
+            "text": "Привет! У нас обновления: 'Карта дня' теперь доступна раз в сутки с 00:00 по Москве.",
+            "recipients": [6682555021]
+        }
+        asyncio.create_task(notifier.send_broadcast(broadcast_data))
+        await dp.start_polling(bot)
+    except Exception as e:
+        logger.log_action(0, "polling_error", {"error": str(e)})
+        raise
 
 if __name__ == "__main__":
     asyncio.run(main())
