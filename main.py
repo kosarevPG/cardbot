@@ -1,5 +1,6 @@
 import asyncio
-from aiogram import Bot, Dispatcher, types, FSMContext
+from aiogram import Bot, Dispatcher, types
+from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
