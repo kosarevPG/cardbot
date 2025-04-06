@@ -26,7 +26,7 @@ TIMEZONE = pytz.timezone("Europe/Moscow")
 ADMIN_ID = 6682555021  # Ваш Telegram ID как администратора
 GROK_API_KEY = "xai-evhYnqiJGigtW5fiRU28PVovE11kfvkNlg0PnYtF6Iv1jGLFiar6YyePD9L45Qbl7LoGJwJfx6haZktx"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-GROK_USERS = [6682555021, 392141189, 239719200]
+GROK_USERS = "all" #[6682555021, 392141189, 239719200]
 NO_CARD_LIMIT_USERS = [6682555021, 392141189, 239719200]
 
 # Инициализация бота
