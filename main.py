@@ -326,6 +326,7 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         "temperature": 0
     }
     
+    # Универсальные вопросы без префикса
     universal_questions = {
         1: "Какие чувства или эмоции вызывает у тебя этот образ?",
         2: "Как этот образ связан с тем, что происходит в твоей жизни сейчас?",
@@ -339,6 +340,9 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         data = response.json()
         if "choices" in data and data["choices"]:
             question_text = data["choices"][0]["message"]["content"].strip()
+            # Удаляем префикс "Вопрос (X/3): ", если он уже есть в ответе API
+            if question_text.startswith(f"Вопрос ({step}/3): "):
+                question_text = question_text[len(f"Вопрос ({step}/3): "):].strip()
             return f"Вопрос ({step}/3): {question_text}"
         else:
             logging.warning(f"Пустой ответ от Grok API для user_id={user_id}")
