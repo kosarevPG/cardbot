@@ -23,10 +23,10 @@ TOKEN = "8054930534:AAFDdyp5_xiX0ZPQnSEZKpfOhk2PCdchKvg"
 CHANNEL_ID = "@TopPsyGame"
 BOT_LINK = "t.me/choose_a_card_bot"
 TIMEZONE = pytz.timezone("Europe/Moscow")
-ADMIN_ID = 6682555021  # Ваш Telegram ID как администратора
+ADMIN_ID = 6682555021
 GROK_API_KEY = "xai-evhYnqiJGigtW5fiRU28PVovE11kfvkNlg0PnYtF6Iv1jGLFiar6YyePD9L45Qbl7LoGJwJfx6haZktx"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-GROK_USERS = "all" #[6682555021, 392141189, 239719200]
+GROK_USERS = [6682555021, 392141189, 239719200]
 NO_CARD_LIMIT_USERS = [6682555021, 392141189, 239719200]
 
 # Инициализация бота
@@ -60,6 +60,7 @@ STATS_FILE = f"{DATA_DIR}/card_feedback.json"
 FEEDBACK_FILE = f"{DATA_DIR}/feedback.json"
 USER_ACTIONS_FILE = f"{DATA_DIR}/user_actions.json"
 USER_REQUESTS_FILE = f"{DATA_DIR}/user_requests.json"
+USER_CARDS_FILE = f"{DATA_DIR}/user_cards.json"  # Новый файл для хранения выпавших карт
 
 # Создаем папку, если её нет
 if not os.path.exists(DATA_DIR):
@@ -110,7 +111,7 @@ def get_logs_for_today():
     user_actions = load_user_actions()
     today = datetime.now(TIMEZONE).date()
     logs_today = [log for log in user_actions if datetime.fromisoformat(log["timestamp"]).astimezone(TIMEZONE).date() == today]
-    logs_today.sort(key=lambda x: x["timestamp"])  # Сортировка от старых к новым
+    logs_today.sort(key=lambda x: x["timestamp"])
     return logs_today
 
 # Функция для получения последнего действия пользователя
@@ -133,6 +134,7 @@ REMINDER_TIMES = load_json(REMINDER_TIMES_FILE, {})
 FEEDBACK = load_json(FEEDBACK_FILE, {})
 USER_ACTIONS = load_user_actions()
 USER_REQUESTS = load_json(USER_REQUESTS_FILE, {})
+USER_CARDS = load_json(USER_CARDS_FILE, {})  # Загружаем историю выпавших карт
 
 for user_id, timestamp in LAST_REQUEST.items():
     LAST_REQUEST[user_id] = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(TIMEZONE)
@@ -225,7 +227,7 @@ dp.message.middleware(SubscriptionMiddleware())
 BROADCAST = {
     "datetime": datetime(2025, 4, 6, 2, 8, tzinfo=TIMEZONE),
     "text": "Привет! У нас обновления в боте:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Теперь вместо кнопок используй команды: /name, /remind, /share, /feedback.  \nОтправь /start, чтобы увидеть всё новое!",
-    "recipients": [6682555021]  # Список ID или "all"
+    "recipients": [6682555021]
 }
 BROADCAST_SENT = False
 
@@ -493,6 +495,8 @@ async def users_command(message: types.Message):
         bonus = "✅" if BONUS_AVAILABLE.get(user_id_key, False) else "❌"
         reminder = REMINDER_TIMES.get(user_id_key, "Не установлено")
         ref_count = len(REFERRALS.get(user_id_key, []))
+        used_cards = USER_CARDS.get(user_id_key, [])  # Добавляем количество использованных карт
+        cards_used_count = len(used_cards)
 
         name_escaped = escape_markdown(name or "Не указано")
         username_escaped = escape_markdown(username or "Нет")
@@ -503,7 +507,7 @@ async def users_command(message: types.Message):
             f"👤 *ID*: `{user_id_key}`\n"
             f"   Имя: {name_escaped} (@{username_escaped})\n"
             f"   Последний запрос: {last_request_escaped}\n"
-            f"   Карты: {card_count} (Да: {yes_percent:.1f}%)\n"
+            f"   Карты: {card_count} (Да: {yes_percent:.1f}%, Использовано: {cards_used_count}/40)\n"
             f"   Бонус: {bonus}\n"
             f"   Напоминание: {reminder_escaped}\n"
             f"   Рефералы: {ref_count}\n\n"
@@ -617,9 +621,26 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
     logging.info(f"Обрабатываем callback 'draw_card' для user_id={user_id}")
 
     try:
-        card_numbers = list(range(1, 41))
-        random.shuffle(card_numbers)
-        card_number = card_numbers[0]
+        # Получаем список уже выпавших карт для пользователя
+        used_cards = USER_CARDS.get(user_id, [])
+        all_cards = list(range(1, 41))  # Список всех карт от 1 до 40
+        available_cards = [card for card in all_cards if card not in used_cards]  # Оставшиеся карты
+
+        # Если все карты использованы, сбрасываем список
+        if not available_cards:
+            used_cards = []
+            available_cards = all_cards.copy()
+            USER_CARDS[user_id] = used_cards
+            save_json(USER_CARDS_FILE, USER_CARDS)
+            logging.info(f"Все карты использованы для user_id={user_id}, список сброшен")
+
+        # Выбираем случайную карту из доступных
+        random.shuffle(available_cards)
+        card_number = available_cards[0]
+        used_cards.append(card_number)
+        USER_CARDS[user_id] = used_cards
+        save_json(USER_CARDS_FILE, USER_CARDS)
+
         card_path = f"cards/card_{card_number}.jpg"
         logging.debug(f"Попытка загрузить карту: {card_path}")
 
@@ -649,7 +670,7 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
         
         await suggest_reminder(user_id, state)
         await state.clear()
-        logging.info(f"Карта {card_number} успешно отправлена для user_id={user_id}")
+        logging.info(f"Карта {card_number} успешно отправлена для user_id={user_id}, использовано карт: {len(used_cards)}/40")
     except Exception as e:
         logging.error(f"Ошибка при отправке карты для user_id={user_id}: {e}")
         await callback.message.answer("Что-то пошло не так... попробуй позже.", reply_markup=get_main_menu(user_id), protect_content=True)
@@ -669,9 +690,26 @@ async def process_request_text(message: types.Message, state: FSMContext):
     await save_user_action(user_id, "set_request", {"request": request_text})
 
     try:
-        card_numbers = list(range(1, 41))
-        random.shuffle(card_numbers)
-        card_number = card_numbers[0]
+        # Получаем список уже выпавших карт для пользователя
+        used_cards = USER_CARDS.get(user_id, [])
+        all_cards = list(range(1, 41))  # Список всех карт от 1 до 40
+        available_cards = [card for card in all_cards if card not in used_cards]  # Оставшиеся карты
+
+        # Если все карты использованы, сбрасываем список
+        if not available_cards:
+            used_cards = []
+            available_cards = all_cards.copy()
+            USER_CARDS[user_id] = used_cards
+            save_json(USER_CARDS_FILE, USER_CARDS)
+            logging.info(f"Все карты использованы для user_id={user_id}, список сброшен")
+
+        # Выбираем случайную карту из доступных
+        random.shuffle(available_cards)
+        card_number = available_cards[0]
+        used_cards.append(card_number)
+        USER_CARDS[user_id] = used_cards
+        save_json(USER_CARDS_FILE, USER_CARDS)
+
         card_path = f"cards/card_{card_number}.jpg"
         logging.debug(f"Попытка загрузить карту: {card_path}")
 
@@ -700,6 +738,7 @@ async def process_request_text(message: types.Message, state: FSMContext):
 
         await suggest_reminder(user_id, state)
         await state.clear()
+        logging.info(f"Карта {card_number} успешно отправлена для user_id={user_id}, использовано карт: {len(used_cards)}/40")
     except Exception as e:
         logging.error(f"Ошибка при отправке карты: {e}")
         await message.answer("Что-то пошло не так... попробуй позже.", reply_markup=get_main_menu(user_id), protect_content=True)
