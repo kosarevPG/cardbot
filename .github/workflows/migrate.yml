@@ -3,7 +3,7 @@ name: Migrate JSON to SQLite
 on:
   push:
     branches:
-      - main
+      - master  # Изменено с main на master
 
 jobs:
   migrate:
