@@ -7,22 +7,22 @@ from database.db import Database
 
 # Пути к JSON-файлам из оригинального кода
 JSON_FILES = {
-    "last_request": f"{DATA_DIR}/last_request.json",
-    "user_names": f"{DATA_DIR}/user_names.json",
-    "referrals": f"{DATA_DIR}/referrals.json",
-    "bonus_available": f"{DATA_DIR}/bonus_available.json",
-    "reminder_times": f"{DATA_DIR}/reminder_times.json",
-    "user_actions": f"{DATA_DIR}/user_actions.json",
-    "user_cards": f"{DATA_DIR}/user_cards.json"
+    "last_request": "last_request.json",  # Используем относительный путь
+    "user_names": "user_names.json",
+    "referrals": "referrals.json",
+    "bonus_available": "bonus_available.json",
+    "reminder_times": "reminder_times.json",
+    "user_actions": "user_actions.json",
+    "user_cards": "user_cards.json"
 }
 
 def load_json(file_path, default):
-    """Загрузка данных"""
+    """Загрузка данных из JSON-файла."""
     if not os.path.exists(file_path):
         print(f"Файл {file_path} не найден, используется значение по умолчанию: {default}")
         return default
     try:
-        with open(file_path, "r") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, dict):
                 return {int(k) if k.isdigit() else k: v for k, v in data.items()}
@@ -37,7 +37,7 @@ def load_json(file_path, default):
 def migrate_data():
     """Миграция данных из JSON в SQLite."""
     # Инициализация базы данных
-    db = Database()
+    db = Database(path="bot.db")  # Используем относительный путь
     conn = db.conn
     conn.row_factory = sqlite3.Row
 
@@ -124,7 +124,7 @@ def migrate_data():
 
 def verify_migration():
     """Проверка корректности миграции."""
-    db = Database()
+    db = Database(path="bot.db")  # Используем относительный путь
     conn = db.conn
 
     # Проверка пользователей
@@ -148,11 +148,6 @@ def verify_migration():
     print(f"Количество реферальных записей: {referral_count}")
 
 if __name__ == "__main__":
-    # Создаем директорию, если её нет
-    if not os.path.exists(DATA_DIR):
-        os.makedirs(DATA_DIR)
-        print(f"Создана директория {DATA_DIR}")
-
     # Выполняем миграцию
     migrate_data()
 
