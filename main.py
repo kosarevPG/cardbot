@@ -331,13 +331,20 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
             if "choices" in data and data["choices"]:
                 question_text = data["choices"][0]["message"]["content"].strip()
                 return f"Вопрос ({step}/3): {question_text}"
-            return "Что ещё ты можешь сказать о своих ассоциациях с картой?"
+            # Если API вернул пустой ответ, используем универсальный вопрос
+            raise Exception("Пустой ответ от API")
         else:
             logging.error(f"Ошибка API Grok: {response.status_code}, {response.text}")
-            return "Что ещё ты можешь сказать о своих ассоциациях с картой?"
+            raise Exception("Ошибка API")
     except Exception as e:
         logging.error(f"Не удалось вызвать API Grok: {e}")
-        return "Что ещё ты можешь сказать о своих ассоциациях с картой?"
+        # Возвращаем один из трёх универсальных вопросов в зависимости от шага
+        universal_questions = {
+            1: "Какие чувства или эмоции вызывает у тебя этот образ?",
+            2: "Как этот образ связан с тем, что происходит в твоей жизни сейчас?",
+            3: "Что бы ты хотела изменить или добавить к этому образу, чтобы он стал ближе к твоему запросу?"
+        }
+        return f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё ты можешь сказать о своих ассоциациях с картой?')}"
 
 # Команда /start
 @dp.message(Command("start"))
