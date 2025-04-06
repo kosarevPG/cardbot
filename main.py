@@ -26,7 +26,6 @@ TIMEZONE = pytz.timezone("Europe/Moscow")
 ADMIN_ID = 6682555021
 GROK_API_KEY = "xai-evhYnqiJGigtW5fiRU28PVovE11kfvkNlg0PnYtF6Iv1jGLFiar6YyePD9L45Qbl7LoGJwJfx6haZktx"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-GROK_USERS = [6682555021, 392141189, 239719200]
 NO_CARD_LIMIT_USERS = [6682555021, 392141189, 239719200]
 
 # Инициализация бота
@@ -48,7 +47,7 @@ class UserState(StatesGroup):
     waiting_for_no_response = State()
     waiting_for_first_grok_response = State()
     waiting_for_second_grok_response = State()
-    waiting_for_third_grok_response = State()  # Новое состояние для третьего ответа
+    waiting_for_third_grok_response = State()
 
 # Файлы для хранения данных
 DATA_DIR = "/data"
@@ -142,7 +141,7 @@ for user_id, timestamp in LAST_REQUEST.items():
 
 logging.debug("Данные инициализированы.")
 
-# Список советов (REFLECTION_QUESTIONS удален, так как больше не используется)
+# Список советов
 UNIVERSE_ADVICE = [
     "<b>💌 Ты — источник силы.</b> Всё, что тебе нужно, уже внутри. Просто доверься себе и сделай первый шаг.",
     "<b>💌 Дыши глубже.</b> В каждом вдохе — возможность начать заново.",
@@ -253,7 +252,21 @@ async def suggest_reminder(user_id, state: FSMContext):
         except Exception as e:
             logging.error(f"Не удалось предложить напоминание пользователю {user_id}: {e}")
 
-# Функция для запроса к Grok API (добавлен step=3)
+# Функция для отправки отложенного вопроса через 2 минуты
+async def send_delayed_feedback_question(user_id, card_number):
+    await asyncio.sleep(120)  # Задержка в 2 минуты (120 секунд)
+    name = USER_NAMES.get(user_id, "")
+    feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"), InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
+    ])
+    text = f"{name}, ...довольна ли ты сегодняшней картой?" if name else "...довольна ли ты сегодняшней картой?"
+    try:
+        await bot.send_message(user_id, text, reply_markup=feedback_keyboard, protect_content=True)
+        await save_user_action(user_id, "delayed_feedback_prompt", {"card_number": card_number})
+    except Exception as e:
+        logging.error(f"Не удалось отправить отложенный вопрос пользователю {user_id}: {e}")
+
+# Функция для запроса к Grok API
 async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None):
     headers = {
         "Authorization": f"Bearer {GROK_API_KEY}",
@@ -608,7 +621,6 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
     logging.info(f"Обрабатываем callback 'draw_card' для user_id={user_id}")
 
     try:
-        # Получаем список уже выпавших карт для пользователя
         used_cards = USER_CARDS.get(user_id, [])
         all_cards = list(range(1, 41))
         available_cards = [card for card in all_cards if card not in used_cards]
@@ -640,15 +652,8 @@ async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
         LAST_REQUEST[user_id] = now
         save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
 
-        # Заменяем REFLECTION_QUESTIONS на фиксированный вопрос
         text = f"{name}, ...как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "...как этот образ отвечает на твой запрос? Напиши свои мысли!"
         await callback.message.answer(text, protect_content=True)
-
-        feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"), InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
-        ])
-        text = f"{name}, эта карта тебе откликается?" if name else "Эта карта тебе откликается?"
-        await callback.message.answer(text, reply_markup=feedback_keyboard, protect_content=True)
 
         await save_user_action(user_id, "card_request", {"card_number": card_number})
 
@@ -706,15 +711,8 @@ async def process_request_text(message: types.Message, state: FSMContext):
         LAST_REQUEST[user_id] = now
         save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
 
-        # Заменяем REFLECTION_QUESTIONS на фиксированный вопрос
         text = f"{name}, ...как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "...как этот образ отвечает на твой запрос? Напиши свои мысли!"
         await message.answer(text, protect_content=True)
-
-        feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"), InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
-        ])
-        text = f"{name}, эта карта тебе откликается?" if name else "Эта карта тебе откликается?"
-        await message.answer(text, reply_markup=feedback_keyboard, protect_content=True)
 
         await save_user_action(user_id, "card_request", {"card_number": card_number})
 
@@ -744,7 +742,7 @@ async def handle_bonus_request(message: types.Message, state: FSMContext):
 
     await save_user_action(user_id, "bonus_request", {"advice": advice})
 
-# Обработка обратной связи по картам
+# Обработка обратной связи по картам (перенесена на отложенный вызов)
 @dp.callback_query(lambda c: c.data.startswith("feedback_"))
 async def process_feedback(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -773,7 +771,7 @@ async def process_feedback(callback: types.CallbackQuery, state: FSMContext):
 
     await callback.answer()
 
-# Обработка ответа после "Да"
+# Обработка ответа после "Да" (Grok для всех)
 @dp.message(UserState.waiting_for_yes_response)
 async def process_yes_response(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -790,13 +788,10 @@ async def process_yes_response(message: types.Message, state: FSMContext):
         "response": response_text
     })
 
-    if user_id in GROK_USERS:
-        grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Да", step=1)
-        await message.answer(grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-        await state.update_data(first_grok_question=grok_question, response_text=response_text)
-        await state.set_state(UserState.waiting_for_first_grok_response)
-    else:
-        await state.clear()
+    grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Да", step=1)
+    await message.answer(grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.update_data(first_grok_question=grok_question, response_text=response_text)
+    await state.set_state(UserState.waiting_for_first_grok_response)
 
 @dp.message(UserState.waiting_for_first_grok_response)
 async def process_first_grok_yes_response(message: types.Message, state: FSMContext):
@@ -857,20 +852,23 @@ async def process_third_grok_yes_response(message: types.Message, state: FSMCont
     data = await state.get_data()
     card_number = data.get("card_number")
     user_request = data.get("user_request", "")
-    third_grok_question = data.get("third_grok_question")
 
     await save_user_action(user_id, "third_grok_response", {
         "card_number": card_number,
         "request": user_request,
-        "third_question": third_grok_question,
+        "third_question": data.get("third_grok_question"),
         "response": third_response
     })
 
     text = "Спасибо, что поделилась!"
     await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    
+    # Запускаем отложенный вопрос через 2 минуты
+    asyncio.create_task(send_delayed_feedback_question(user_id, card_number))
+    
     await state.clear()
 
-# Обработка ответа после "Нет"
+# Обработка ответа после "Нет" (Grok для всех)
 @dp.message(UserState.waiting_for_no_response)
 async def process_no_response(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -887,13 +885,10 @@ async def process_no_response(message: types.Message, state: FSMContext):
         "response": response_text
     })
 
-    if user_id in GROK_USERS:
-        grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Нет", step=1)
-        await message.answer(grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-        await state.update_data(first_grok_question=grok_question, response_text=response_text)
-        await state.set_state(UserState.waiting_for_first_grok_response)
-    else:
-        await state.clear()
+    grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Нет", step=1)
+    await message.answer(grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
+    await state.update_data(first_grok_question=grok_question, response_text=response_text)
+    await state.set_state(UserState.waiting_for_first_grok_response)
 
 @dp.message(UserState.waiting_for_first_grok_response)
 async def process_first_grok_no_response(message: types.Message, state: FSMContext):
@@ -954,17 +949,20 @@ async def process_third_grok_no_response(message: types.Message, state: FSMConte
     data = await state.get_data()
     card_number = data.get("card_number")
     user_request = data.get("user_request", "")
-    third_grok_question = data.get("third_grok_question")
 
     await save_user_action(user_id, "third_grok_response", {
         "card_number": card_number,
         "request": user_request,
-        "third_question": third_grok_question,
+        "third_question": data.get("third_grok_question"),
         "response": third_response
     })
 
     text = "Спасибо, что поделилась!"
     await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    
+    # Запускаем отложенный вопрос через 2 минуты
+    asyncio.create_task(send_delayed_feedback_question(user_id, card_number))
+    
     await state.clear()
 
 # Запуск бота
