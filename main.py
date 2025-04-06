@@ -1,9 +1,10 @@
 import asyncio
 from aiogram import Bot, Dispatcher, types
-from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.context import FSMContext  # Импорт FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage  # Хранилище состояний
 from config import TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK, TIMEZONE
 from database.db import Database
 from modules.logging_service import LoggingService
@@ -15,7 +16,8 @@ from datetime import datetime
 
 # Инициализация
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
+storage = MemoryStorage()  # Добавляем хранилище состояний
+dp = Dispatcher(storage=storage)  # Передаём хранилище в Dispatcher
 db = Database()
 logger = LoggingService(db)
 notifier = NotificationService(bot, db)
@@ -134,13 +136,13 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
 
 # Обработка "Карта дня"
-dp.message.register(lambda m: handle_card_request(m, m.state, db, logger), lambda m: m.text == "✨ Карта дня")
-dp.callback_query.register(lambda c: draw_card(c, c.state, db, logger), lambda c: c.data == "draw_card")
-dp.message.register(lambda m: process_request_text(m, m.state, db, logger), UserState.waiting_for_request_text)
-dp.message.register(lambda m: process_initial_response(m, m.state, db, logger), UserState.waiting_for_initial_response)
-dp.message.register(lambda m: process_first_grok_response(m, m.state, db, logger), UserState.waiting_for_first_grok_response)
-dp.message.register(lambda m: process_second_grok_response(m, m.state, db, logger), UserState.waiting_for_second_grok_response)
-dp.message.register(lambda m: process_third_grok_response(m, m.state, db, logger), UserState.waiting_for_third_grok_response)
+dp.message.register(handle_card_request, lambda m: m.text == "✨ Карта дня")
+dp.callback_query.register(draw_card, lambda c: c.data == "draw_card")
+dp.message.register(process_request_text, UserState.waiting_for_request_text)
+dp.message.register(process_initial_response, UserState.waiting_for_initial_response)
+dp.message.register(process_first_grok_response, UserState.waiting_for_first_grok_response)
+dp.message.register(process_second_grok_response, UserState.waiting_for_second_grok_response)
+dp.message.register(process_third_grok_response, UserState.waiting_for_third_grok_response)
 
 # Обработка "Подсказка Вселенной"
 @dp.message(lambda m: m.text == "💌 Подсказка Вселенной")
