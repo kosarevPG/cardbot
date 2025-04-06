@@ -3,7 +3,12 @@ from aiogram.fsm.state import State, StatesGroup
 class UserState(StatesGroup):
     waiting_for_name = State()
     waiting_for_reminder_time = State()
-    # ... остальные состояния
+    waiting_for_feedback = State()
+    waiting_for_request_text = State()
+    waiting_for_initial_response = State()
+    waiting_for_first_grok_response = State()
+    waiting_for_second_grok_response = State()
+    waiting_for_third_grok_response = State()
 
 class UserManager:
     def __init__(self, db):
@@ -14,3 +19,6 @@ class UserManager:
 
     async def set_reminder(self, user_id, time):
         self.db.update_user(user_id, {"reminder_time": time})
+
+    async def set_bonus_available(self, user_id, value):
+        self.db.update_user(user_id, {"bonus_available": value})
