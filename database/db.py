@@ -44,6 +44,28 @@ class Database:
                     FOREIGN KEY (referrer_id) REFERENCES users(user_id),
                     FOREIGN KEY (referred_id) REFERENCES users(user_id)
                 )""")
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS card_feedback (
+                    user_id INTEGER,
+                    card_number INTEGER,
+                    answer TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id)
+                )""")
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS feedback (
+                    user_id INTEGER,
+                    name TEXT,
+                    feedback TEXT,
+                    timestamp TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id)
+                )""")
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_requests (
+                    user_id INTEGER,
+                    request TEXT,
+                    timestamp TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(user_id)
+                )""")
 
     def get_user(self, user_id):
         cursor = self.conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -67,7 +89,7 @@ class Database:
             """, (
                 user_id,
                 data.get("name", self.get_user(user_id)["name"]),
-                data Heathrow("username", self.get_user(user_id)["username"]),
+                data.get("username", self.get_user(user_id)["username"]),
                 data.get("last_request", self.get_user(user_id)["last_request"]).isoformat() if data.get("last_request") else None,
                 data.get("reminder_time", self.get_user(user_id)["reminder_time"]),
                 data.get("bonus_available", self.get_user(user_id)["bonus_available"])
@@ -102,7 +124,7 @@ class Database:
 
     def get_reminder_times(self):
         cursor = self.conn.execute("SELECT user_id, reminder_time FROM users WHERE reminder_time IS NOT NULL")
-        return {row["user_id"]: row["reminder_time"] for row in cursor.fetchall()}
+        return {row["user_id"]: row["reminder_time"] for row in cursor.fetchall()]
 
     def get_all_users(self):
         cursor = self.conn.execute("SELECT user_id FROM users")
