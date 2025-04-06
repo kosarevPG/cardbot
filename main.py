@@ -587,7 +587,7 @@ async def handle_card_request(message: types.Message, state: FSMContext):
 
     last_request_time = LAST_REQUEST.get(user_id)
     if user_id != 392141189 and last_request_time and last_request_time.date() == today:
-        text = f"{name}, ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3)." if name else "Ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3)."
+        text = f"{name}, ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3). А пока попробуй /share — поделись с друзьями и получи бонус или оставь отзыв /feedback, чтобы я смог стать полезнее для тебя!" if name else "Ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3). А пока попробуй /share — поделись с друзьями и получи бонус или оставь отзыв /feedback, чтобы я смог стать полезнее для тебя!"
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         return
 
