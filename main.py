@@ -705,7 +705,7 @@ async def process_request_text(message: types.Message, state: FSMContext):
         LAST_REQUEST[user_id] = now
         save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
 
-        text = f"{name}, ...как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "...как этот образ отвечает на твой запрос? Напиши свои мысли!"
+        text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
         await message.answer(text, protect_content=True)
 
         await save_user_action(user_id, "card_request", {"card_number": card_number})
@@ -909,7 +909,7 @@ async def process_no_response(message: types.Message, state: FSMContext):
 
 # Запуск бота
 async def main():
-    logging.info("Бот запускается...")
+    logging.info("Идет запуск...")
     asyncio.create_task(check_reminders())
     asyncio.create_task(check_broadcast())
     while True:
