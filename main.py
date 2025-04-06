@@ -1,353 +1,43 @@
-import random
-import logging
-import json
-import os
+import asyncio
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
-import asyncio
-from datetime import datetime, timedelta
-import pytz
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
-import requests
+from config import TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK, TIMEZONE
+from database.db import Database
+from modules.logging_service import LoggingService
+from modules.notification_service import NotificationService
+from modules.card_of_the_day import handle_card_request, draw_card, process_request_text, process_initial_response, process_first_grok_response, process_second_grok_response, process_third_grok_response, get_main_menu
+from modules.user_management import UserState, UserManager
+import random
+from datetime import datetime
 
-# Устанавливаем уровень логирования
-logging.basicConfig(level=logging.INFO)
-logging.debug("Запуск скрипта...")
-
-# Настройки
-TOKEN = "8054930534:AAFDdyp5_xiX0ZPQnSEZKpfOhk2PCdchKvg"
-CHANNEL_ID = "@TopPsyGame"
-BOT_LINK = "t.me/choose_a_card_bot"
-TIMEZONE = pytz.timezone("Europe/Moscow")
-ADMIN_ID = 6682555021
-GROK_API_KEY = "xai-evhYnqiJGigtW5fiRU28PVovE11kfvkNlg0PnYtF6Iv1jGLFiar6YyePD9L45Qbl7LoGJwJfx6haZktx"
-GROK_API_URL = "https://api.x.ai/v1/chat/completions"
-NO_CARD_LIMIT_USERS = [6682555021, 392141189, 239719200]
-
-# Инициализация бота
-bot = Bot(
-    token=TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
+# Инициализация
+bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
-
-logging.debug("Бот и диспетчер инициализированы.")
-
-# Состояния для FSM
-class UserState(StatesGroup):
-    waiting_for_name = State()
-    waiting_for_reminder_time = State()
-    waiting_for_feedback = State()
-    waiting_for_request_text = State()
-    waiting_for_initial_response = State()
-    waiting_for_first_grok_response = State()
-    waiting_for_second_grok_response = State()
-    waiting_for_third_grok_response = State()
-
-# Файлы для хранения данных
-DATA_DIR = "/data"
-LAST_REQUEST_FILE = f"{DATA_DIR}/last_request.json"
-USER_NAMES_FILE = f"{DATA_DIR}/user_names.json"
-REFERRALS_FILE = f"{DATA_DIR}/referrals.json"
-BONUS_AVAILABLE_FILE = f"{DATA_DIR}/bonus_available.json"
-REMINDER_TIMES_FILE = f"{DATA_DIR}/reminder_times.json"
-STATS_FILE = f"{DATA_DIR}/card_feedback.json"
-FEEDBACK_FILE = f"{DATA_DIR}/feedback.json"
-USER_ACTIONS_FILE = f"{DATA_DIR}/user_actions.json"
-USER_REQUESTS_FILE = f"{DATA_DIR}/user_requests.json"
-USER_CARDS_FILE = f"{DATA_DIR}/user_cards.json"
-
-# Создаем папку, если её нет
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-
-logging.debug("Пути к файлам определены, директория создана при необходимости.")
-
-# Функции для работы с JSON
-def load_json(file_path, default):
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            data = json.load(f)
-            if isinstance(data, dict):
-                return {int(k) if k.isdigit() else k: v for k, v in data.items()}
-            return data
-    return default
-
-def save_json(file_path, data):
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=2)
-    logging.info(f"Сохранен файл {file_path}: {os.listdir(DATA_DIR)}")
-
-# Функция для загрузки логов
-def load_user_actions():
-    return load_json(USER_ACTIONS_FILE, [])
-
-# Функция для записи логов (добавление, а не перезапись)
-async def save_user_action(user_id, action, details=None):
-    user_actions = load_user_actions()
-    chat = await bot.get_chat(user_id)
-    username = chat.username if chat.username else ""
-    name = USER_NAMES.get(user_id, "")
-    timestamp = datetime.now(TIMEZONE).isoformat()
-    log_entry = {
-        "user_id": user_id,
-        "username": username,
-        "name": name,
-        "action": action,
-        "details": details or {},
-        "timestamp": timestamp
-    }
-    user_actions.append(log_entry)
-    save_json(USER_ACTIONS_FILE, user_actions)
-    logging.info(f"Записано действие для пользователя {user_id}: {action}, детали: {details}")
-
-# Функция для получения логов за текущий день
-def get_logs_for_today():
-    user_actions = load_user_actions()
-    today = datetime.now(TIMEZONE).date()
-    logs_today = [log for log in user_actions if datetime.fromisoformat(log["timestamp"]).astimezone(TIMEZONE).date() == today]
-    logs_today.sort(key=lambda x: x["timestamp"])
-    return logs_today
-
-# Функция для получения последнего действия пользователя
-def get_last_action(user_id):
-    user_actions = load_user_actions()
-    user_actions = [action for action in user_actions if action["user_id"] == user_id]
-    if not user_actions:
-        return None
-    user_actions.sort(key=lambda x: x["timestamp"], reverse=True)
-    return user_actions[0]
-
-logging.debug("Функции JSON определены.")
-
-# Инициализация данных
-LAST_REQUEST = load_json(LAST_REQUEST_FILE, {})
-USER_NAMES = load_json(USER_NAMES_FILE, {})
-REFERRALS = load_json(REFERRALS_FILE, {})
-BONUS_AVAILABLE = load_json(BONUS_AVAILABLE_FILE, {})
-REMINDER_TIMES = load_json(REMINDER_TIMES_FILE, {})
-FEEDBACK = load_json(FEEDBACK_FILE, {})
-USER_ACTIONS = load_user_actions()
-USER_REQUESTS = load_json(USER_REQUESTS_FILE, {})
-USER_CARDS = load_json(USER_CARDS_FILE, {})
-
-for user_id, timestamp in LAST_REQUEST.items():
-    LAST_REQUEST[user_id] = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone(TIMEZONE)
-
-logging.debug("Данные инициализированы.")
-
-# Список советов
-UNIVERSE_ADVICE = [
-    "<b>💌 Ты — источник силы.</b> Всё, что тебе нужно, уже внутри. Просто доверься себе и сделай первый шаг.",
-    "<b>💌 Дыши глубже.</b> В каждом вдохе — возможность начать заново.",
-    "<b>💌 Маленькие шаги ведут к большим вершинам.</b> Начни с того, что можешь сделать прямо сейчас.",
-    "<b>💌 Вселенная всегда на твоей стороне.</b> Даже если сейчас это не очевидно.",
-    "<b>💌 Отпусти контроль.</b> Иногда лучшее решение — довериться течению.",
-    "<b>💌 Ты сильнее, чем думаешь.</b> Вспомни, сколько ты уже преодолела.",
-    "<b>💌 Слушай своё сердце.</b> Оно знает путь, даже если разум сомневается.",
-    "<b>💌 Каждый момент — это подарок.</b> Найди в нём что-то ценное.",
-    "<b>💌 Ты не одна.</b> Вселенная поддерживает тебя через людей, знаки и случайности.",
-    "<b>💌 Будь мягче к себе.</b> Ты делаешь лучшее, на что способна прямо сейчас.",
-    "<b>💌 Всё временно.</b> И трудности, и радости — это лишь часть пути.",
-    "<b>💌 Задавай вопросы.</b> Ответы приходят, когда ты готова их услышать.",
-    "<b>💌 Ты достойна всего хорошего.</b> Просто потому, что ты есть.",
-    "<b>💌 Ищи свет.</b> Даже в темноте всегда есть искры надежды.",
-    "<b>💌 Твоя интуиция — твой компас.</b> Доверяй ей, она не подведёт.",
-    "<b>💌 Отдых — это сила.</b> Позволь себе остановиться и восстановиться.",
-    "<b>💌 Ты растешь.</b> Каждый опыт — это шаг к твоей лучшей версии.",
-    "<b>💌 Будь здесь и сейчас.</b> Всё, что нужно, уже с тобой в этом моменте.",
-    "<b>💌 Смелость — твоя природа.</b> Сделай то, что пугает, и увидишь, как открываются новые горизонты.",
-    "<b>💌 Ресурсы не заканчиваются, они перетекают.</b> Подключись к потоку жизни и доверься её ритму."
-]
-
-# Загрузка и сохранение статистики
-def load_stats():
-    return load_json(STATS_FILE, {"users": {}, "total": {"yes": 0, "no": 0}})
-
-def save_stats(stats):
-    save_json(STATS_FILE, stats)
-
-# Генерация главного меню
-def get_main_menu(user_id):
-    keyboard = [
-        [KeyboardButton(text="✨ Карта дня")]
-    ]
-    if BONUS_AVAILABLE.get(user_id, False):
-        keyboard.append([KeyboardButton(text="💌 Подсказка Вселенной")])
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
+db = Database()
+logger = LoggingService(db)
+notifier = NotificationService(bot, db)
+user_manager = UserManager(db)
 
 # Middleware для проверки подписки
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
         if isinstance(event, types.Message):
             user_id = event.from_user.id
-            name = USER_NAMES.get(user_id, "")
             try:
                 user_status = await bot.get_chat_member(CHANNEL_ID, user_id)
                 if user_status.status not in ["member", "administrator", "creator"]:
-                    text = f"{name}, привет! Чтобы начать, подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!" if name else "Привет! Чтобы начать, подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!"
-                    await event.answer(text, disable_web_page_preview=True, protect_content=True)
+                    name = db.get_user(user_id)["name"]
+                    text = f"{name}, привет! Подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!" if name else "Привет! Подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!"
+                    await event.answer(text, disable_web_page_preview=True)
                     return
-            except Exception as e:
-                logging.error(f"Ошибка проверки подписки: {e}")
-                await event.answer("Ой, что-то сломалось... Попробуй позже.", protect_content=True)
+            except Exception:
+                await event.answer("Ой, что-то сломалось... Попробуй позже.")
                 return
         return await handler(event, data)
 
 dp.message.middleware(SubscriptionMiddleware())
-
-# Рассылка сообщений и проверка напоминаний
-BROADCAST = {
-    "datetime": datetime(2025, 4, 6, 2, 8, tzinfo=TIMEZONE),
-    "text": "Привет! У нас обновления:  \n✨ \"Карта дня\" теперь доступна раз в сутки с 00:00 по Москве (UTC+3) — проверка идёт по дате, а не по 24 часам от последнего запроса.  \n⚙️ Теперь вместо кнопок используй команды: /name, /remind, /share, /feedback.  \nОтправь /start, чтобы увидеть всё новое!",
-    "recipients": [6682555021]
-}
-BROADCAST_SENT = False
-
-async def check_broadcast():
-    global BROADCAST_SENT
-    while True:
-        now = datetime.now(TIMEZONE)
-        if not BROADCAST_SENT and now >= BROADCAST["datetime"]:
-            recipients = USER_NAMES.keys() if BROADCAST["recipients"] == "all" else BROADCAST["recipients"]
-            for user_id in recipients:
-                name = USER_NAMES.get(user_id, "")
-                text = f"{name}, {BROADCAST['text']}" if name else BROADCAST["text"]
-                try:
-                    await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
-                except Exception as e:
-                    logging.error(f"Не удалось отправить рассылку пользователю {user_id}: {e}")
-            BROADCAST_SENT = True
-        await asyncio.sleep(60)
-
-async def check_reminders():
-    while True:
-        now = datetime.now(TIMEZONE)
-        current_time = now.strftime("%H:%M")
-        today = now.date()
-        for user_id, reminder_time in list(REMINDER_TIMES.items()):
-            reminder_time_normalized = datetime.strptime(reminder_time, "%H:%M").strftime("%H:%M")
-            last_request_time = LAST_REQUEST.get(user_id)
-            card_available = not last_request_time or last_request_time.date() < today
-            if current_time == reminder_time_normalized and card_available:
-                name = USER_NAMES.get(user_id, "")
-                text = f"{name}, привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!" if name else "Привет! Пришло время вытянуть свою карту дня. ✨ Она уже ждет тебя!"
-                try:
-                    await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
-                except Exception as e:
-                    logging.error(f"Не удалось отправить напоминание пользователю {user_id}: {e}")
-        await asyncio.sleep(60)
-
-async def suggest_reminder(user_id, state: FSMContext):
-    name = USER_NAMES.get(user_id, "")
-    if user_id not in REMINDER_TIMES:
-        text = f"{name}, если хочешь, я могу напоминать тебе о карте дня! Используй /remind, чтобы установить время." if name else "Если хочешь, я могу напоминать тебе о карте дня! Используй /remind, чтобы установить время."
-        try:
-            await bot.send_message(user_id, text, reply_markup=get_main_menu(user_id), protect_content=True)
-        except Exception as e:
-            logging.error(f"Не удалось предложить напоминание пользователю {user_id}: {e}")
-
-# Функция для отправки отложенного вопроса через 2 минуты
-async def send_delayed_feedback_question(user_id, card_number):
-    await asyncio.sleep(120)  # Задержка в 2 минуты (120 секунд)
-    name = USER_NAMES.get(user_id, "")
-    feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"),
-         InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
-    ])
-    text = f"{name}, была ли сегодняшняя карта для тебя полезна?" if name else "Была ли сегодняшняя карта для тебя полезна?"
-    try:
-        await bot.send_message(user_id, text, reply_markup=feedback_keyboard, protect_content=True)
-        await save_user_action(user_id, "delayed_feedback_prompt", {"card_number": card_number})
-    except Exception as e:
-        logging.error(f"Не удалось отправить отложенный вопрос пользователю {user_id}: {e}")
-
-# Функция для запроса к Grok API с таймаутом и запасными вопросами
-async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None):
-    headers = {
-        "Authorization": f"Bearer {GROK_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    user_requests = load_json(USER_REQUESTS_FILE, {})
-    user_actions = load_user_actions()
-    card_history = [action for action in user_actions if action["user_id"] == user_id and action["action"] in ["card_request", "yes_response", "no_response"]]
-    
-    system_prompt = (
-        "Ты работаешь с метафорическими ассоциативными картами (МАК). "
-        "На основе запроса пользователя, его ответа после реакции на карту и истории взаимодействий, "
-        "задай один открытый вопрос для рефлексии. Не интерпретируй карту, "
-        "только помоги пользователю глубже исследовать свои ассоциации. "
-        "Вопрос должен быть кратким и связанным с контекстом."
-    )
-    
-    if step == 1:
-        user_prompt = (
-            f"Запрос пользователя: '{user_request}'. "
-            f"Ответ пользователя на карту: '{user_response}'. "
-            f"Реакция на карту: '{feedback_type}'. "
-            f"История запросов и ответов: {json.dumps(card_history, ensure_ascii=False)}."
-        )
-    elif step == 2:
-        user_prompt = (
-            f"Запрос пользователя: '{user_request}'. "
-            f"Ответ пользователя на карту: '{user_response}'. "
-            f"Реакция на карту: '{feedback_type}'. "
-            f"Первый вопрос Grok: '{previous_responses['first_question']}'. "
-            f"Ответ на первый вопрос: '{previous_responses['first_response']}'. "
-            f"История запросов и ответов: {json.dumps(card_history, ensure_ascii=False)}."
-        )
-    elif step == 3:
-        user_prompt = (
-            f"Запрос пользователя: '{user_request}'. "
-            f"Ответ пользователя на карту: '{user_response}'. "
-            f"Реакция на карту: '{feedback_type}'. "
-            f"Первый вопрос Grok: '{previous_responses['first_question']}'. "
-            f"Ответ на первый вопрос: '{previous_responses['first_response']}'. "
-            f"Второй вопрос Grok: '{previous_responses['second_question']}'. "
-            f"Ответ на второй вопрос: '{previous_responses['second_response']}'. "
-            f"История запросов и ответов: {json.dumps(card_history, ensure_ascii=False)}."
-        )
-    
-    payload = {
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        "model": "grok-2-latest",
-        "max_tokens": 50,
-        "stream": False,
-        "temperature": 0
-    }
-    
-    # Универсальные вопросы без префикса
-    universal_questions = {
-        1: "Какие чувства или эмоции вызывает у тебя этот образ?",
-        2: "Как этот образ связан с тем, что происходит в твоей жизни сейчас?",
-        3: "Что бы ты хотела изменить или добавить к этому образу, чтобы он стал ближе к твоему запросу?"
-    }
-    
-    try:
-        # Используем requests с таймаутом 10 секунд
-        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=10)
-        response.raise_for_status()  # Вызывает исключение для кодов 4xx/5xx
-        data = response.json()
-        if "choices" in data and data["choices"]:
-            question_text = data["choices"][0]["message"]["content"].strip()
-            # Удаляем префикс "Вопрос (X/3): ", если он уже есть в ответе API
-            if question_text.startswith(f"Вопрос ({step}/3): "):
-                question_text = question_text[len(f"Вопрос ({step}/3): "):].strip()
-            return f"Вопрос ({step}/3): {question_text}"
-        else:
-            logging.warning(f"Пустой ответ от Grok API для user_id={user_id}")
-            return f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё ты можешь сказать о своих ассоциациях с картой?')}"
-    except Exception as e:
-        logging.error(f"Ошибка вызова Grok API для user_id={user_id}: {e}")
-        return f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё ты можешь сказать о своих ассоциациях с картой?')}"
 
 # Команда /start
 @dp.message(Command("start"))
@@ -355,547 +45,127 @@ async def start_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     args = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
     
-    await save_user_action(user_id, "start", {"args": args})
+    await logger.log_action(user_id, "start", {"args": args})
 
     if args.startswith("ref_"):
-        try:
-            referrer_id = int(args[4:])
-            if referrer_id != user_id and referrer_id not in REFERRALS.get(user_id, []):
-                REFERRALS.setdefault(referrer_id, []).append(user_id)
-                save_json(REFERRALS_FILE, REFERRALS)
-                if not BONUS_AVAILABLE.get(referrer_id, False):
-                    BONUS_AVAILABLE[referrer_id] = True
-                    save_json(BONUS_AVAILABLE_FILE, BONUS_AVAILABLE)
-                    referrer_name = USER_NAMES.get(referrer_id, "")
-                    text = f"{referrer_name}, ура! Кто-то открыл карту по твоей ссылке! Возьми '💌 Подсказку Вселенной'." if referrer_name else "Ура! Кто-то открыл карту по твоей ссылке! Возьми '💌 Подсказку Вселенной'."
-                    await bot.send_message(referrer_id, text, reply_markup=get_main_menu(referrer_id), protect_content=True)
-        except ValueError as e:
-            logging.error(f"Неверный ID реферера в аргументах: '{args}', ошибка: {e}")
+        referrer_id = int(args[4:])
+        if referrer_id != user_id and user_id not in db.get_referrals(referrer_id):
+            db.add_referral(referrer_id, user_id)
+            if not db.get_user(referrer_id)["bonus_available"]:
+                await user_manager.set_bonus_available(referrer_id, True)
+                name = db.get_user(referrer_id)["name"]
+                text = f"{name}, ура! Кто-то открыл карту по твоей ссылке! Возьми '💌 Подсказку Вселенной'." if name else "Ура! Кто-то открыл карту по твоей ссылке! Возьми '💌 Подсказку Вселенной'."
+                await bot.send_message(referrer_id, text, reply_markup=await get_main_menu(referrer_id, db))
 
-    if user_id not in USER_NAMES:
-        text = "Привет! Давай знакомиться! Как тебя зовут? (Если не хочешь, чтобы обращалась к тебе по имени - нажми пропустить)"
-        skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]])
-        await message.answer(text, reply_markup=skip_keyboard, protect_content=True)
+    if not db.get_user(user_id)["name"]:
+        await message.answer("Привет! Давай знакомиться! Как тебя зовут?", reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]
+        ]))
         await state.set_state(UserState.waiting_for_name)
     else:
-        await message.answer(
-            f"{USER_NAMES[user_id]}, рада тебя видеть! Нажми '✨ Карта дня' в меню." if USER_NAMES[user_id] else "Рада тебя видеть! Нажми '✨ Карта дня' в меню.",
-            reply_markup=get_main_menu(user_id),
-            protect_content=True
-        )
+        name = db.get_user(user_id)["name"]
+        await message.answer(f"{name}, рада тебя видеть! Нажми '✨ Карта дня'." if name else "Рада тебя видеть! Нажми '✨ Карта дня'.", reply_markup=await get_main_menu(user_id, db))
 
 # Команда /share
 @dp.message(Command("share"))
 async def share_command(message: types.Message):
     user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = db.get_user(user_id)["name"]
     ref_link = f"{BOT_LINK}?start=ref_{user_id}"
-    text = f"{name}, стань источником для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Стань источником для вдохновения! Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=False)
+    text = f"{name}, поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
+    await message.answer(text, reply_markup=await get_main_menu(user_id, db))
 
 # Команда /remind
 @dp.message(Command("remind"))
 async def remind_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    current_reminder = REMINDER_TIMES.get(user_id, "не установлено")
-    text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по Москве (UTC+3)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время в формате чч:мм (например, 10:00) по Москве (UTC+3)."
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    name = db.get_user(user_id)["name"]
+    current_reminder = db.get_user(user_id)["reminder_time"] or "не установлено"
+    text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)."
+    await message.answer(text, reply_markup=await get_main_menu(user_id, db))
     await state.set_state(UserState.waiting_for_reminder_time)
 
 # Команда /name
 @dp.message(Command("name"))
 async def name_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    text = f"{name}, как тебя зовут? Введи новое имя или нажми 'Пропустить', если не хочешь его менять." if name else "Как тебя зовут? Введи имя или нажми 'Пропустить', если не хочешь его указывать."
-    skip_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]])
-    await message.answer(text, reply_markup=skip_keyboard, protect_content=True)
+    name = db.get_user(user_id)["name"]
+    text = f"{name}, как тебя зовут? Введи новое имя или 'Пропустить'." if name else "Как тебя зовут? Введи имя или 'Пропустить'."
+    await message.answer(text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]
+    ]))
     await state.set_state(UserState.waiting_for_name)
 
-# Команда /feedback
-@dp.message(Command("feedback"))
-async def feedback_command(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    text = f"{name}, напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!" if name else "Напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!"
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.set_state(UserState.waiting_for_feedback)
-
-# Команда /logs
-@dp.message(Command("logs"))
-async def logs_command(message: types.Message):
-    user_id = message.from_user.id
-    if user_id != ADMIN_ID:
-        await message.answer("Эта команда доступна только администратору.", protect_content=True)
-        return
-
-    logs = load_user_actions()
-    if not logs:
-        await message.answer("Сегодня пока нет действий.", protect_content=True)
-        return
-
-    user_last_actions = {}
-    for log in logs:
-        user_id_log = log["user_id"]
-        user_last_actions[user_id_log] = log
-
-    sorted_logs = sorted(user_last_actions.values(), key=lambda x: x["timestamp"])
-
-    response = "*Последние действия пользователей за сегодня:*\n\n"
-    today = datetime.now(TIMEZONE).date()
-    for log in sorted_logs:
-        timestamp = datetime.fromisoformat(log["timestamp"]).astimezone(TIMEZONE)
-        if timestamp.date() != today:
-            continue
-        user_id_log = str(log["user_id"])
-        name = USER_NAMES.get(user_id_log, "Не указано")
-        action_type = log["action"]
-        details = log["details"]
-        details_str = " ".join(f"{k}: {v}" for k, v in details.items()) if details else "Нет деталей"
-
-        response += (
-            f"⏰ {timestamp}\n"
-            f"👤 *ID*: `{user_id_log}` ({name})\n"
-            f"   Действие: {action_type}\n"
-            f"   Детали: {details_str}\n\n"
-        )
-
-    MAX_MESSAGE_LENGTH = 4096
-    if len(response) <= MAX_MESSAGE_LENGTH:
-        await message.answer(response, parse_mode="Markdown", protect_content=True)
-    else:
-        parts = [response[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(response), MAX_MESSAGE_LENGTH)]
-        for part in parts:
-            await message.answer(part, parse_mode="Markdown", protect_content=True)
-            await asyncio.sleep(0.5)
-
-# Команда /users
-@dp.message(Command("users"))
-async def users_command(message: types.Message):
-    user_id = message.from_user.id
-    if user_id != ADMIN_ID:
-        await message.answer("Эта команда доступна только администратору.", protect_content=True)
-        return
-
-    if not USER_NAMES:
-        await message.answer("Активных пользователей нет.", protect_content=True)
-        return
-
-    def escape_markdown(text):
-        if not isinstance(text, str):
-            text = str(text)
-        characters_to_escape = r"_*[]()~`>#+-=|{}.!"
-        for char in characters_to_escape:
-            text = text.replace(char, f"\\{char}")
-        return text
-
-    stats = load_stats()
-    response = "*Список пользователей:*\n\n"
-    for user_id_key, name in USER_NAMES.items():
-        user_id_key_str = str(user_id_key)
-        user_stats = stats["users"].get(user_id_key_str, {"username": "", "responses": []})
-        username = user_stats.get("username", "")
-        last_request = LAST_REQUEST.get(user_id_key, "Нет данных")
-        if isinstance(last_request, datetime):
-            last_request = last_request.isoformat()
-        cards = user_stats.get("responses", [])
-        card_count = len(cards)
-        yes_count = len([r for r in cards if r["answer"] == "yes"])
-        yes_percent = (yes_count / card_count * 100) if card_count > 0 else 0
-        bonus = "✅" if BONUS_AVAILABLE.get(user_id_key, False) else "❌"
-        reminder = REMINDER_TIMES.get(user_id_key, "Не установлено")
-        ref_count = len(REFERRALS.get(user_id_key, []))
-        used_cards = USER_CARDS.get(user_id_key, [])
-        cards_used_count = len(used_cards)
-
-        name_escaped = escape_markdown(name or "Не указано")
-        username_escaped = escape_markdown(username or "Нет")
-        last_request_escaped = escape_markdown(last_request)
-        reminder_escaped = escape_markdown(reminder)
-
-        response += (
-            f"👤 *ID*: `{user_id_key}`\n"
-            f"   Имя: {name_escaped} (@{username_escaped})\n"
-            f"   Последний запрос: {last_request_escaped}\n"
-            f"   Карты: {card_count} (Да: {yes_percent:.1f}%, Использовано: {cards_used_count}/40)\n"
-            f"   Бонус: {bonus}\n"
-            f"   Напоминание: {reminder_escaped}\n"
-            f"   Рефералы: {ref_count}\n\n"
-        )
-
-    MAX_MESSAGE_LENGTH = 4096
-    if len(response) <= MAX_MESSAGE_LENGTH:
-        await message.answer(response, parse_mode="Markdown", protect_content=True)
-    else:
-        parts = [response[i:i + MAX_MESSAGE_LENGTH] for i in range(0, len(response), MAX_MESSAGE_LENGTH)]
-        for part in parts:
-            await message.answer(part, parse_mode="Markdown", protect_content=True)
-            await asyncio.sleep(0.5)
-
-# Обработка ввода имени
+# Обработка имени
 @dp.message(UserState.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = message.text.strip()
-    USER_NAMES[user_id] = name
-    save_json(USER_NAMES_FILE, USER_NAMES)
-    
-    await save_user_action(user_id, "set_name", {"name": name})
-
-    await message.answer(
-        f"{name}, рада тебя видеть! Нажми '✨ Карта дня' в меню.",
-        reply_markup=get_main_menu(user_id),
-        protect_content=True
-    )
+    await user_manager.set_name(user_id, name)
+    await logger.log_action(user_id, "set_name", {"name": name})
+    await message.answer(f"{name}, рада тебя видеть! Нажми '✨ Карта дня'.", reply_markup=await get_main_menu(user_id, db))
     await state.clear()
 
-# Обработка кнопки "Пропустить" для имени
 @dp.callback_query(lambda c: c.data == "skip_name")
 async def process_skip_name(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    USER_NAMES[user_id] = ""
-    save_json(USER_NAMES_FILE, USER_NAMES)
-    
-    await save_user_action(user_id, "skip_name")
-
-    await callback.message.answer(
-        "Хорошо, без имени тоже здорово! Выбери '✨ Карта дня' в меню!",
-        reply_markup=get_main_menu(user_id),
-        protect_content=True
-    )
+    await user_manager.set_name(user_id, "")
+    await logger.log_action(user_id, "skip_name")
+    await callback.message.answer("Хорошо, без имени тоже здорово! Выбери '✨ Карта дня'!", reply_markup=await get_main_menu(user_id, db))
     await state.clear()
     await callback.answer()
 
-# Обработка ввода времени напоминания
+# Обработка времени напоминания
 @dp.message(UserState.waiting_for_reminder_time)
 async def process_reminder_time(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
+    name = db.get_user(user_id)["name"]
     reminder_time = message.text.strip()
     try:
         reminder_time_normalized = datetime.strptime(reminder_time, "%H:%M").strftime("%H:%M")
-        REMINDER_TIMES[user_id] = reminder_time_normalized
-        save_json(REMINDER_TIMES_FILE, REMINDER_TIMES)
-        
-        await save_user_action(user_id, "set_reminder_time", {"reminder_time": reminder_time_normalized})
-
-        text = f"{name}, супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} по Москве (UTC+3)." if name else f"Супер! Я буду напоминать тебе о карте дня в {reminder_time_normalized} по Москве (UTC+3)."
-        await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+        await user_manager.set_reminder(user_id, reminder_time_normalized)
+        await logger.log_action(user_id, "set_reminder_time", {"reminder_time": reminder_time_normalized})
+        text = f"{name}, я буду напоминать тебе в {reminder_time_normalized} по Москве." if name else f"Я буду напоминать тебе в {reminder_time_normalized} по Москве."
+        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.clear()
     except ValueError:
-        text = f"{name}, кажется, время указано неверно. Попробуй ещё раз в формате чч:мм (например, 10:00)." if name else "Кажется, время указано неверно. Попробуй ещё раз в формате чч:мм (например, 10:00)."
-        await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-
-# Обработка ввода отзыва
-@dp.message(UserState.waiting_for_feedback)
-async def process_feedback_submission(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    feedback_text = message.text.strip()
-    FEEDBACK[user_id] = {"name": name, "feedback": feedback_text, "timestamp": datetime.now(TIMEZONE).isoformat()}
-    save_json(FEEDBACK_FILE, FEEDBACK)
-    
-    await save_user_action(user_id, "submit_feedback", {"feedback": feedback_text})
-
-    text = f"{name}, спасибо за твой отзыв! Я сохранила его." if name else "Спасибо за твой отзыв! Я сохранила его."
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.clear()
+        text = f"{name}, время указано неверно. Попробуй ещё раз (чч:мм)." if name else "Время указано неверно. Попробуй ещё раз (чч:мм)."
+        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
 
 # Обработка "Карта дня"
-@dp.message(lambda message: message.text == "✨ Карта дня")
-async def handle_card_request(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    now = datetime.now(TIMEZONE)
-    today = now.date()
+dp.message.register(lambda m: handle_card_request(m, m.state, db, logger), lambda m: m.text == "✨ Карта дня")
+dp.callback_query.register(lambda c: draw_card(c, c.state, db, logger), lambda c: c.data == "draw_card")
+dp.message.register(lambda m: process_request_text(m, m.state, db, logger), UserState.waiting_for_request_text)
+dp.message.register(lambda m: process_initial_response(m, m.state, db, logger), UserState.waiting_for_initial_response)
+dp.message.register(lambda m: process_first_grok_response(m, m.state, db, logger), UserState.waiting_for_first_grok_response)
+dp.message.register(lambda m: process_second_grok_response(m, m.state, db, logger), UserState.waiting_for_second_grok_response)
+dp.message.register(lambda m: process_third_grok_response(m, m.state, db, logger), UserState.waiting_for_third_grok_response)
 
-    last_request_time = LAST_REQUEST.get(user_id)
-    if user_id not in NO_CARD_LIMIT_USERS and last_request_time and last_request_time.date() == today:
-        text = f"{name}, ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3). А пока попробуй /share — поделись с друзьями и получи бонус или оставь отзыв /feedback, чтобы я смог стать полезнее для тебя!" if name else "Ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3). А пока попробуй /share — поделись с друзьями и получи бонус или оставь отзыв /feedback, чтобы я смог стать полезнее для тебя!"
-        await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+# Обработка "Подсказка Вселенной"
+@dp.message(lambda m: m.text == "💌 Подсказка Вселенной")
+async def handle_bonus_request(message: types.Message):
+    user_id = message.from_user.id
+    name = db.get_user(user_id)["name"]
+    if not db.get_user(user_id)["bonus_available"]:
+        text = f"{name}, этот совет пока спрятан! Используй /share, чтобы получить его." if name else "Этот совет пока спрятан! Используй /share, чтобы получить его."
+        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         return
-
-    text = f"{name}, давай вытянем карту осознанно! 🌿 Напиши свой вопрос (например, 'Как мне найти ресурс?'), чтобы ответ был глубже, или нажми 'Вытянуть карту'!" if name else "Давай вытянем карту осознанно! 🌿 Напиши свой вопрос (например, 'Как мне найти ресурс?'), чтобы ответ был глубже, или нажми 'Вытянуть карту'!"
-    draw_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Вытянуть карту", callback_data="draw_card")]])
-    await message.answer(text, reply_markup=draw_keyboard, protect_content=True)
-    await state.set_state(UserState.waiting_for_request_text)
-    logging.info(f"Отправлено сообщение 'Вытянуть карту' для user_id={user_id}")
-
-# Обработка нажатия кнопки "Вытянуть карту"
-@dp.callback_query(lambda c: c.data == "draw_card")
-async def process_draw_card(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    now = datetime.now(TIMEZONE)
-
-    logging.info(f"Обрабатываем callback 'draw_card' для user_id={user_id}")
-
-    try:
-        used_cards = USER_CARDS.get(user_id, [])
-        all_cards = list(range(1, 41))
-        available_cards = [card for card in all_cards if card not in used_cards]
-
-        if not available_cards:
-            used_cards = []
-            available_cards = all_cards.copy()
-            USER_CARDS[user_id] = used_cards
-            save_json(USER_CARDS_FILE, USER_CARDS)
-            logging.info(f"Все карты использованы для user_id={user_id}, список сброшен")
-
-        random.shuffle(available_cards)
-        card_number = available_cards[0]
-        used_cards.append(card_number)
-        USER_CARDS[user_id] = used_cards
-        save_json(USER_CARDS_FILE, USER_CARDS)
-
-        card_path = f"cards/card_{card_number}.jpg"
-        logging.debug(f"Попытка загрузить карту: {card_path}")
-
-        if not os.path.exists(card_path):
-            logging.error(f"Файл карты не найден: {card_path}")
-            await callback.message.answer("Ошибка: карта не найдена.", reply_markup=get_main_menu(user_id))
-            await state.clear()
-            return
-
-        photo = FSInputFile(card_path)
-        await bot.send_photo(user_id, photo, reply_markup=get_main_menu(user_id), protect_content=True)
-        LAST_REQUEST[user_id] = now
-        save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
-
-        text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
-        await callback.message.answer(text, protect_content=True)
-
-        await save_user_action(user_id, "card_request", {"card_number": card_number})
-
-        await state.update_data(card_number=card_number, user_request="")
-        await state.set_state(UserState.waiting_for_initial_response)  # Переход в новое состояние
-
-        await suggest_reminder(user_id, state)
-        logging.info(f"Карта {card_number} успешно отправлена для user_id={user_id}, использовано карт: {len(used_cards)}/40")
-    except Exception as e:
-        logging.error(f"Ошибка при отправке карты для user_id={user_id}: {e}")
-        await callback.message.answer("Что-то пошло не так... попробуй позже.", reply_markup=get_main_menu(user_id), protect_content=True)
-        await state.clear()
-    await callback.answer()
-
-# Обработка текста запроса
-@dp.message(UserState.waiting_for_request_text)
-async def process_request_text(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    request_text = message.text.strip()
-    now = datetime.now(TIMEZONE)
-
-    USER_REQUESTS[user_id] = {"request": request_text, "timestamp": now.isoformat()}
-    save_json(USER_REQUESTS_FILE, USER_REQUESTS)
-    await save_user_action(user_id, "set_request", {"request": request_text})
-
-    try:
-        used_cards = USER_CARDS.get(user_id, [])
-        all_cards = list(range(1, 41))
-        available_cards = [card for card in all_cards if card not in used_cards]
-
-        if not available_cards:
-            used_cards = []
-            available_cards = all_cards.copy()
-            USER_CARDS[user_id] = used_cards
-            save_json(USER_CARDS_FILE, USER_CARDS)
-            logging.info(f"Все карты использованы для user_id={user_id}, список сброшен")
-
-        random.shuffle(available_cards)
-        card_number = available_cards[0]
-        used_cards.append(card_number)
-        USER_CARDS[user_id] = used_cards
-        save_json(USER_CARDS_FILE, USER_CARDS)
-
-        card_path = f"cards/card_{card_number}.jpg"
-        logging.debug(f"Попытка загрузить карту: {card_path}")
-
-        if not os.path.exists(card_path):
-            logging.error(f"Файл карты не найден: {card_path}")
-            await message.answer("Ошибка: карта не найдена.", reply_markup=get_main_menu(user_id))
-            return
-
-        photo = FSInputFile(card_path)
-        await bot.send_photo(user_id, photo, reply_markup=get_main_menu(user_id), protect_content=True)
-        LAST_REQUEST[user_id] = now
-        save_json(LAST_REQUEST_FILE, {k: v.isoformat() for k, v in LAST_REQUEST.items()})
-
-        text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
-        await message.answer(text, protect_content=True)
-
-        await save_user_action(user_id, "card_request", {"card_number": card_number})
-
-        await state.update_data(card_number=card_number, user_request=request_text)
-        await state.set_state(UserState.waiting_for_initial_response)  # Переход в новое состояние
-
-        await suggest_reminder(user_id, state)
-        logging.info(f"Карта {card_number} успешно отправлена для user_id={user_id}, использовано карт: {len(used_cards)}/40")
-    except Exception as e:
-        logging.error(f"Ошибка при отправке карты: {e}")
-        await message.answer("Что-то пошло не так... попробуй позже.", reply_markup=get_main_menu(user_id), protect_content=True)
-        await state.clear()
-
-# Обработка первого ответа пользователя
-@dp.message(UserState.waiting_for_initial_response)
-async def process_initial_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    response_text = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-
-    await save_user_action(user_id, "initial_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "response": response_text
-    })
-
-    # Отправляем отложенный вопрос через 2 минуты
-    asyncio.create_task(send_delayed_feedback_question(user_id, card_number))
-
-    # Запрашиваем первый вопрос от Grok
-    grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Начало", step=1)
-    await message.answer(grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(first_grok_question=grok_question, initial_response=response_text)
-    await state.set_state(UserState.waiting_for_first_grok_response)
-
-# Обработка ответов на вопросы Grok
-@dp.message(UserState.waiting_for_first_grok_response)
-async def process_first_grok_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    first_response = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-    first_grok_question = data.get("first_grok_question")
-    initial_response = data.get("initial_response", "")
-
-    await save_user_action(user_id, "first_grok_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "first_question": first_grok_question,
-        "response": first_response
-    })
-
-    previous_responses = {"first_question": first_grok_question, "first_response": first_response}
-    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", initial_response, "Начало", step=2, previous_responses=previous_responses)
-    await message.answer(second_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(second_grok_question=second_grok_question, previous_responses=previous_responses)
-    await state.set_state(UserState.waiting_for_second_grok_response)
-
-@dp.message(UserState.waiting_for_second_grok_response)
-async def process_second_grok_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    second_response = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-    second_grok_question = data.get("second_grok_question")
-    previous_responses = data.get("previous_responses")
-
-    await save_user_action(user_id, "second_grok_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "second_question": second_grok_question,
-        "response": second_response
-    })
-
-    previous_responses.update({"second_question": second_grok_question, "second_response": second_response})
-    third_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", second_response, "Начало", step=3, previous_responses=previous_responses)
-    await message.answer(third_grok_question, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.update_data(third_grok_question=third_grok_question)
-    await state.set_state(UserState.waiting_for_third_grok_response)
-
-@dp.message(UserState.waiting_for_third_grok_response)
-async def process_third_grok_response(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    third_response = message.text.strip()
-    
-    data = await state.get_data()
-    card_number = data.get("card_number")
-    user_request = data.get("user_request", "")
-
-    await save_user_action(user_id, "third_grok_response", {
-        "card_number": card_number,
-        "request": user_request,
-        "third_question": data.get("third_grok_question"),
-        "response": third_response
-    })
-
-    text = "Благодарю за твои мысли!"
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    await state.clear()
-
-# Обработка "Совет от Вселенной"
-@dp.message(lambda message: message.text == "💌 Подсказка Вселенной")
-async def handle_bonus_request(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    name = USER_NAMES.get(user_id, "")
-    if not BONUS_AVAILABLE.get(user_id, False):
-        text = f"{name}, этот совет пока спрятан! Используй /share, чтобы получить его, когда кто-то зайдёт по твоей ссылке!" if name else "Этот совет пока спрятан! Используй /share, чтобы получить его, когда кто-то зайдёт по твоей ссылке!"
-        await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-        return
-
     advice = random.choice(UNIVERSE_ADVICE)
     text = f"{name}, вот послание для тебя:\n{advice}" if name else f"Вот послание для тебя:\n{advice}"
-    await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
+    await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+    await logger.log_action(user_id, "bonus_request", {"advice": advice})
 
-    await save_user_action(user_id, "bonus_request", {"advice": advice})
-
-# Обработка обратной связи по картам (отложенный вызов)
-@dp.callback_query(lambda c: c.data.startswith("feedback_"))
-async def process_feedback(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    username = callback.from_user.username or ""
-    name = USER_NAMES.get(user_id, "")
-    feedback, card_number = callback.data.split("_")[1], callback.data.split("_")[2]
-    stats = load_stats()
-
-    user_key = str(user_id)
-    if user_key not in stats["users"]:
-        stats["users"][user_key] = {"name": name, "username": username, "responses": []}
-    stats["users"][user_key]["responses"].append({"card": card_number, "answer": feedback})
-    stats["total"][feedback] += 1
-    save_stats(stats)
-
-    await save_user_action(user_id, "card_feedback", {"card_number": card_number, "feedback": feedback})
-
-    if feedback == "yes":
-        text = "Здорово! Жду тебя завтра!"
-        await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-    elif feedback == "no":
-        text = f"{name}, мне важно твое мнение! Оставь отзыв с помощью /feedback." if name else "Мне важно твое мнение! Оставь отзыв с помощью /feedback."
-        await callback.message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
-
-    await callback.answer()
-
-# Запуск бота
+# Запуск
 async def main():
-    logging.info("Идет запуск...")
-    asyncio.create_task(check_reminders())
-    asyncio.create_task(check_broadcast())
-    while True:
-        try:
-            await dp.start_polling(bot, skip_updates=True)
-        except Exception as e:
-            logging.error(f"Ошибка опроса: {e}, перезапуск через 10 секунд...")
-            await asyncio.sleep(10)
-        else:
-            break
+    db.bot = bot  # Передаем bot в db для логирования
+    asyncio.create_task(notifier.check_reminders())
+    broadcast_data = {
+        "datetime": datetime(2025, 4, 6, 2, 8, tzinfo=TIMEZONE),
+        "text": "Привет! У нас обновления: 'Карта дня' теперь доступна раз в сутки с 00:00 по Москве.",
+        "recipients": [6682555021]
+    }
+    asyncio.create_task(notifier.send_broadcast(broadcast_data))
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    try:
-        logging.debug("Запуск main...")
-        asyncio.run(main())
-    except Exception as e:
-        logging.error(f"Не удалось запустить бот: {e}")
-        raise
+    asyncio.run(main())
