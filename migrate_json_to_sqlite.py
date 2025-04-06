@@ -5,7 +5,7 @@ from datetime import datetime
 from config import TIMEZONE
 from database.db import Database
 
-# Пути к JSON-файлам (предполагаем, что они в корне проекта)
+# Пути к JSON-файлам (в директории data/)
 JSON_FILES = {
     "last_request": "data/last_request.json",
     "user_names": "data/user_names.json",
@@ -36,8 +36,24 @@ def load_json(file_path, default):
 
 def migrate_data():
     """Миграция данных из JSON в SQLite."""
+    # Создаём директорию database/, если она не существует
+    db_path = "database/bot.db"  # Локальный путь для миграции
+    db_dir = os.path.dirname(db_path)
+    if not os.path.exists(db_dir):
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+            print(f"Создана директория {db_dir}")
+        except Exception as e:
+            print(f"Не удалось создать директорию {db_dir}: {e}")
+            return
+
     # Инициализация базы данных
-    db = Database(path="/data/bot.db")  # Используем тот же путь, что и в db.py
+    try:
+        db = Database(path=db_path)
+    except Exception as e:
+        print(f"Не удалось открыть базу данных {db_path}: {e}")
+        return
+
     conn = db.conn
     conn.row_factory = sqlite3.Row
 
@@ -124,7 +140,13 @@ def migrate_data():
 
 def verify_migration():
     """Проверка корректности миграции."""
-    db = Database(path="database/bot.db")  # Используем тот же путь
+    db_path = "database/bot.db"
+    try:
+        db = Database(path=db_path)
+    except Exception as e:
+        print(f"Не удалось открыть базу данных для проверки {db_path}: {e}")
+        return
+
     conn = db.conn
 
     # Проверка пользователей
