@@ -253,20 +253,6 @@ async def suggest_reminder(user_id, state: FSMContext):
         except Exception as e:
             logging.error(f"Не удалось предложить напоминание пользователю {user_id}: {e}")
 
-# Функция для отправки отложенного вопроса через 2 минуты
-async def send_delayed_feedback_question(user_id, card_number):
-    await asyncio.sleep(120)  # Задержка в 2 минуты (120 секунд)
-    name = USER_NAMES.get(user_id, "")
-    feedback_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"), InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")]
-    ])
-    text = f"{name}, довольна ли ты сегодняшней картой?" if name else "Довольна ли ты сегодняшней картой?"
-    try:
-        await bot.send_message(user_id, text, reply_markup=feedback_keyboard, protect_content=True)
-        await save_user_action(user_id, "delayed_feedback_prompt", {"card_number": card_number})
-    except Exception as e:
-        logging.error(f"Не удалось отправить отложенный вопрос пользователю {user_id}: {e}")
-
 # Функция для запроса к Grok API
 async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None):
     headers = {
@@ -828,7 +814,7 @@ async def process_third_grok_response(message: types.Message, state: FSMContext)
         "response": third_response
     })
 
-    text = "Спасибо, что поделилась!"
+    text = "Благодарю за твои мысли!"
     await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
     await state.clear()
 
