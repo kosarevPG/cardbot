@@ -27,6 +27,7 @@ ADMIN_ID = 6682555021  # Ваш Telegram ID как администратора
 GROK_API_KEY = "xai-evhYnqiJGigtW5fiRU28PVovE11kfvkNlg0PnYtF6Iv1jGLFiar6YyePD9L45Qbl7LoGJwJfx6haZktx"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"  # Уточните актуальный URL в документации xAI
 GROK_USERS = [6682555021, 392141189, 239719200]  # Пользователи, для которых работает Grok
+NO_CARD_LIMIT_USERS = [6682555021, 392141189, 239719200]
 
 # Инициализация бота
 bot = Bot(
@@ -601,15 +602,16 @@ async def handle_card_request(message: types.Message, state: FSMContext):
     today = now.date()
 
     last_request_time = LAST_REQUEST.get(user_id)
-    if user_id != 392141189 and last_request_time and last_request_time.date() == today:
+    # Изменяем условие: исключаем всех пользователей из GROK_USERS
+    if user_id not in NO_CARD_LIMIT_USERS and last_request_time and last_request_time.date() == today:
         text = f"{name}, ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3). А пока попробуй /share — поделись с друзьями и получи бонус или оставь отзыв /feedback, чтобы я смог стать полезнее для тебя!" if name else "Ты уже вытянула карту сегодня! Новая будет доступна завтра в 00:00 по Москве (UTC+3). А пока попробуй /share — поделись с друзьями и получи бонус или оставь отзыв /feedback, чтобы я смог стать полезнее для тебя!"
         await message.answer(text, reply_markup=get_main_menu(user_id), protect_content=True)
         return
 
-    text = f"{name}, давай сделаем это осознанно! 🌿 Подумай: какой вопрос ты хочешь задать карте (например, 'Как мне найти ресурс?')? Нажми кнопку, когда будешь готова!" if name else "Давай сделаем это осознанно! 🌿 Подумай: какой вопрос ты хочешь задать карте (например, 'Как мне найти ресурс?')? Нажми кнопку, когда будешь готова!"
-    confirmation_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Готова!", callback_data="confirm_request")]])
-    await message.answer(text, reply_markup=confirmation_keyboard, protect_content=True)
-    await state.set_state(UserState.waiting_for_request_confirmation)
+    text = f"{name}, давай вытянем карту осознанно! 🌿 Напиши свой вопрос (например, 'Как мне найти ресурс?'), чтобы ответ был глубже, или нажми 'Вытянуть карту'!" if name else "Давай вытянем карту осознанно! 🌿 Напиши свой вопрос (например, 'Как мне найти ресурс?'), чтобы ответ был глубже, или нажми 'Вытянуть карту'!"
+    draw_keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Вытянуть карту", callback_data="draw_card")]])
+    await message.answer(text, reply_markup=draw_keyboard, protect_content=True)
+    await state.set_state(UserState.waiting_for_request_text)
 
 # Обработка подтверждения запроса для "Карта дня"
 @dp.callback_query(lambda c: c.data == "confirm_request")
