@@ -8,7 +8,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.12'  # Используем Python 3.12
+          python-version: '3.12'  # Используем Python 3.12 для надежности
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          override: true
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
