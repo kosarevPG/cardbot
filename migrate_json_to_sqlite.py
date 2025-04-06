@@ -17,14 +17,13 @@ JSON_FILES = {
 }
 
 def load_json(file_path, default):
-    """Загрузка данных из JSON-файла с обработкой ошибок."""
+    """Загрузка данных"""
     if not os.path.exists(file_path):
         print(f"Файл {file_path} не найден, используется значение по умолчанию: {default}")
         return default
     try:
         with open(file_path, "r") as f:
             data = json.load(f)
-            # Преобразуем ключи в int, если они числовые строки
             if isinstance(data, dict):
                 return {int(k) if k.isdigit() else k: v for k, v in data.items()}
             return data
