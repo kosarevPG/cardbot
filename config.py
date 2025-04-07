@@ -9,6 +9,7 @@ ADMIN_ID = 6682555021
 GROK_API_KEY = "xai-evhYnqiJGigtW5fiRU28PVovE11kfvkNlg0PnYtF6Iv1jGLFiar6YyePD9L45Qbl7LoGJwJfx6haZktx"
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 NO_CARD_LIMIT_USERS = [6682555021, 392141189, 239719200]
+NO_LOGS_USERS = [6682555021, 392141189, 239719200, 7494824111]
 DATA_DIR = "/data"
 
 # Список советов Вселенной
