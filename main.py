@@ -198,7 +198,31 @@ async def user_profile_command(message: types.Message):
         await message.answer("ID пользователя должен быть числом.")
         return
 
-    profile = await build_user_profile(target_user_id, db)
+    # Проверяем, есть ли профиль в БД и не устарел ли он
+    with db.conn:
+        cursor = db.conn.execute("SELECT * FROM user_profiles WHERE user_id = ?", (target_user_id,))
+        profile_data = cursor.fetchone()
+
+    if profile_data:
+        last_updated = datetime.fromisoformat(profile_data[9])
+        if (datetime.now(TIMEZONE) - last_updated).total_seconds() < 3600:  # Обновляем раз в час
+            profile = {
+                "mood": profile_data[1],
+                "mood_trend": json.loads(profile_data[2]),
+                "themes": json.loads(profile_data[3]),
+                "response_count": profile_data[4],
+                "request_count": profile_data[5],
+                "avg_response_length": profile_data[6],
+                "days_active": profile_data[7],
+                "interactions_per_day": profile_data[8]
+            }
+        else:
+            # Если данные устарели, пересчитываем
+            profile = await build_user_profile(target_user_id, db)
+    else:
+        # Если профиля нет, создаём новый
+        profile = await build_user_profile(target_user_id, db)
+
     text = (
         f"Профиль пользователя {target_user_id}:\n"
         f"Настроение: {profile['mood']}\n"
