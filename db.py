@@ -1,12 +1,15 @@
 import sqlite3
 import json
 from datetime import datetime
-from config import DATA_DIR, TIMEZONE
+import os
+from config import TIMEZONE
 
 class Database:
-    def __init__(self, path=f"{DATA_DIR}/bot.db"):
+    def __init__(self, path="/data/bot.db"):  # Используем путь, соответствующий Amvera
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
         self.conn = sqlite3.connect(path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.bot = None  # Для обратной совместимости
         self.create_tables()
 
     def create_tables(self):
@@ -66,6 +69,19 @@ class Database:
                     timestamp TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )""")
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_profiles (
+                    user_id INTEGER PRIMARY KEY,
+                    mood TEXT,
+                    mood_trend TEXT,  -- Храним как JSON
+                    themes TEXT,      -- Храним как JSON
+                    response_count INTEGER,
+                    request_count INTEGER,
+                    avg_response_length REAL,
+                    days_active INTEGER,
+                    interactions_per_day REAL,
+                    last_updated TIMESTAMP
+                )""")
 
     def get_user(self, user_id):
         cursor = self.conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -79,7 +95,7 @@ class Database:
                 "reminder_time": row["reminder_time"],
                 "bonus_available": bool(row["bonus_available"])
             }
-        return {"user_id": user_id, "name": "", "last_request": None, "reminder_time": None, "bonus_available": False}
+        return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
 
     def update_user(self, user_id, data):
         with self.conn:
@@ -141,3 +157,41 @@ class Database:
     def get_referrals(self, referrer_id):
         cursor = self.conn.execute("SELECT referred_id FROM referrals WHERE referrer_id = ?", (referrer_id,))
         return [row["referred_id"] for row in cursor.fetchall()]
+
+    def get_user_profile(self, user_id):
+        cursor = self.conn.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                "user_id": row["user_id"],
+                "mood": row["mood"],
+                "mood_trend": json.loads(row["mood_trend"]),
+                "themes": json.loads(row["themes"]),
+                "response_count": row["response_count"],
+                "request_count": row["request_count"],
+                "avg_response_length": row["avg_response_length"],
+                "days_active": row["days_active"],
+                "interactions_per_day": row["interactions_per_day"],
+                "last_updated": datetime.fromisoformat(row["last_updated"]) if row["last_updated"] else None
+            }
+        return None
+
+    def update_user_profile(self, user_id, profile):
+        with self.conn:
+            self.conn.execute("""
+                INSERT OR REPLACE INTO user_profiles (
+                    user_id, mood, mood_trend, themes, response_count, request_count,
+                    avg_response_length, days_active, interactions_per_day, last_updated
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                user_id,
+                profile["mood"],
+                json.dumps(profile["mood_trend"]),
+                json.dumps(profile["themes"]),
+                profile["response_count"],
+                profile["request_count"],
+                profile["avg_response_length"],
+                profile["days_active"],
+                profile["interactions_per_day"],
+                datetime.now(TIMEZONE).isoformat()
+            ))
