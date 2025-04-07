@@ -5,7 +5,7 @@ from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-from config import TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK, TIMEZONE
+from config import TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK, TIMEZONE, NO_LOGS_USERS 
 from database.db import Database
 from modules.logging_service import LoggingService
 from modules.notification_service import NotificationService
@@ -173,10 +173,11 @@ async def logs_command(message: types.Message):
 
     logs = db.get_actions()
     filtered_logs = []
+    excluded_users = set(NO_CARD_LIMIT_USERS)  # Множество для быстрой проверки
     for log in logs:
         try:
             log_timestamp = datetime.fromisoformat(log["timestamp"]).astimezone(TIMEZONE)
-            if log_timestamp.date() == target_date:
+            if log_timestamp.date() == target_date and log["user_id"] not in excluded_users:
                 filtered_logs.append(log)
         except ValueError as e:
             await message.answer(f"Ошибка формата времени в логе: {log['timestamp']}, ошибка: {e}")
