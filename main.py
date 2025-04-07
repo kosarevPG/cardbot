@@ -47,7 +47,7 @@ class SubscriptionMiddleware:
                 user_status = await bot.get_chat_member(CHANNEL_ID, user_id)
                 if user_status.status not in ["member", "administrator", "creator"]:
                     name = db.get_user(user_id)["name"]
-                    text = f"{name}, привет! Подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!" if name else "Привет! Подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!"
+                    text = f"{name}, привет! Чтобы начать, подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!" if name else "Привет! Чтобы начать, подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!"
                     await event.answer(text, disable_web_page_preview=True)
                     return
             except Exception:
