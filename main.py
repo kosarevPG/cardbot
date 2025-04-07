@@ -103,6 +103,48 @@ async def remind_command(message: types.Message, state: FSMContext):
     await message.answer(text, reply_markup=await get_main_menu(user_id, db))
     await state.set_state(UserState.waiting_for_reminder_time)
 
+# Команда /feedback (старая логика с адаптацией к SQLite)
+@dp.message(Command("feedback"))
+async def feedback_command(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    name = db.get_user(user_id)["name"]  # Берем имя из базы данных
+    text = (
+        f"{name}, напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!"
+        if name
+        else "Напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!"
+    )
+    await message.answer(
+        text,
+        reply_markup=await get_main_menu(user_id, db),  # Асинхронная функция, поэтому await
+        protect_content=True  # Защищаем контент от копирования
+    )
+    await state.set_state(UserState.waiting_for_feedback)  # Устанавливаем состояние ожидания отзыва
+    await logger.log_action(user_id, "feedback_initiated")
+
+# Обработка ввода отзыва
+@dp.message(UserState.waiting_for_feedback)
+async def process_feedback(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    feedback_text = message.text.strip()
+    name = db.get_user(user_id)["name"]
+    timestamp = datetime.now(TIMEZONE).isoformat()
+
+    # Сохраняем отзыв в таблицу feedback
+    with db.conn:
+        db.conn.execute(
+            "INSERT INTO feedback (user_id, name, feedback, timestamp) VALUES (?, ?, ?, ?)",
+            (user_id, name, feedback_text, timestamp)
+        )
+
+    await logger.log_action(user_id, "feedback_submitted", {"feedback": feedback_text})
+    text = f"{name}, спасибо за твой отзыв!" if name else "Спасибо за твой отзыв!"
+    await message.answer(
+        text,
+        reply_markup=await get_main_menu(user_id, db),
+        protect_content=True  # Сохраняем защиту контента
+    )
+    await state.clear()
+
 # Команда /name
 @dp.message(Command("name"))
 async def name_command(message: types.Message, state: FSMContext):
