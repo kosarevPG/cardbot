@@ -173,6 +173,6 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
         text = f"{name}, мне важно твое мнение! Оставь отзыв с помощью /feedback." if name else "Мне важно твое мнение! Оставь отзыв с помощью /feedback."
 
     await logger.log_action(user_id, "card_feedback", {"card_number": card_number, "feedback": feedback})
-    await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+    await callback.message.answer(text, reply_markup=await get_main_menu(user_id, db))  # Исправлено: message -> callback.message
     await state.clear()
     await callback.answer()
