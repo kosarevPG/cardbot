@@ -29,10 +29,11 @@ user_manager = UserManager(db)
 
 # Проверка базы данных
 try:
-    db.get_user(0)  # Тестовый запрос к базе данных
+    db.get_user(0)
     print("Database check successful")
 except Exception as e:
     logger.log_action(0, "db_init_error", {"error": str(e)})
+    print(f"Database initialization failed: {e}")
     raise
 
 # Middleware для проверки подписки
