@@ -180,15 +180,26 @@ async def logs_command(message: types.Message):
                 filtered_logs.append(log)
         except ValueError as e:
             await message.answer(f"Ошибка формата времени в логе: {log['timestamp']}, ошибка: {e}")
+            return
 
     if not filtered_logs:
         await message.answer(f"Логов за {target_date} нет.")
         return
 
-    text = f"Логи за {target_date}:\n"
-    for log in filtered_logs:
-        text += f"User {log['user_id']}: {log['action']} at {log['timestamp']}, details: {log['details']}\n"
-    await message.answer(text)
+    # Разбиваем логи на части по 20 записей
+    chunk_size = 20
+    for i in range(0, len(filtered_logs), chunk_size):
+        chunk = filtered_logs[i:i + chunk_size]
+        text = f"Логи за {target_date} (часть {i // chunk_size + 1}):\n"
+        for log in chunk:
+            text += f"User {log['user_id']}: {log['action']} at {log['timestamp']}, details: {log['details']}\n"
+        
+        # Проверяем длину текста (для отладки, можно убрать позже)
+        if len(text) > 4096:
+            await message.answer("Сообщение слишком длинное, уменьшите chunk_size.")
+            return
+        
+        await message.answer(text)
 
 # Фабрики обработчиков
 def make_card_request_handler(db, logger):
