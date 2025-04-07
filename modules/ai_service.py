@@ -10,7 +10,8 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         "На основе запроса пользователя, его ответа после реакции на карту и истории взаимодействий, "
         "задай один открытый вопрос для рефлексии. Не интерпретируй карту, "
         "только помоги пользователю глубже исследовать свои ассоциации. "
-        "Вопрос должен быть кратким и связанным с контекстом."
+        "Вопрос должен быть кратким и связанным с контекстом. "
+        "Не добавляй в ответ префикс вроде 'Вопрос (X/3):', я добавлю его сам."
     )
     
     if step == 1:
@@ -49,6 +50,9 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         response.raise_for_status()
         data = response.json()
         question_text = data["choices"][0]["message"]["content"].strip()
+        # Убираем возможный префикс из ответа API
+        if question_text.startswith(f"Вопрос ({step}/3):"):
+            question_text = question_text[len(f"Вопрос ({step}/3):"):].strip()
         return f"Вопрос ({step}/3): {question_text}"
     except Exception:
         return f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё ты можешь сказать о своих ассоциациях?')}"
