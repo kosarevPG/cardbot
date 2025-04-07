@@ -173,7 +173,7 @@ async def logs_command(message: types.Message):
 
     logs = db.get_actions()
     filtered_logs = []
-    excluded_users = set(NO_CARD_LIMIT_USERS)  # Множество для быстрой проверки
+    excluded_users = set(NO_LOGS_USERS)  # Множество для быстрой проверки
     for log in logs:
         try:
             log_timestamp = datetime.fromisoformat(log["timestamp"]).astimezone(TIMEZONE)
