@@ -410,10 +410,10 @@ async def main():
 
         asyncio.create_task(notifier.check_reminders())
         broadcast_data = {
-            "datetime": datetime(2025, 4, 7, 23, 35, tzinfo=TIMEZONE),
-            "text": "Бот запустился",
-            "recipients": [6682555021]
-        }
+    "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0) + timedelta(minutes=2),
+    "text": "Тестовая рассылка",
+    "recipients": [6682555021]
+}
         asyncio.create_task(notifier.send_broadcast(broadcast_data))
         while True:
             try:
