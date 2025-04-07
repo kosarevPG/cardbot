@@ -61,8 +61,15 @@ dp.message.middleware(SubscriptionMiddleware())
 @dp.message(Command("start"))
 async def start_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
+    username = message.from_user.username or ""  # Получаем никнейм из Telegram
     args = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
     
+    # Обновляем username в базе данных
+    user_data = db.get_user(user_id)
+    if user_data["username"] != username:  # Обновляем только если ник изменился
+        user_data["username"] = username
+        db.update_user(user_id, user_data)
+
     await logger.log_action(user_id, "start", {"args": args})
 
     if args.startswith("ref_"):
@@ -88,6 +95,12 @@ async def start_command(message: types.Message, state: FSMContext):
 @dp.message(Command("share"))
 async def share_command(message: types.Message):
     user_id = message.from_user.id
+    username = message.from_user.username or ""  # Получаем никнейм
+    user_data = db.get_user(user_id)
+    if user_data["username"] != username:
+        user_data["username"] = username
+        db.update_user(user_id, user_data)
+
     name = db.get_user(user_id)["name"]
     ref_link = f"{BOT_LINK}?start=ref_{user_id}"
     text = f"{name}, поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!" if name else f"Поделись: {ref_link}. Если кто-то зайдёт, получишь '💌 Подсказку Вселенной'!"
@@ -364,11 +377,24 @@ async def handle_unknown_message(message: types.Message):
 # Запуск
 async def main():
     try:
-        db.bot = bot  # Передаем bot в db для логирования
+        db.bot = bot
+        # Разовая миграция: обновляем username для всех пользователей
+        users = db.get_all_users()
+        for user_id in users:
+            try:
+                chat = await bot.get_chat(user_id)
+                username = chat.username or ""
+                user_data = db.get_user(user_id)
+                if user_data["username"] != username:
+                    user_data["username"] = username
+                    db.update_user(user_id, user_data)
+            except Exception as e:
+                logger.log_action(user_id, "username_migration_error", {"error": str(e)})
+
         asyncio.create_task(notifier.check_reminders())
         broadcast_data = {
             "datetime": datetime(2025, 4, 6, 2, 8, tzinfo=TIMEZONE),
-            "text": "Привет! У нас обновления: 'Карта дня' теперь доступна раз в сутки с 00:00 по Москве.",
+            "text": "Бот запустился",
             "recipients": [6682555021]
         }
         asyncio.create_task(notifier.send_broadcast(broadcast_data))
