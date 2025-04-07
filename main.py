@@ -9,16 +9,20 @@ from config import TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK, TIMEZ
 from database.db import Database
 from modules.logging_service import LoggingService
 from modules.notification_service import NotificationService
-from modules.card_of_the_day import handle_card_request, draw_card, process_request_text, process_initial_response, process_first_grok_response, process_second_grok_response, process_third_grok_response, get_main_menu
+from modules.card_of_the_day import handle_card_request, draw_card, process_request_text, process_initial_response, process_first_grok_response, process_second_grok_response, process_third_grok_response, process_card_feedback, get_main_menu
 from modules.user_management import UserState, UserManager
 import random
 from datetime import datetime
+import os
 
 # Инициализация
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
-db = Database()
+db_path = "/data/bot.db"
+print(f"Checking if database file exists at {db_path}: {os.path.exists(db_path)}")
+db = Database(path=db_path)
+print(f"Database initialized at {db.conn}")
 logger = LoggingService(db)
 notifier = NotificationService(bot, db)
 user_manager = UserManager(db)
@@ -26,6 +30,7 @@ user_manager = UserManager(db)
 # Проверка базы данных
 try:
     db.get_user(0)  # Тестовый запрос к базе данных
+    print("Database check successful")
 except Exception as e:
     logger.log_action(0, "db_init_error", {"error": str(e)})
     raise
@@ -145,6 +150,44 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
         text = f"{name}, время указано неверно. Попробуй ещё раз (чч:мм)." if name else "Время указано неверно. Попробуй ещё раз (чч:мм)."
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
 
+# Команда /check_logs для проверки логов
+@dp.message(Command("check_logs"))
+async def check_logs_command(message: types.Message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:  # Ограничиваем доступ только для администратора
+        await message.answer("Эта команда доступна только администратору.")
+        return
+
+    # Проверяем, указана ли дата в формате YYYY-MM-DD
+    args = message.text.split()
+    if len(args) > 1:
+        try:
+            target_date = datetime.strptime(args[1], "%Y-%m-%d").date()
+        except ValueError:
+            await message.answer("Укажите дату в формате YYYY-MM-DD, например: /check_logs 2025-04-07")
+            return
+    else:
+        target_date = datetime(2025, 4, 7, tzinfo=TIMEZONE).date()  # По умолчанию 07.04.2025
+
+    logs = db.get_actions()
+    filtered_logs = []
+    for log in logs:
+        try:
+            log_timestamp = datetime.fromisoformat(log["timestamp"]).astimezone(TIMEZONE)
+            if log_timestamp.date() == target_date:
+                filtered_logs.append(log)
+        except ValueError as e:
+            await message.answer(f"Ошибка формата времени в логе: {log['timestamp']}, ошибка: {e}")
+
+    if not filtered_logs:
+        await message.answer(f"Логов за {target_date} нет.")
+        return
+
+    text = f"Логи за {target_date}:\n"
+    for log in filtered_logs:
+        text += f"User {log['user_id']}: {log['action']} at {log['timestamp']}, details: {log['details']}\n"
+    await message.answer(text)
+
 # Фабрики обработчиков
 def make_card_request_handler(db, logger):
     async def wrapped_handler(message: types.Message, state: FSMContext):
@@ -181,6 +224,11 @@ def make_process_third_grok_response_handler(db, logger):
         return await process_third_grok_response(message, state, db, logger)
     return wrapped_handler
 
+def make_process_card_feedback_handler(db, logger):
+    async def wrapped_handler(callback: types.CallbackQuery, state: FSMContext):
+        return await process_card_feedback(callback, state, db, logger)
+    return wrapped_handler
+
 # Обработка "Карта дня"
 dp.message.register(make_card_request_handler(db, logger), lambda m: m.text == "✨ Карта дня")
 dp.callback_query.register(make_draw_card_handler(db, logger), lambda c: c.data == "draw_card")
@@ -189,6 +237,7 @@ dp.message.register(make_process_initial_response_handler(db, logger), UserState
 dp.message.register(make_process_first_grok_response_handler(db, logger), UserState.waiting_for_first_grok_response)
 dp.message.register(make_process_second_grok_response_handler(db, logger), UserState.waiting_for_second_grok_response)
 dp.message.register(make_process_third_grok_response_handler(db, logger), UserState.waiting_for_third_grok_response)
+dp.callback_query.register(make_process_card_feedback_handler(db, logger), lambda c: c.data.startswith("feedback_"))  # Регистрируем обработчик для feedback
 
 # Обработка "Подсказка Вселенной"
 @dp.message(lambda m: m.text == "💌 Подсказка Вселенной")
@@ -207,7 +256,7 @@ async def handle_bonus_request(message: types.Message):
 # Обработчик для неизвестных сообщений
 @dp.message()
 async def handle_unknown_message(message: types.Message):
-    await message.answer("Извините, я не понял ваш запрос. Попробуйте нажать '✨ Карта дня' или используйте команды /start, /share, /remind, /name.")
+    await message.answer("Извините, я не понял ваш запрос. Попробуйте нажать '✨ Карта дня' или используйте команды /start, /share, /remind, /name, /check_logs.")
 
 # Запуск
 async def main():
@@ -220,9 +269,15 @@ async def main():
             "recipients": [6682555021]
         }
         asyncio.create_task(notifier.send_broadcast(broadcast_data))
-        await dp.start_polling(bot)
+        while True:
+            try:
+                await dp.start_polling(bot)
+                break
+            except Exception as e:
+                logger.log_action(0, "polling_error", {"error": str(e)})
+                await asyncio.sleep(5)
     except Exception as e:
-        logger.log_action(0, "polling_error", {"error": str(e)})
+        logger.log_action(0, "main_error", {"error": str(e)})
         raise
 
 if __name__ == "__main__":
