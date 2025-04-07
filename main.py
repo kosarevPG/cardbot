@@ -103,15 +103,62 @@ async def remind_command(message: types.Message, state: FSMContext):
     await message.answer(text, reply_markup=await get_main_menu(user_id, db))
     await state.set_state(UserState.waiting_for_reminder_time)
 
+# Команда /users
+@dp.message(Command("users"))
+async def users_command(message: types.Message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        await message.answer("Эта команда доступна только администратору.")
+        return
+
+    users = db.get_all_users()
+    if not users:
+        await message.answer("Пользователей пока нет.")
+        return
+
+    # Фильтруем пользователей, исключая NO_LOGS_USERS
+    excluded_users = set(NO_LOGS_USERS)
+    filtered_users = [uid for uid in users if uid not in excluded_users]
+    if not filtered_users:
+        await message.answer("Нет пользователей, кроме исключённых.")
+        return
+
+    # Собираем данные о пользователях
+    user_list = []
+    for uid in filtered_users:
+        user_data = db.get_user(uid)
+        name = user_data["name"] or "Без имени"
+        username = user_data["username"] or "Нет никнейма"
+        
+        # Получаем последнее действие из таблицы actions
+        user_actions = db.get_actions(uid)
+        last_action_time = "Нет действий"
+        if user_actions:
+            last_action = max(user_actions, key=lambda x: x["timestamp"])
+            last_action_time = last_action["timestamp"]
+
+        user_list.append(f"ID: {uid}, Ник: @{username}, Имя: {name}, Последнее действие: {last_action_time}")
+
+    # Разбиваем на части, если список длинный
+    if len("\n".join(user_list)) > 4096:
+        chunk_size = 10  # Уменьшаем до 10, так как строки длиннее из-за новых данных
+        for i in range(0, len(user_list), chunk_size):
+            chunk = user_list[i:i + chunk_size]
+            chunk_text = f"Список пользователей (часть {i // chunk_size + 1}):\n" + "\n".join(chunk)
+            await message.answer(chunk_text)
+    else:
+        text = "Список пользователей:\n" + "\n".join(user_list)
+        await message.answer(text)
+
 # Команда /feedback (старая логика с адаптацией к SQLite)
 @dp.message(Command("feedback"))
 async def feedback_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = db.get_user(user_id)["name"]  # Берем имя из базы данных
     text = (
-        f"{name}, напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!"
+        f"{name}, напиши свой вопрос или идею, чтобы я смог стать ещё полезнее. Я сохраню ваши мысли!"
         if name
-        else "Напиши свой вопрос или идею по улучшению бота. Я сохраню твои мысли!"
+        else "Напиши свой вопрос или идею, чтобы я смог стать ещё полезнее. Я сохраню ваши мысли!"
     )
     await message.answer(
         text,
