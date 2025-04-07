@@ -50,7 +50,12 @@ async def draw_card(callback: types.CallbackQuery, state: FSMContext, db, logger
 
     card_path = f"cards/card_{card_number}.jpg"
     if os.path.exists(card_path):
-        await callback.message.bot.send_photo(user_id, types.FSInputFile(card_path), reply_markup=await get_main_menu(user_id, db))
+        await callback.message.bot.send_photo(
+            user_id,
+            types.FSInputFile(card_path),
+            reply_markup=await get_main_menu(user_id, db),
+            protect_content=True  # Защита от пересылки
+        )
         text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
         await callback.message.answer(text)
         await state.update_data(card_number=card_number, user_request="")
@@ -78,7 +83,12 @@ async def process_request_text(message: types.Message, state: FSMContext, db, lo
 
     card_path = f"cards/card_{card_number}.jpg"
     if os.path.exists(card_path):
-        await message.bot.send_photo(user_id, types.FSInputFile(card_path), reply_markup=await get_main_menu(user_id, db))
+        await message.bot.send_photo(
+            user_id,
+            types.FSInputFile(card_path),
+            reply_markup=await get_main_menu(user_id, db),
+            protect_content=True  # Защита от пересылки
+        )
         text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
         await message.answer(text)
         await state.update_data(card_number=card_number, user_request=request_text)
