@@ -41,6 +41,8 @@ class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
         if isinstance(event, types.Message):
             user_id = event.from_user.id
+            if user_id == ADMIN_ID:  # Пропускаем проверку для админа
+                return await handler(event, data)
             try:
                 user_status = await bot.get_chat_member(CHANNEL_ID, user_id)
                 if user_status.status not in ["member", "administrator", "creator"]:
@@ -152,23 +154,22 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
 
 # Команда /check_logs для проверки логов
-@dp.message(Command("check_logs"))
-async def check_logs_command(message: types.Message):
+@dp.message(Command("logs"))
+async def logs_command(message: types.Message):
     user_id = message.from_user.id
-    if user_id != ADMIN_ID:  # Ограничиваем доступ только для администратора
+    if user_id != ADMIN_ID:
         await message.answer("Эта команда доступна только администратору.")
         return
 
-    # Проверяем, указана ли дата в формате YYYY-MM-DD
     args = message.text.split()
     if len(args) > 1:
         try:
             target_date = datetime.strptime(args[1], "%Y-%m-%d").date()
         except ValueError:
-            await message.answer("Укажите дату в формате YYYY-MM-DD, например: /check_logs 2025-04-07")
+            await message.answer("Укажите дату в формате YYYY-MM-DD, например: /logs 2025-04-07")
             return
     else:
-        target_date = datetime(2025, 4, 7, tzinfo=TIMEZONE).date()  # По умолчанию 07.04.2025
+        target_date = datetime.now(TIMEZONE).date()  # По умолчанию текущая дата
 
     logs = db.get_actions()
     filtered_logs = []
