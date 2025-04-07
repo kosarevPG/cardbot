@@ -258,7 +258,7 @@ async def handle_bonus_request(message: types.Message):
 # Обработчик для неизвестных сообщений
 @dp.message()
 async def handle_unknown_message(message: types.Message):
-    await message.answer("Извините, я не понял ваш запрос. Попробуйте нажать '✨ Карта дня' или используйте команды /start, /share, /remind, /name, /check_logs.")
+    await message.answer("Извините, я не понял ваш запрос. Попробуйте нажать '✨ Карта дня' или используйте команды /start, /name, /remind, /share, /feedback")
 
 # Запуск
 async def main():
