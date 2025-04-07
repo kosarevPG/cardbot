@@ -180,6 +180,38 @@ async def users_command(message: types.Message):
         text = "Список пользователей:\n" + "\n".join(formatted_list)
         await message.answer(text)
 
+@dp.message(Command("user_profile"))
+async def user_profile_command(message: types.Message):
+    user_id = message.from_user.id
+    if user_id != ADMIN_ID:
+        await message.answer("Эта команда доступна только администратору.")
+        return
+
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("Укажите ID пользователя: /user_profile <user_id>")
+        return
+
+    try:
+        target_user_id = int(args[1])
+    except ValueError:
+        await message.answer("ID пользователя должен быть числом.")
+        return
+
+    profile = await build_user_profile(target_user_id, db)
+    text = (
+        f"Профиль пользователя {target_user_id}:\n"
+        f"Настроение: {profile['mood']}\n"
+        f"Тренд настроения: {', '.join(profile['mood_trend'])}\n"
+        f"Темы: {', '.join(profile['themes'])}\n"
+        f"Количество ответов: {profile['response_count']}\n"
+        f"Количество запросов: {profile['request_count']}\n"
+        f"Средняя длина ответа: {profile['avg_response_length']:.1f}\n"
+        f"Активных дней: {profile['days_active']}\n"
+        f"Взаимодействий в день: {profile['interactions_per_day']:.1f}"
+    )
+    await message.answer(text)
+
 # Команда /feedback (старая логика с адаптацией к SQLite)
 @dp.message(Command("feedback"))
 async def feedback_command(message: types.Message, state: FSMContext):
