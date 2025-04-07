@@ -136,7 +136,7 @@ async def users_command(message: types.Message):
         await message.answer("Нет пользователей, кроме исключённых.")
         return
 
-    # Собираем данные о пользователях
+    # Собираем данные о пользователях с сортировкой по последнему действию
     user_list = []
     for uid in filtered_users:
         user_data = db.get_user(uid)
@@ -146,21 +146,38 @@ async def users_command(message: types.Message):
         # Получаем последнее действие из таблицы actions
         user_actions = db.get_actions(uid)
         last_action_time = "Нет действий"
+        last_action_timestamp = "1970-01-01T00:00:00+00:00"  # Минимальное значение для сортировки
         if user_actions:
             last_action = max(user_actions, key=lambda x: x["timestamp"])
             last_action_time = last_action["timestamp"]
+            last_action_timestamp = last_action_time
 
-        user_list.append(f"ID: {uid}, Ник: @{username}, Имя: {name}, Последнее действие: {last_action_time}")
+        user_list.append({
+            "uid": uid,
+            "username": username,
+            "name": name,
+            "last_action_time": last_action_time,
+            "last_action_timestamp": last_action_timestamp
+        })
+
+    # Сортируем по last_action_timestamp (по возрастанию)
+    user_list.sort(key=lambda x: x["last_action_timestamp"])
+
+    # Формируем строки для вывода
+    formatted_list = [
+        f"ID: {user['uid']}, Ник: @{user['username']}, Имя: {user['name']}, Последнее действие: {user['last_action_time']}"
+        for user in user_list
+    ]
 
     # Разбиваем на части, если список длинный
-    if len("\n".join(user_list)) > 4096:
-        chunk_size = 10  # Уменьшаем до 10, так как строки длиннее из-за новых данных
-        for i in range(0, len(user_list), chunk_size):
-            chunk = user_list[i:i + chunk_size]
+    if len("\n".join(formatted_list)) > 4096:
+        chunk_size = 10
+        for i in range(0, len(formatted_list), chunk_size):
+            chunk = formatted_list[i:i + chunk_size]
             chunk_text = f"Список пользователей (часть {i // chunk_size + 1}):\n" + "\n".join(chunk)
             await message.answer(chunk_text)
     else:
-        text = "Список пользователей:\n" + "\n".join(user_list)
+        text = "Список пользователей:\n" + "\n".join(formatted_list)
         await message.answer(text)
 
 # Команда /feedback (старая логика с адаптацией к SQLite)
@@ -393,7 +410,7 @@ async def main():
 
         asyncio.create_task(notifier.check_reminders())
         broadcast_data = {
-            "datetime": datetime(2025, 4, 6, 2, 8, tzinfo=TIMEZONE),
+            "datetime": datetime(2025, 4, 7, 23, 35, tzinfo=TIMEZONE),
             "text": "Бот запустился",
             "recipients": [6682555021]
         }
