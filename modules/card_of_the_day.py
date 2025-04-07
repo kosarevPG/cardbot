@@ -137,4 +137,39 @@ async def process_third_grok_response(message: types.Message, state: FSMContext,
 
     await logger.log_action(user_id, "third_grok_response", {"card_number": card_number, "request": user_request, "question": data["third_grok_question"], "response": third_response})
     await message.answer("Благодарю за твои мысли!", reply_markup=await get_main_menu(user_id, db))
+
+    # После третьего вопроса задаём вопрос "Довольна ли ты сегодняшней картой?"
+    name = db.get_user(user_id)["name"]
+    text = f"{name}, довольна ли ты сегодняшней картой?" if name else "Довольна ли ты сегодняшней картой?"
+    await message.answer(
+        text,
+        reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
+            [
+                types.InlineKeyboardButton(text="Да 🙂", callback_data=f"feedback_yes_{card_number}"),
+                types.InlineKeyboardButton(text="Нет 🙁", callback_data=f"feedback_no_{card_number}")
+            ]
+        ])
+    )
+
+async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext, db, logger):
+    user_id = callback.from_user.id
+    name = db.get_user(user_id)["name"]
+    callback_data = callback.data
+
+    # Извлекаем card_number из callback_data
+    if callback_data.startswith("feedback_yes_"):
+        feedback = "yes"
+        card_number = int(callback_data[len("feedback_yes_"):])
+        text = "Здорово! Жду тебя завтра!"
+    elif callback_data.startswith("feedback_no_"):
+        feedback = "no"
+        card_number = int(callback_data[len("feedback_no_"):])
+        text = f"{name}, мне важно твое мнение! Оставь отзыв с помощью /feedback." if name else "Мне важно твое мнение! Оставь отзыв с помощью /feedback."
+
+    # Логируем ответ пользователя
+    await logger.log_action(user_id, "card_feedback", {"card_number": card_number, "feedback": feedback})
+
+    # Отправляем сообщение в зависимости от ответа
+    await callback.message.answer(text, reply_markup=await get_main_menu(user_id, db))
     await state.clear()
+    await callback.answer()
