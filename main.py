@@ -515,7 +515,7 @@ async def main():
 
         # Сообщение для активных пользователей (Группа 1)
         broadcast_data_active = {
-            "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0) + timedelta(minutes=2),
+            "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0) + timedelta(hours=8),
             "text": (
                 "Привет! 🌟 Неделю назад мы запустили бота, и теперь у нас крутые обновления! \n\n"
                 "После вытягивания карты дня ✨ я задам тебе несколько вопросов, чтобы помочь глубже понять свои эмоции и ассоциации. 💭\n\n"
@@ -531,7 +531,7 @@ async def main():
             user_data = db.get_user(user_id)
             name = user_data["name"] or "друг"
             broadcast_data_inactive = {
-                "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0) + timedelta(minutes=2),
+                "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0) + timedelta(hours=8),
                 "text": (
                     f"Привет, {name}! 🌟 Я заметил, что ты давно не заходил(а). "
                     "У нас появились новые функции: теперь я задаю вопросы после карты дня, чтобы помочь глубже понять свои эмоции. 💭\n\n"
