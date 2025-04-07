@@ -3,9 +3,9 @@ import os
 from aiogram import types
 from aiogram.fsm.context import FSMContext
 from config import TIMEZONE, NO_CARD_LIMIT_USERS
-from .ai_service import get_grok_question
+from .ai_service import get_grok_question, build_user_profile
 from datetime import datetime
-from modules.user_management import UserState  # Импортируем UserState
+from modules.user_management import UserState
 
 async def get_main_menu(user_id, db):
     keyboard = [[types.KeyboardButton(text="✨ Карта дня")]]
@@ -28,7 +28,7 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
     await message.answer(text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="Вытянуть карту", callback_data="draw_card")]
     ]))
-    await state.set_state(UserState.waiting_for_request_text)  # Используем UserState
+    await state.set_state(UserState.waiting_for_request_text)
     await logger.log_action(user_id, "card_request_initiated")
 
 async def draw_card(callback: types.CallbackQuery, state: FSMContext, db, logger):
@@ -54,7 +54,7 @@ async def draw_card(callback: types.CallbackQuery, state: FSMContext, db, logger
         text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
         await callback.message.answer(text)
         await state.update_data(card_number=card_number, user_request="")
-        await state.set_state(UserState.waiting_for_initial_response)  # Используем UserState
+        await state.set_state(UserState.waiting_for_initial_response)
         await logger.log_action(user_id, "card_drawn", {"card_number": card_number})
     await callback.answer()
 
@@ -82,7 +82,7 @@ async def process_request_text(message: types.Message, state: FSMContext, db, lo
         text = f"{name}, как этот образ отвечает на твой запрос? Напиши свои мысли!" if name else "Как этот образ отвечает на твой запрос? Напиши свои мысли!"
         await message.answer(text)
         await state.update_data(card_number=card_number, user_request=request_text)
-        await state.set_state(UserState.waiting_for_initial_response)  # Используем UserState
+        await state.set_state(UserState.waiting_for_initial_response)
         await logger.log_action(user_id, "card_drawn_with_request", {"card_number": card_number, "request": request_text})
 
 async def process_initial_response(message: types.Message, state: FSMContext, db, logger):
@@ -93,10 +93,11 @@ async def process_initial_response(message: types.Message, state: FSMContext, db
     user_request = data.get("user_request", "")
 
     await logger.log_action(user_id, "initial_response", {"card_number": card_number, "request": user_request, "response": response_text})
-    grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Начало", step=1)
+    grok_question = await get_grok_question(user_id, user_request or "Нет запроса", response_text, "Начало", step=1, db=db)
+    await logger.log_action(user_id, "grok_question", {"step": 1, "grok_question": grok_question})
     await message.answer(grok_question, reply_markup=await get_main_menu(user_id, db))
     await state.update_data(first_grok_question=grok_question, initial_response=response_text)
-    await state.set_state(UserState.waiting_for_first_grok_response)  # Используем UserState
+    await state.set_state(UserState.waiting_for_first_grok_response)
 
 async def process_first_grok_response(message: types.Message, state: FSMContext, db, logger):
     user_id = message.from_user.id
@@ -108,10 +109,11 @@ async def process_first_grok_response(message: types.Message, state: FSMContext,
 
     await logger.log_action(user_id, "first_grok_response", {"card_number": card_number, "request": user_request, "question": first_grok_question, "response": first_response})
     previous_responses = {"first_question": first_grok_question, "first_response": first_response}
-    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", first_response, "Начало", step=2, previous_responses=previous_responses)
+    second_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", first_response, "Начало", step=2, previous_responses=previous_responses, db=db)
+    await logger.log_action(user_id, "grok_question", {"step": 2, "grok_question": second_grok_question})
     await message.answer(second_grok_question, reply_markup=await get_main_menu(user_id, db))
     await state.update_data(second_grok_question=second_grok_question, previous_responses=previous_responses)
-    await state.set_state(UserState.waiting_for_second_grok_response)  # Используем UserState
+    await state.set_state(UserState.waiting_for_second_grok_response)
 
 async def process_second_grok_response(message: types.Message, state: FSMContext, db, logger):
     user_id = message.from_user.id
@@ -123,10 +125,11 @@ async def process_second_grok_response(message: types.Message, state: FSMContext
 
     await logger.log_action(user_id, "second_grok_response", {"card_number": card_number, "request": user_request, "question": data["second_grok_question"], "response": second_response})
     previous_responses.update({"second_question": data["second_grok_question"], "second_response": second_response})
-    third_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", second_response, "Начало", step=3, previous_responses=previous_responses)
+    third_grok_question = await get_grok_question(user_id, user_request or "Нет запроса", second_response, "Начало", step=3, previous_responses=previous_responses, db=db)
+    await logger.log_action(user_id, "grok_question", {"step": 3, "grok_question": third_grok_question})
     await message.answer(third_grok_question, reply_markup=await get_main_menu(user_id, db))
     await state.update_data(third_grok_question=third_grok_question)
-    await state.set_state(UserState.waiting_for_third_grok_response)  # Используем UserState
+    await state.set_state(UserState.waiting_for_third_grok_response)
 
 async def process_third_grok_response(message: types.Message, state: FSMContext, db, logger):
     user_id = message.from_user.id
@@ -136,6 +139,10 @@ async def process_third_grok_response(message: types.Message, state: FSMContext,
     user_request = data.get("user_request", "")
 
     await logger.log_action(user_id, "third_grok_response", {"card_number": card_number, "request": user_request, "question": data["third_grok_question"], "response": third_response})
+    
+    # Обновляем профиль пользователя после завершения взаимодействия
+    await build_user_profile(user_id, db)
+    
     await message.answer("Благодарю за твои мысли!", reply_markup=await get_main_menu(user_id, db))
 
     # После третьего вопроса задаём вопрос "Довольна ли ты сегодняшней картой?"
@@ -156,7 +163,6 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
     name = db.get_user(user_id)["name"]
     callback_data = callback.data
 
-    # Извлекаем card_number из callback_data
     if callback_data.startswith("feedback_yes_"):
         feedback = "yes"
         card_number = int(callback_data[len("feedback_yes_"):])
@@ -166,10 +172,7 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
         card_number = int(callback_data[len("feedback_no_"):])
         text = f"{name}, мне важно твое мнение! Оставь отзыв с помощью /feedback." if name else "Мне важно твое мнение! Оставь отзыв с помощью /feedback."
 
-    # Логируем ответ пользователя
     await logger.log_action(user_id, "card_feedback", {"card_number": card_number, "feedback": feedback})
-
-    # Отправляем сообщение в зависимости от ответа
-    await callback.message.answer(text, reply_markup=await get_main_menu(user_id, db))
+    await message.answer(text, reply_markup=await get_main_menu(user_id, db))
     await state.clear()
     await callback.answer()
