@@ -1,10 +1,13 @@
 import requests
 import json
-from config import GROK_API_KEY, GROK_API_URL
+from config import GROK_API_KEY, GROK_API_URL, TIMEZONE
 from datetime import datetime
 import re
 
 async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None, db=None):
+    if db is None:
+        raise ValueError("Parameter 'db' is required for get_grok_question")
+
     headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
     
     # Получаем историю взаимодействий пользователя из базы данных
@@ -35,13 +38,12 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
     
     # Формируем пользовательский промпт
     if not user_request:
-        # Если запроса нет, используем последний запрос из истории или общий контекст
         last_request = next((h.split(": ")[1] for h in reversed(history) if h.startswith("Запрос: ")), "пользователь хочет узнать про карту дня")
         user_request = last_request
 
     if step == 1:
         user_prompt = (
-            f"История взаимодействий: {' | '.join(history[-5:])}. "  # Последние 5 записей
+            f"История взаимодействий: {' | '.join(history[-5:])}. "
             f"Запрос: '{user_request}'. Ответ: '{user_response}'. Реакция: '{feedback_type}'."
         )
     elif step == 2:
@@ -64,9 +66,9 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
             {"role": "user", "content": user_prompt}
         ],
         "model": "grok-2-latest",
-        "max_tokens": 70,  # Увеличиваем, чтобы вместить поддерживающую фразу
+        "max_tokens": 70,
         "stream": False,
-        "temperature": 0.2  # Даём немного вариативности
+        "temperature": 0.2
     }
     
     universal_questions = {
@@ -87,7 +89,6 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         return f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё ты можешь сказать о своих ассоциациях?')}"
 
 def analyze_mood(text):
-    """Анализирует настроение пользователя на основе текста."""
     positive_keywords = ["хорошо", "рад", "счастлив", "здорово", "круто", "отлично"]
     negative_keywords = ["плохо", "грустно", "тревож", "страх", "злюсь", "устал"]
     neutral_keywords = ["нормально", "обычно", "ничего"]
@@ -101,7 +102,6 @@ def analyze_mood(text):
     return "unknown"
 
 def extract_themes(text):
-    """Извлекает темы из текста пользователя."""
     themes = {
         "любовь": ["любовь", "отношения", "партнёр", "семья"],
         "работа": ["работа", "карьера", "проект", "коллеги"],
@@ -117,29 +117,27 @@ def extract_themes(text):
     return found_themes or ["не определено"]
 
 async def build_user_profile(user_id, db):
-    """Собирает аналитику по пользователю на основе всей истории взаимодействий."""
+    # Проверяем, есть ли профиль в БД и не устарел ли он
+    profile_data = db.get_user_profile(user_id)
+    if profile_data and (datetime.now(TIMEZONE) - profile_data["last_updated"]).total_seconds() < 3600:  # Обновляем раз в час
+        return profile_data
+
+    # Если профиля нет или он устарел, пересчитываем
     actions = db.get_actions(user_id)
     
-    # Собираем все запросы, ответы и вопросы Grok
     requests = [a["details"].get("request", "") for a in actions if "request" in a["details"]]
     responses = [a["details"].get("response", "") for a in actions if "response" in a["details"]]
     grok_questions = [a["details"].get("grok_question", "") for a in actions if "grok_question" in a["details"]]
     
-    # Объединяем весь текст для анализа
     all_text = " ".join(requests + responses + grok_questions).lower()
     
-    # Анализируем настроение
     mood = analyze_mood(all_text)
-    
-    # Извлекаем темы
     themes = extract_themes(all_text)
     
-    # Считаем метрики
     response_count = len(responses)
     request_count = len(requests)
     avg_response_length = sum(len(r) for r in responses) / response_count if response_count > 0 else 0
     
-    # Анализируем активность
     timestamps = [datetime.fromisoformat(a["timestamp"]) for a in actions]
     if timestamps:
         first_interaction = min(timestamps)
@@ -150,19 +148,25 @@ async def build_user_profile(user_id, db):
         days_active = 0
         interactions_per_day = 0
     
-    # Собираем тренды настроения (по последним 5 взаимодействиям)
     mood_trend = []
-    recent_responses = responses[-5:]  # Последние 5 ответов
+    recent_responses = responses[-5:]
     for response in recent_responses:
         mood_trend.append(analyze_mood(response.lower()))
     
-    return {
-        "mood": mood,  # Текущее настроение
-        "mood_trend": mood_trend,  # Тренд настроения
-        "themes": themes,  # Основные темы
-        "response_count": response_count,  # Количество ответов
-        "request_count": request_count,  # Количество запросов
-        "avg_response_length": avg_response_length,  # Средняя длина ответа
-        "days_active": days_active,  # Количество активных дней
-        "interactions_per_day": interactions_per_day  # Среднее количество взаимодействий в день
+    profile = {
+        "user_id": user_id,
+        "mood": mood,
+        "mood_trend": mood_trend,
+        "themes": themes,
+        "response_count": response_count,
+        "request_count": request_count,
+        "avg_response_length": avg_response_length,
+        "days_active": days_active,
+        "interactions_per_day": interactions_per_day,
+        "last_updated": datetime.now(TIMEZONE)
     }
+    
+    # Сохраняем профиль в БД
+    db.update_user_profile(user_id, profile)
+    
+    return profile
