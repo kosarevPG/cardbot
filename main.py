@@ -1,19 +1,21 @@
 import asyncio
 from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-from config import TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK, TIMEZONE, NO_LOGS_USERS 
+from config import TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK, TIMEZONE, NO_LOGS_USERS
 from database.db import Database
 from modules.logging_service import LoggingService
 from modules.notification_service import NotificationService
 from modules.card_of_the_day import handle_card_request, draw_card, process_request_text, process_initial_response, process_first_grok_response, process_second_grok_response, process_third_grok_response, process_card_feedback, get_main_menu
 from modules.user_management import UserState, UserManager
+from modules.ai_service import build_user_profile
 import random
-from datetime import datetime, timedelta  # Добавляем timedelta
+from datetime import datetime, timedelta
 import os
+import json
 
 # Инициализация
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -61,12 +63,11 @@ dp.message.middleware(SubscriptionMiddleware())
 @dp.message(Command("start"))
 async def start_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    username = message.from_user.username or ""  # Получаем никнейм из Telegram
+    username = message.from_user.username or ""
     args = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else ""
     
-    # Обновляем username в базе данных
     user_data = db.get_user(user_id)
-    if user_data["username"] != username:  # Обновляем только если ник изменился
+    if user_data["username"] != username:
         user_data["username"] = username
         db.update_user(user_id, user_data)
 
@@ -95,7 +96,7 @@ async def start_command(message: types.Message, state: FSMContext):
 @dp.message(Command("share"))
 async def share_command(message: types.Message):
     user_id = message.from_user.id
-    username = message.from_user.username or ""  # Получаем никнейм
+    username = message.from_user.username or ""
     user_data = db.get_user(user_id)
     if user_data["username"] != username:
         user_data["username"] = username
@@ -129,24 +130,21 @@ async def users_command(message: types.Message):
         await message.answer("Пользователей пока нет.")
         return
 
-    # Фильтруем пользователей, исключая NO_LOGS_USERS
     excluded_users = set(NO_LOGS_USERS)
     filtered_users = [uid for uid in users if uid not in excluded_users]
     if not filtered_users:
         await message.answer("Нет пользователей, кроме исключённых.")
         return
 
-    # Собираем данные о пользователях с сортировкой по последнему действию
     user_list = []
     for uid in filtered_users:
         user_data = db.get_user(uid)
         name = user_data["name"] or "Без имени"
         username = user_data["username"] or "Нет никнейма"
         
-        # Получаем последнее действие из таблицы actions
         user_actions = db.get_actions(uid)
         last_action_time = "Нет действий"
-        last_action_timestamp = "1970-01-01T00:00:00+00:00"  # Минимальное значение для сортировки
+        last_action_timestamp = "1970-01-01T00:00:00+00:00"
         if user_actions:
             last_action = max(user_actions, key=lambda x: x["timestamp"])
             last_action_time = last_action["timestamp"]
@@ -160,16 +158,13 @@ async def users_command(message: types.Message):
             "last_action_timestamp": last_action_timestamp
         })
 
-    # Сортируем по last_action_timestamp (по возрастанию)
     user_list.sort(key=lambda x: x["last_action_timestamp"])
 
-    # Формируем строки для вывода
     formatted_list = [
         f"ID: {user['uid']}, Ник: @{user['username']}, Имя: {user['name']}, Последнее действие: {user['last_action_time']}"
         for user in user_list
     ]
 
-    # Разбиваем на части, если список длинный
     if len("\n".join(formatted_list)) > 4096:
         chunk_size = 10
         for i in range(0, len(formatted_list), chunk_size):
@@ -180,8 +175,46 @@ async def users_command(message: types.Message):
         text = "Список пользователей:\n" + "\n".join(formatted_list)
         await message.answer(text)
 
-@dp.message(Command("user_profile"))
-async def user_profile_command(message: types.Message):
+# Команда /user_profile (для всех пользователей)
+@dp.message(Command("user_profile"), StateFilter("*"))
+async def cmd_user_profile(message: types.Message, state: FSMContext, db, logger):
+    await state.clear()  # Сбрасываем состояние
+    user_id = message.from_user.id
+    await logger.log_action(user_id, "user_profile_viewed")
+    profile = await build_user_profile(user_id, db)
+
+    if not profile:
+        await message.answer("У тебя пока нет профиля. Попробуй вытянуть карту дня и ответить на вопросы! ✨")
+        return
+
+    mood = profile["mood"]
+    mood_trend = " → ".join(profile["mood_trend"]) if profile["mood_trend"] else "Нет данных"
+    themes = ", ".join(profile["themes"]) if profile["themes"] else "Нет данных"
+    response_count = profile["response_count"]
+    request_count = profile["request_count"]
+    avg_response_length = round(profile["avg_response_length"], 2)
+    days_active = profile["days_active"]
+    interactions_per_day = round(profile["interactions_per_day"], 2)
+    last_updated = profile["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if profile["last_updated"] else "Не обновлялся"
+
+    text = (
+        f"🌟 Твой профиль:\n\n"
+        f"Настроение: {mood}\n"
+        f"Тренд настроения: {mood_trend}\n"
+        f"Основные темы: {themes}\n"
+        f"Количество ответов: {response_count}\n"
+        f"Количество запросов: {request_count}\n"
+        f"Средняя длина ответа: {avg_response_length} символов\n"
+        f"Дней активности: {days_active}\n"
+        f"Взаимодействий в день: {interactions_per_day}\n"
+        f"Последнее обновление: {last_updated}"
+    )
+
+    await message.answer(text)
+
+# Команда /admin_user_profile (для администратора)
+@dp.message(Command("admin_user_profile"))
+async def admin_user_profile_command(message: types.Message):
     user_id = message.from_user.id
     if user_id != ADMIN_ID:
         await message.answer("Эта команда доступна только администратору.")
@@ -189,7 +222,7 @@ async def user_profile_command(message: types.Message):
 
     args = message.text.split()
     if len(args) < 2:
-        await message.answer("Укажите ID пользователя: /user_profile <user_id>")
+        await message.answer("Укажите ID пользователя: /admin_user_profile <user_id>")
         return
 
     try:
@@ -198,49 +231,41 @@ async def user_profile_command(message: types.Message):
         await message.answer("ID пользователя должен быть числом.")
         return
 
-    # Проверяем, есть ли профиль в БД и не устарел ли он
-    with db.conn:
-        cursor = db.conn.execute("SELECT * FROM user_profiles WHERE user_id = ?", (target_user_id,))
-        profile_data = cursor.fetchone()
+    profile = await build_user_profile(target_user_id, db)
 
-    if profile_data:
-        last_updated = datetime.fromisoformat(profile_data[9])
-        if (datetime.now(TIMEZONE) - last_updated).total_seconds() < 3600:  # Обновляем раз в час
-            profile = {
-                "mood": profile_data[1],
-                "mood_trend": json.loads(profile_data[2]),
-                "themes": json.loads(profile_data[3]),
-                "response_count": profile_data[4],
-                "request_count": profile_data[5],
-                "avg_response_length": profile_data[6],
-                "days_active": profile_data[7],
-                "interactions_per_day": profile_data[8]
-            }
-        else:
-            # Если данные устарели, пересчитываем
-            profile = await build_user_profile(target_user_id, db)
-    else:
-        # Если профиля нет, создаём новый
-        profile = await build_user_profile(target_user_id, db)
+    if not profile:
+        await message.answer(f"Профиль пользователя {target_user_id} не найден.")
+        return
+
+    mood = profile["mood"]
+    mood_trend = " → ".join(profile["mood_trend"]) if profile["mood_trend"] else "Нет данных"
+    themes = ", ".join(profile["themes"]) if profile["themes"] else "Нет данных"
+    response_count = profile["response_count"]
+    request_count = profile["request_count"]
+    avg_response_length = round(profile["avg_response_length"], 2)
+    days_active = profile["days_active"]
+    interactions_per_day = round(profile["interactions_per_day"], 2)
+    last_updated = profile["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if profile["last_updated"] else "Не обновлялся"
 
     text = (
-        f"Профиль пользователя {target_user_id}:\n"
-        f"Настроение: {profile['mood']}\n"
-        f"Тренд настроения: {', '.join(profile['mood_trend'])}\n"
-        f"Темы: {', '.join(profile['themes'])}\n"
-        f"Количество ответов: {profile['response_count']}\n"
-        f"Количество запросов: {profile['request_count']}\n"
-        f"Средняя длина ответа: {profile['avg_response_length']:.1f}\n"
-        f"Активных дней: {profile['days_active']}\n"
-        f"Взаимодействий в день: {profile['interactions_per_day']:.1f}"
+        f"Профиль пользователя {target_user_id}:\n\n"
+        f"Настроение: {mood}\n"
+        f"Тренд настроения: {mood_trend}\n"
+        f"Основные темы: {themes}\n"
+        f"Количество ответов: {response_count}\n"
+        f"Количество запросов: {request_count}\n"
+        f"Средняя длина ответа: {avg_response_length} символов\n"
+        f"Дней активности: {days_active}\n"
+        f"Взаимодействий в день: {interactions_per_day}\n"
+        f"Последнее обновление: {last_updated}"
     )
     await message.answer(text)
 
-# Команда /feedback (старая логика с адаптацией к SQLite)
+# Команда /feedback
 @dp.message(Command("feedback"))
 async def feedback_command(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    name = db.get_user(user_id)["name"]  # Берем имя из базы данных
+    name = db.get_user(user_id)["name"]
     text = (
         f"{name}, напиши свой вопрос или идею, чтобы я смог стать ещё полезнее. Я сохраню ваши мысли!"
         if name
@@ -248,10 +273,10 @@ async def feedback_command(message: types.Message, state: FSMContext):
     )
     await message.answer(
         text,
-        reply_markup=await get_main_menu(user_id, db),  # Асинхронная функция, поэтому await
-        protect_content=True  # Защищаем контент от копирования
+        reply_markup=await get_main_menu(user_id, db),
+        protect_content=True
     )
-    await state.set_state(UserState.waiting_for_feedback)  # Устанавливаем состояние ожидания отзыва
+    await state.set_state(UserState.waiting_for_feedback)
     await logger.log_action(user_id, "feedback_initiated")
 
 # Обработка ввода отзыва
@@ -262,7 +287,6 @@ async def process_feedback(message: types.Message, state: FSMContext):
     name = db.get_user(user_id)["name"]
     timestamp = datetime.now(TIMEZONE).isoformat()
 
-    # Сохраняем отзыв в таблицу feedback
     with db.conn:
         db.conn.execute(
             "INSERT INTO feedback (user_id, name, feedback, timestamp) VALUES (?, ?, ?, ?)",
@@ -274,7 +298,7 @@ async def process_feedback(message: types.Message, state: FSMContext):
     await message.answer(
         text,
         reply_markup=await get_main_menu(user_id, db),
-        protect_content=True  # Сохраняем защиту контента
+        protect_content=True
     )
     await state.clear()
 
@@ -294,7 +318,7 @@ async def name_command(message: types.Message, state: FSMContext):
 async def process_name(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     name = message.text.strip()
-    if name == "✨ Карта дня":  # Валидация имени
+    if name == "✨ Карта дня":
         await message.answer("Пожалуйста, выбери другое имя. Это имя зарезервировано.")
         return
     await user_manager.set_name(user_id, name)
@@ -328,7 +352,7 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
         text = f"{name}, время указано неверно. Попробуй ещё раз (чч:мм)." if name else "Время указано неверно. Попробуй ещё раз (чч:мм)."
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
 
-# Команда /check_logs для проверки логов
+# Команда /logs
 @dp.message(Command("logs"))
 async def logs_command(message: types.Message):
     user_id = message.from_user.id
@@ -344,11 +368,11 @@ async def logs_command(message: types.Message):
             await message.answer("Укажите дату в формате YYYY-MM-DD, например: /logs 2025-04-07")
             return
     else:
-        target_date = datetime.now(TIMEZONE).date()  # По умолчанию текущая дата
+        target_date = datetime.now(TIMEZONE).date()
 
     logs = db.get_actions()
     filtered_logs = []
-    excluded_users = set(NO_LOGS_USERS)  # Множество для быстрой проверки
+    excluded_users = set(NO_LOGS_USERS)
     for log in logs:
         try:
             log_timestamp = datetime.fromisoformat(log["timestamp"]).astimezone(TIMEZONE)
@@ -362,7 +386,6 @@ async def logs_command(message: types.Message):
         await message.answer(f"Логов за {target_date} нет.")
         return
 
-    # Разбиваем логи на части по 20 записей
     chunk_size = 20
     for i in range(0, len(filtered_logs), chunk_size):
         chunk = filtered_logs[i:i + chunk_size]
@@ -370,7 +393,6 @@ async def logs_command(message: types.Message):
         for log in chunk:
             text += f"User {log['user_id']}: {log['action']} at {log['timestamp']}, details: {log['details']}\n"
         
-        # Проверяем длину текста (для отладки, можно убрать позже)
         if len(text) > 4096:
             await message.answer("Сообщение слишком длинное, уменьшите chunk_size.")
             return
@@ -426,7 +448,7 @@ dp.message.register(make_process_initial_response_handler(db, logger), UserState
 dp.message.register(make_process_first_grok_response_handler(db, logger), UserState.waiting_for_first_grok_response)
 dp.message.register(make_process_second_grok_response_handler(db, logger), UserState.waiting_for_second_grok_response)
 dp.message.register(make_process_third_grok_response_handler(db, logger), UserState.waiting_for_third_grok_response)
-dp.callback_query.register(make_process_card_feedback_handler(db, logger), lambda c: c.data.startswith("feedback_"))  # Регистрируем обработчик для feedback
+dp.callback_query.register(make_process_card_feedback_handler(db, logger), lambda c: c.data.startswith("feedback_"))
 
 # Обработка "Подсказка Вселенной"
 @dp.message(lambda m: m.text == "💌 Подсказка Вселенной")
@@ -445,7 +467,7 @@ async def handle_bonus_request(message: types.Message):
 # Обработчик для неизвестных сообщений
 @dp.message()
 async def handle_unknown_message(message: types.Message):
-    await message.answer("Извините, я не понял ваш запрос. Попробуйте нажать '✨ Карта дня' или используйте команды /start, /name, /remind, /share, /feedback")
+    await message.answer("Извините, я не понял ваш запрос. Попробуйте нажать '✨ Карта дня' или используйте команды /start, /name, /remind, /share, /feedback, /user_profile")
 
 # Запуск
 async def main():
@@ -464,13 +486,61 @@ async def main():
             except Exception as e:
                 logger.log_action(user_id, "username_migration_error", {"error": str(e)})
 
+        # Устанавливаем команды для бота
+        commands = [
+            types.BotCommand(command="start", description="Запустить бота"),
+            types.BotCommand(command="user_profile", description="Посмотреть свой профиль"),
+            types.BotCommand(command="feedback", description="Оставить отзыв"),
+            types.BotCommand(command="name", description="Указать или изменить имя"),
+            types.BotCommand(command="remind", description="Установить напоминание"),
+            types.BotCommand(command="share", description="Поделиться ссылкой"),
+        ]
+        await bot.set_my_commands(commands)
+
         asyncio.create_task(notifier.check_reminders())
-        broadcast_data = {
+        
+        # Рассылка для активных и неактивных пользователей
+        all_users = db.get_all_users()
+        active_users = []
+        inactive_users = []
+        threshold_date = (datetime.now(TIMEZONE) - timedelta(days=7)).isoformat()
+
+        for user_id in all_users:
+            actions = db.get_actions(user_id)
+            recent_actions = [action for action in actions if action["timestamp"] >= threshold_date]
+            if recent_actions:
+                active_users.append(user_id)
+            else:
+                inactive_users.append(user_id)
+
+        # Сообщение для активных пользователей (Группа 1)
+        broadcast_data_active = {
             "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0) + timedelta(minutes=2),
-            "text": "Тестовая рассылка",
-            "recipients": [6682555021]
+            "text": (
+                "Привет! 🌟 Неделю назад мы запустили бота, и теперь у нас крутые обновления! \n\n"
+                "После вытягивания карты дня ✨ я задам тебе несколько вопросов, чтобы помочь глубже понять свои эмоции и ассоциации. 💭\n\n"
+                "Чтобы всё работало правильно, пожалуйста, нажми /start, а затем выбери '✨ Карта дня'! 🌿\n\n"
+                "Если есть идеи, как сделать меня лучше, пиши /feedback. Жду тебя! 💌"
+            ),
+            "recipients": active_users
         }
-        asyncio.create_task(notifier.send_broadcast(broadcast_data))
+        asyncio.create_task(notifier.send_broadcast(broadcast_data_active))
+
+        # Сообщение для неактивных пользователей (Группа 2)
+        for user_id in inactive_users:
+            user_data = db.get_user(user_id)
+            name = user_data["name"] or "друг"
+            broadcast_data_inactive = {
+                "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0) + timedelta(minutes=2),
+                "text": (
+                    f"Привет, {name}! 🌟 Я заметил, что ты давно не заходил(а). "
+                    "У нас появились новые функции: теперь я задаю вопросы после карты дня, чтобы помочь глубже понять свои эмоции. 💭\n\n"
+                    "Чтобы начать, нажми /start, а затем выбери '✨ Карта дня'! 🌿"
+                ),
+                "recipients": [user_id]
+            }
+            asyncio.create_task(notifier.send_broadcast(broadcast_data_inactive))
+        
         while True:
             try:
                 await dp.start_polling(bot)
