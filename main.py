@@ -196,6 +196,12 @@ async def handle_survey(message: types.Message, state: FSMContext):
     logger_root.info(f"Handle_survey called for message: {message.text} from user {message.from_user.id}")
     await send_survey(message, state, db, logger)
 
+# Фабрика для обработчика callback-запросов опросника
+def make_process_survey_response_handler(db, logger):
+    async def wrapped_handler(callback: types.CallbackQuery, state: FSMContext):
+        await process_survey_response(callback, state, db, logger)
+    return wrapped_handler
+
 # Фабрики для команд (без изменений)
 def make_start_handler(db, logger, user_manager):
     async def wrapped_handler(message: types.Message, state: FSMContext):
@@ -609,7 +615,7 @@ dp.message.register(make_process_reminder_time_handler(db, logger, user_manager)
 dp.message.register(make_logs_handler(db), Command("logs"))
 dp.message.register(make_bonus_request_handler(db, logger), lambda m: m.text == "💌 Подсказка Вселенной")
 dp.message.register(handle_survey, Command("survey"))
-dp.callback_query.register(lambda c: process_survey_response(c, state=dp.fsm.get_context(bot=bot, user_id=c.from_user.id, chat_id=c.message.chat.id), db=db, logger=logger), lambda c: c.data.startswith("survey_"))
+dp.callback_query.register(make_process_survey_response_handler(db, logger), lambda c: c.data.startswith("survey_"))
 
 # Обработка "Карта дня"
 dp.message.register(make_card_request_handler(db, logger), lambda m: m.text == "✨ Карта дня")
@@ -647,12 +653,11 @@ async def main():
 
         # Устанавливаем команды для бота
         commands = [
-            types.BotCommand(command="start", description="Обновить"),
-            types.BotCommand(command="feedback", description="Оставить отзыв"),
-            types.BotCommand(command="name", description="Указать или изменить имя"),
-            types.BotCommand(command="remind", description="Установить напоминание"),
-            types.BotCommand(command="share", description="Поделиться ссылкой"),
-            types.BotCommand(command="survey", description="Пройти опрос")
+            types.BotCommand(command="start", description="🔄 Перезагрузка"),
+            types.BotCommand(command="name", description="🧑 Указать имя"),
+            types.BotCommand(command="remind", description="⏰ Напоминание"),
+            types.BotCommand(command="share", description="🎁 Поделиться"),
+            types.BotCommand(command="feedback", description="📩 Отзыв")
         ]
         await bot.set_my_commands(commands)
         logger_root.info("Bot commands set successfully")
