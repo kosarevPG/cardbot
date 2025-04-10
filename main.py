@@ -59,7 +59,90 @@ class SubscriptionMiddleware:
 
 dp.message.middleware(SubscriptionMiddleware())
 
-# Фабрики для команд, зависящих от db и logger
+# Обработчик опросника
+async def send_survey(message: types.Message, db, logger):
+    user_id = message.from_user.id
+    allowed_users = [6682555021, 392141189]
+    
+    if user_id not in allowed_users:
+        await message.answer("Этот опрос пока доступен только избранным пользователям.")
+        return
+
+    name = db.get_user(user_id)["name"]
+    text = (
+        f"Привет, {name}! 🌟 Ты уже успела поработать с картами — как впечатления? Помоги мне стать лучше:\n"
+        "1. Пробовала делиться мной через /share?\n"
+        "2. Пишешь запрос перед картой или держишь в голове?\n"
+        "3. Вопросы после карты — твоё?\n"
+        "4. Хочешь более глубокий анализ твоих ответов?\n"
+        "5. Какие новые идеи тебе интересны?\n"
+        "Выбери ответы кнопками ниже. Спасибо! 💌"
+        if name else
+        "Привет! 🌟 Ты уже успела поработать с картами — как впечатления? Помоги мне стать лучше:\n"
+        "1. Пробовала делиться мной через /share?\n"
+        "2. Пишешь запрос перед картой или держишь в голове?\n"
+        "3. Вопросы после карты — твоё?\n"
+        "4. Хочешь более глубокий анализ твоих ответов?\n"
+        "5. Какие новые идеи тебе интересны?\n"
+        "Выбери ответы кнопками ниже. Спасибо! 💌"
+    )
+
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="1. Да", callback_data="survey_1_yes"),
+         types.InlineKeyboardButton(text="1. Нет, не вижу смысла", callback_data="survey_1_no_reason"),
+         types.InlineKeyboardButton(text="1. Не знала", callback_data="survey_1_no_knowledge")],
+        [types.InlineKeyboardButton(text="2. Пишу", callback_data="survey_2_write"),
+         types.InlineKeyboardButton(text="2. В голове", callback_data="survey_2_head"),
+         types.InlineKeyboardButton(text="2. Не хочу делиться", callback_data="survey_2_private")],
+        [types.InlineKeyboardButton(text="3. Нравятся", callback_data="survey_3_like"),
+         types.InlineKeyboardButton(text="3. Хочу глубины", callback_data="survey_3_depth"),
+         types.InlineKeyboardButton(text="3. Не моё", callback_data="survey_3_not_mine")],
+        [types.InlineKeyboardButton(text="4. Да", callback_data="survey_4_yes"),
+         types.InlineKeyboardButton(text="4. Нет", callback_data="survey_4_no"),
+         types.InlineKeyboardButton(text="4. Боюсь последствий", callback_data="survey_4_fear")],
+        [types.InlineKeyboardButton(text="5. Напоминания", callback_data="survey_5_reminders"),
+         types.InlineKeyboardButton(text="5. Больше карт", callback_data="survey_5_cards"),
+         types.InlineKeyboardButton(text="5. Глубокий разбор", callback_data="survey_5_depth")]
+    ])
+
+    await message.answer(text, reply_markup=keyboard)
+    await logger.log_action(user_id, "survey_initiated")
+
+# Обработчик ответов опросника
+async def process_survey_response(callback: types.CallbackQuery, db, logger):
+    user_id = callback.from_user.id
+    callback_data = callback.data
+    question, answer = callback_data.split("_", 1)
+
+    answer_map = {
+        "survey_1_yes": "Да",
+        "survey_1_no_reason": "Нет, не вижу смысла",
+        "survey_1_no_knowledge": "Не знала",
+        "survey_2_write": "Пишу",
+        "survey_2_head": "В голове",
+        "survey_2_private": "Не хочу делиться",
+        "survey_3_like": "Нравятся",
+        "survey_3_depth": "Хочу глубины",
+        "survey_3_not_mine": "Не моё",
+        "survey_4_yes": "Да",
+        "survey_4_no": "Нет",
+        "survey_4_fear": "Боюсь последствий",
+        "survey_5_reminders": "Напоминания",
+        "survey_5_cards": "Больше карт",
+        "survey_5_depth": "Глубокий разбор"
+    }
+
+    question_num = question.split("_")[1]
+    response = answer_map.get(callback_data, "Неизвестный ответ")
+
+    await logger.log_action(user_id, "survey_response", {
+        "question": f"Вопрос {question_num}",
+        "answer": response
+    })
+
+    await callback.answer(f"Спасибо за ответ на вопрос {question_num}!")
+
+# Фабрики для команд
 def make_start_handler(db, logger, user_manager):
     async def wrapped_handler(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
@@ -113,7 +196,7 @@ def make_remind_handler(db, logger, user_manager):
         user_id = message.from_user.id
         name = db.get_user(user_id)["name"]
         current_reminder = db.get_user(user_id)["reminder_time"] or "не установлено"
-        text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)."
+        text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)." if name else f"Текущее время напоминания: { diaspora}. Введи новое время (чч:мм)."
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.set_state(UserState.waiting_for_reminder_time)
     return wrapped_handler
@@ -471,6 +554,8 @@ dp.callback_query.register(make_process_skip_name_handler(db, logger, user_manag
 dp.message.register(make_process_reminder_time_handler(db, logger, user_manager), UserState.waiting_for_reminder_time)
 dp.message.register(make_logs_handler(db), Command("logs"))
 dp.message.register(make_bonus_request_handler(db, logger), lambda m: m.text == "💌 Подсказка Вселенной")
+dp.message.register(lambda m, db=db, logger=logger: send_survey(m, db, logger), Command("survey"))
+dp.callback_query.register(lambda c, db=db, logger=logger: process_survey_response(c, db, logger), lambda c: c.data.startswith("survey_"))
 
 # Обработка "Карта дня"
 dp.message.register(make_card_request_handler(db, logger), lambda m: m.text == "✨ Карта дня")
@@ -511,53 +596,22 @@ async def main():
             types.BotCommand(command="name", description="Указать или изменить имя"),
             types.BotCommand(command="remind", description="Установить напоминание"),
             types.BotCommand(command="share", description="Поделиться ссылкой"),
+            types.BotCommand(command="survey", description="Пройти опрос")
         ]
         await bot.set_my_commands(commands)
 
         asyncio.create_task(notifier.check_reminders())
         
-        # Рассылка для активных и неактивных пользователей
-        all_users = db.get_all_users()
-        active_users = []
-        inactive_users = []
-        threshold_date = (datetime.now(TIMEZONE) - timedelta(days=7)).isoformat()
-
-        for user_id in all_users:
-            actions = db.get_actions(user_id)
-            recent_actions = [action for action in actions if action["timestamp"] >= threshold_date]
-            if recent_actions:
-                active_users.append(user_id)
-            else:
-                inactive_users.append(user_id)
-
-        # Сообщение для активных пользователей (Группа 1)
-        broadcast_data_active = {
-            "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0) + timedelta(hours=8),
-            "text": (
-                "Привет! 🌟 Неделю назад мы запустили бота, и теперь у нас крутые обновления! \n\n"
-                "После вытягивания карты дня ✨ я задам тебе несколько вопросов, чтобы помочь глубже понять свои эмоции и ассоциации. 💭\n\n"
-                "Чтобы всё работало правильно, пожалуйста, нажми /start, а затем выбери '✨ Карта дня'! 🌿\n\n"
-                "Если есть идеи, как сделать меня лучше, пиши /feedback. Жду тебя! 💌"
-            ),
-            "recipients": active_users
+        # Рассылка опросника конкретным пользователям
+        survey_users = [6682555021, 392141189]
+        broadcast_data_survey = {
+            "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0),
+            "text": "Привет! 🌟 Нажми /survey, чтобы поделиться впечатлениями и помочь мне стать лучше!",
+            "recipients": survey_users
         }
-        asyncio.create_task(notifier.send_broadcast(broadcast_data_active))
+        asyncio.create_task(notifier.send_broadcast(broadcast_data_survey))
 
-        # Сообщение для неактивных пользователей (Группа 2)
-        for user_id in inactive_users:
-            user_data = db.get_user(user_id)
-            name = user_data["name"] or "друг"
-            broadcast_data_inactive = {
-                "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0) + timedelta(hours=8),
-                "text": (
-                    f"Привет, {name}! 🌟 Я заметил, что ты давно не заходил(а). "
-                    "У нас появились новые функции: теперь я задаю вопросы после карты дня, чтобы помочь глубже понять свои эмоции. 💭\n\n"
-                    "Чтобы начать, нажми /start, а затем выбери '✨ Карта дня'! 🌿"
-                ),
-                "recipients": [user_id]
-            }
-            asyncio.create_task(notifier.send_broadcast(broadcast_data_inactive))
-        
+        # Удаляем старую рассылку для активных/неактивных пользователей (оставляем только опросник)
         while True:
             try:
                 await dp.start_polling(bot)
