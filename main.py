@@ -86,7 +86,7 @@ async def send_survey(message: types.Message, db, logger):
         "Выбери ответы кнопками ниже. Спасибо! 💌"
         if name else
         "Привет! 🌟 Ты уже успела поработать с картами — как впечатления? Помоги мне стать лучше:\n"
-        "1. Пробовала делиться мной через /share?\n"
+        "1. Пробовала делаться мной через /share?\n"
         "2. Пишешь запрос перед картой или держишь в голове?\n"
         "3. Вопросы после карты — твоё?\n"
         "4. Хочешь более глубокий анализ твоих ответов?\n"
@@ -568,7 +568,7 @@ dp.callback_query.register(make_process_skip_name_handler(db, logger, user_manag
 dp.message.register(make_process_reminder_time_handler(db, logger, user_manager), UserState.waiting_for_reminder_time)
 dp.message.register(make_logs_handler(db), Command("logs"))
 dp.message.register(make_bonus_request_handler(db, logger), lambda m: m.text == "💌 Подсказка Вселенной")
-dp.message.register(lambda m: send_survey(m, db, logger), Command("survey"))  # Исправленная регистрация
+dp.message.register(lambda m: send_survey(m, db, logger), Command("survey"))
 dp.callback_query.register(lambda c: process_survey_response(c, db, logger), lambda c: c.data.startswith("survey_"))
 
 # Обработка "Карта дня"
