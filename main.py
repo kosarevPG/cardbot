@@ -127,10 +127,10 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
         "survey_3_not_mine": "Не моё",
         "survey_4_yes": "Да",
         "survey_4_no": "Нет",
-        "survey_4_fear": "Боюсь последствий",
-        "survey_5_reminders": "Напоминания",
-        "survey_5_cards": "Больше карт",
-        "survey_5_depth": "Глубокий разбор"
+        "survey_4_fear": "Пока не уверена",
+        "survey_5_reminders": "Добавить новые задания",
+        "survey_5_cards": "Расширить колоду карт",
+        "survey_5_depth": "Давать более глубокие ответы"
     }
 
     question_num = callback_data.split("_")[1]
@@ -155,7 +155,7 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
             await state.set_state(SurveyState.question_2)
 
         elif current_state == SurveyState.question_2.state:
-            question_3_text = "3. Вопросы после карты — твоё?"
+            question_3_text = "3. Вопросы, котрые я задаю после карты — твоё?"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="Нравятся", callback_data="survey_3_like")],
                 [types.InlineKeyboardButton(text="Хочу глубины", callback_data="survey_3_depth")],
@@ -165,21 +165,21 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
             await state.set_state(SurveyState.question_3)
 
         elif current_state == SurveyState.question_3.state:
-            question_4_text = "4. Хочешь более глубокий анализ твоих ответов?"
+            question_4_text = "4. Хочешь более глубокий анализ твоих запросов?"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="Да", callback_data="survey_4_yes")],
                 [types.InlineKeyboardButton(text="Нет", callback_data="survey_4_no")],
-                [types.InlineKeyboardButton(text="Боюсь последствий", callback_data="survey_4_fear")]
+                [types.InlineKeyboardButton(text="Пока не уверена", callback_data="survey_4_fear")]
             ])
             await callback.message.answer(question_4_text, reply_markup=keyboard)
             await state.set_state(SurveyState.question_4)
 
         elif current_state == SurveyState.question_4.state:
-            question_5_text = "5. Какие новые идеи тебе интересны?"
+            question_5_text = "5. Как я могу стать ещё полезнее для тебя?"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="Напоминания", callback_data="survey_5_reminders")],
-                [types.InlineKeyboardButton(text="Больше карт", callback_data="survey_5_cards")],
-                [types.InlineKeyboardButton(text="Глубокий разбор", callback_data="survey_5_depth")]
+                [types.InlineKeyboardButton(text="Добавить новые задания", callback_data="survey_5_reminders")],
+                [types.InlineKeyboardButton(text="Расширить колоду карт", callback_data="survey_5_cards")],
+                [types.InlineKeyboardButton(text="Давать более глубокие ответы", callback_data="survey_5_depth")]
             ])
             await callback.message.answer(question_5_text, reply_markup=keyboard)
             await state.set_state(SurveyState.question_5)
