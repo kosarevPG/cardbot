@@ -16,6 +16,11 @@ import random
 from datetime import datetime, timedelta
 import os
 import json
+import logging
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger_root = logging.getLogger()
 
 # Инициализация
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
@@ -52,7 +57,8 @@ class SubscriptionMiddleware:
                     text = f"{name}, привет! Чтобы начать, подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!" if name else "Привет! Чтобы начать, подпишись на <a href='https://t.me/TopPsyGame'>канал автора</a>!"
                     await event.answer(text, disable_web_page_preview=True)
                     return
-            except Exception:
+            except Exception as e:
+                logger_root.error(f"Subscription check failed for user {user_id}: {e}")
                 await event.answer("Ой, что-то сломалось... Попробуй позже.")
                 return
         return await handler(event, data)
@@ -64,6 +70,7 @@ async def send_survey(message: types.Message, db, logger):
     user_id = message.from_user.id
     allowed_users = [6682555021, 392141189]
     
+    logger_root.info(f"Processing /survey for user {user_id}")
     if user_id not in allowed_users:
         await message.answer("Этот опрос пока доступен только избранным пользователям.")
         return
@@ -105,14 +112,19 @@ async def send_survey(message: types.Message, db, logger):
          types.InlineKeyboardButton(text="5. Глубокий разбор", callback_data="survey_5_depth")]
     ])
 
-    await message.answer(text, reply_markup=keyboard)
-    await logger.log_action(user_id, "survey_initiated")
+    try:
+        await message.answer(text, reply_markup=keyboard)
+        await logger.log_action(user_id, "survey_initiated")
+    except Exception as e:
+        logger_root.error(f"Failed to send survey to user {user_id}: {e}")
 
 # Обработчик ответов опросника
 async def process_survey_response(callback: types.CallbackQuery, db, logger):
     user_id = callback.from_user.id
     callback_data = callback.data
     question, answer = callback_data.split("_", 1)
+
+    logger_root.info(f"Processing survey response for user {user_id}: {callback_data}")
 
     answer_map = {
         "survey_1_yes": "Да",
@@ -135,12 +147,14 @@ async def process_survey_response(callback: types.CallbackQuery, db, logger):
     question_num = question.split("_")[1]
     response = answer_map.get(callback_data, "Неизвестный ответ")
 
-    await logger.log_action(user_id, "survey_response", {
-        "question": f"Вопрос {question_num}",
-        "answer": response
-    })
-
-    await callback.answer(f"Спасибо за ответ на вопрос {question_num}!")
+    try:
+        await logger.log_action(user_id, "survey_response", {
+            "question": f"Вопрос {question_num}",
+            "answer": response
+        })
+        await callback.answer(f"Спасибо за ответ на вопрос {question_num}!")
+    except Exception as e:
+        logger_root.error(f"Failed to process survey response for user {user_id}: {e}")
 
 # Фабрики для команд
 def make_start_handler(db, logger, user_manager):
@@ -196,7 +210,7 @@ def make_remind_handler(db, logger, user_manager):
         user_id = message.from_user.id
         name = db.get_user(user_id)["name"]
         current_reminder = db.get_user(user_id)["reminder_time"] or "не установлено"
-        text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)." if name else f"Текущее время напоминания: { diaspora}. Введи новое время (чч:мм)."
+        text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)."
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.set_state(UserState.waiting_for_reminder_time)
     return wrapped_handler
@@ -554,8 +568,8 @@ dp.callback_query.register(make_process_skip_name_handler(db, logger, user_manag
 dp.message.register(make_process_reminder_time_handler(db, logger, user_manager), UserState.waiting_for_reminder_time)
 dp.message.register(make_logs_handler(db), Command("logs"))
 dp.message.register(make_bonus_request_handler(db, logger), lambda m: m.text == "💌 Подсказка Вселенной")
-dp.message.register(lambda m, db=db, logger=logger: send_survey(m, db, logger), Command("survey"))
-dp.callback_query.register(lambda c, db=db, logger=logger: process_survey_response(c, db, logger), lambda c: c.data.startswith("survey_"))
+dp.message.register(send_survey, Command("survey"))  # Упрощённая регистрация
+dp.callback_query.register(process_survey_response, lambda c: c.data.startswith("survey_"))
 
 # Обработка "Карта дня"
 dp.message.register(make_card_request_handler(db, logger), lambda m: m.text == "✨ Карта дня")
@@ -576,6 +590,8 @@ async def handle_unknown_message(message: types.Message):
 async def main():
     try:
         db.bot = bot
+        logger_root.info("Starting bot initialization")
+        
         # Разовая миграция: обновляем username для всех пользователей
         users = db.get_all_users()
         for user_id in users:
@@ -599,6 +615,7 @@ async def main():
             types.BotCommand(command="survey", description="Пройти опрос")
         ]
         await bot.set_my_commands(commands)
+        logger_root.info("Bot commands set successfully")
 
         asyncio.create_task(notifier.check_reminders())
         
@@ -610,17 +627,14 @@ async def main():
             "recipients": survey_users
         }
         asyncio.create_task(notifier.send_broadcast(broadcast_data_survey))
+        logger_root.info("Survey broadcast task created")
 
-        # Удаляем старую рассылку для активных/неактивных пользователей (оставляем только опросник)
-        while True:
-            try:
-                await dp.start_polling(bot)
-                break
-            except Exception as e:
-                logger.log_action(0, "polling_error", {"error": str(e)})
-                await asyncio.sleep(5)
+        logger_root.info("Entering polling loop")
+        await dp.start_polling(bot)
+        logger_root.info("Polling stopped unexpectedly")
     except Exception as e:
         logger.log_action(0, "main_error", {"error": str(e)})
+        logger_root.error(f"Main loop failed: {e}")
         raise
 
 if __name__ == "__main__":
