@@ -94,9 +94,9 @@ async def send_survey(message: types.Message, state: FSMContext, db, logger):
     )
     question_1_text = "1. Пробовала делиться мной через /share?"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="Да", callback_data="survey_1_yes"),
-         types.InlineKeyboardButton(text="Нет, не вижу смысла", callback_data="survey_1_no_reason"),
-         types.InlineKeyboardButton(text="Не знала", callback_data="survey_1_no_knowledge")]
+        [types.InlineKeyboardButton(text="Да", callback_data="survey_1_yes")],
+        [types.InlineKeyboardButton(text="Нет, не вижу смысла", callback_data="survey_1_no_reason")],
+        [types.InlineKeyboardButton(text="Не знала", callback_data="survey_1_no_knowledge")]
     ])
 
     try:
@@ -147,9 +147,9 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
         if current_state == SurveyState.question_1.state:
             question_2_text = "2. Пишешь запрос перед картой или держишь в голове?"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="Пишу", callback_data="survey_2_write"),
-                 types.InlineKeyboardButton(text="В голове", callback_data="survey_2_head"),
-                 types.InlineKeyboardButton(text="Не хочу делиться", callback_data="survey_2_private")]
+                [types.InlineKeyboardButton(text="Пишу", callback_data="survey_2_write")],
+                [types.InlineKeyboardButton(text="В голове", callback_data="survey_2_head")],
+                [types.InlineKeyboardButton(text="Не хочу делиться", callback_data="survey_2_private")]
             ])
             await callback.message.answer(question_2_text, reply_markup=keyboard)
             await state.set_state(SurveyState.question_2)
@@ -157,9 +157,9 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
         elif current_state == SurveyState.question_2.state:
             question_3_text = "3. Вопросы после карты — твоё?"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="Нравятся", callback_data="survey_3_like"),
-                 types.InlineKeyboardButton(text="Хочу глубины", callback_data="survey_3_depth"),
-                 types.InlineKeyboardButton(text="Не моё", callback_data="survey_3_not_mine")]
+                [types.InlineKeyboardButton(text="Нравятся", callback_data="survey_3_like")],
+                [types.InlineKeyboardButton(text="Хочу глубины", callback_data="survey_3_depth")],
+                [types.InlineKeyboardButton(text="Не моё", callback_data="survey_3_not_mine")]
             ])
             await callback.message.answer(question_3_text, reply_markup=keyboard)
             await state.set_state(SurveyState.question_3)
@@ -167,9 +167,9 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
         elif current_state == SurveyState.question_3.state:
             question_4_text = "4. Хочешь более глубокий анализ твоих ответов?"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="Да", callback_data="survey_4_yes"),
-                 types.InlineKeyboardButton(text="Нет", callback_data="survey_4_no"),
-                 types.InlineKeyboardButton(text="Боюсь последствий", callback_data="survey_4_fear")]
+                [types.InlineKeyboardButton(text="Да", callback_data="survey_4_yes")],
+                [types.InlineKeyboardButton(text="Нет", callback_data="survey_4_no")],
+                [types.InlineKeyboardButton(text="Боюсь последствий", callback_data="survey_4_fear")]
             ])
             await callback.message.answer(question_4_text, reply_markup=keyboard)
             await state.set_state(SurveyState.question_4)
@@ -177,9 +177,9 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
         elif current_state == SurveyState.question_4.state:
             question_5_text = "5. Какие новые идеи тебе интересны?"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="Напоминания", callback_data="survey_5_reminders"),
-                 types.InlineKeyboardButton(text="Больше карт", callback_data="survey_5_cards"),
-                 types.InlineKeyboardButton(text="Глубокий разбор", callback_data="survey_5_depth")]
+                [types.InlineKeyboardButton(text="Напоминания", callback_data="survey_5_reminders")],
+                [types.InlineKeyboardButton(text="Больше карт", callback_data="survey_5_cards")],
+                [types.InlineKeyboardButton(text="Глубокий разбор", callback_data="survey_5_depth")]
             ])
             await callback.message.answer(question_5_text, reply_markup=keyboard)
             await state.set_state(SurveyState.question_5)
@@ -609,7 +609,7 @@ dp.message.register(make_process_reminder_time_handler(db, logger, user_manager)
 dp.message.register(make_logs_handler(db), Command("logs"))
 dp.message.register(make_bonus_request_handler(db, logger), lambda m: m.text == "💌 Подсказка Вселенной")
 dp.message.register(handle_survey, Command("survey"))
-dp.callback_query.register(process_survey_response, lambda c: c.data.startswith("survey_"))
+dp.callback_query.register(lambda c: process_survey_response(c, state=dp.fsm.get_context(bot=bot, user_id=c.from_user.id, chat_id=c.message.chat.id), db=db, logger=logger), lambda c: c.data.startswith("survey_"))
 
 # Обработка "Карта дня"
 dp.message.register(make_card_request_handler(db, logger), lambda m: m.text == "✨ Карта дня")
@@ -647,11 +647,12 @@ async def main():
 
         # Устанавливаем команды для бота
         commands = [
-            types.BotCommand(command="start", description="🔄 Перезагрузка"),
-            types.BotCommand(command="name", description="🧑 Указать имя"),
-            types.BotCommand(command="remind", description="⏰ Напоминание"),
-            types.BotCommand(command="share", description="🎁 Поделиться"),
-            types.BotCommand(command="feedback", description="📩 Отзыв")
+            types.BotCommand(command="start", description="Обновить"),
+            types.BotCommand(command="feedback", description="Оставить отзыв"),
+            types.BotCommand(command="name", description="Указать или изменить имя"),
+            types.BotCommand(command="remind", description="Установить напоминание"),
+            types.BotCommand(command="share", description="Поделиться ссылкой"),
+            types.BotCommand(command="survey", description="Пройти опрос")
         ]
         await bot.set_my_commands(commands)
         logger_root.info("Bot commands set successfully")
