@@ -4,6 +4,7 @@ from aiogram.filters import Command, StateFilter
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from config import TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK, TIMEZONE, NO_LOGS_USERS
 from database.db import Database
@@ -65,8 +66,16 @@ class SubscriptionMiddleware:
 
 dp.message.middleware(SubscriptionMiddleware())
 
-# Обработчик опросника
-async def send_survey(message: types.Message, db, logger):
+# Определение состояний для опросника
+class SurveyState(StatesGroup):
+    question_1 = State()
+    question_2 = State()
+    question_3 = State()
+    question_4 = State()
+    question_5 = State()
+
+# Обработчик начала опросника
+async def send_survey(message: types.Message, state: FSMContext, db, logger):
     user_id = message.from_user.id
     allowed_users = [6682555021, 392141189]
     
@@ -76,55 +85,35 @@ async def send_survey(message: types.Message, db, logger):
         return
 
     name = db.get_user(user_id)["name"]
-    text = (
-        f"Привет, {name}! 🌟 Ты уже успела поработать с картами — как впечатления? Помоги мне стать лучше:\n"
-        "1. Пробовала делиться мной через /share?\n"
-        "2. Пишешь запрос перед картой или держишь в голове?\n"
-        "3. Вопросы после карты — твоё?\n"
-        "4. Хочешь более глубокий анализ твоих ответов?\n"
-        "5. Какие новые идеи тебе интересны?\n"
-        "Выбери ответы кнопками ниже. Спасибо! 💌"
+    intro_text = (
+        f"Привет, {name}! 🌟 Ты уже успела поработать с картами — как впечатления? "
+        "Помоги мне стать лучше, отвечая на вопросы по очереди. Начнём!"
         if name else
-        "Привет! 🌟 Ты уже успела поработать с картами — как впечатления? Помоги мне стать лучше:\n"
-        "1. Пробовала делиться мной через /share?\n"
-        "2. Пишешь запрос перед картой или держишь в голове?\n"
-        "3. Вопросы после карты — твоё?\n"
-        "4. Хочешь более глубокий анализ твоих ответов?\n"
-        "5. Какие новые идеи тебе интересны?\n"
-        "Выбери ответы кнопками ниже. Спасибо! 💌"
+        "Привет! 🌟 Ты уже успела поработать с картами — как впечатления? "
+        "Помоги мне стать лучше, отвечая на вопросы по очереди. Начнём!"
     )
-
+    question_1_text = "1. Пробовала делиться мной через /share?"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="1. Да", callback_data="survey_1_yes"),
-         types.InlineKeyboardButton(text="1. Нет, не вижу смысла", callback_data="survey_1_no_reason"),
-         types.InlineKeyboardButton(text="1. Не знала", callback_data="survey_1_no_knowledge")],
-        [types.InlineKeyboardButton(text="2. Пишу", callback_data="survey_2_write"),
-         types.InlineKeyboardButton(text="2. В голове", callback_data="survey_2_head"),
-         types.InlineKeyboardButton(text="2. Не хочу делиться", callback_data="survey_2_private")],
-        [types.InlineKeyboardButton(text="3. Нравятся", callback_data="survey_3_like"),
-         types.InlineKeyboardButton(text="3. Хочу глубины", callback_data="survey_3_depth"),
-         types.InlineKeyboardButton(text="3. Не моё", callback_data="survey_3_not_mine")],
-        [types.InlineKeyboardButton(text="4. Да", callback_data="survey_4_yes"),
-         types.InlineKeyboardButton(text="4. Нет", callback_data="survey_4_no"),
-         types.InlineKeyboardButton(text="4. Боюсь последствий", callback_data="survey_4_fear")],
-        [types.InlineKeyboardButton(text="5. Напоминания", callback_data="survey_5_reminders"),
-         types.InlineKeyboardButton(text="5. Больше карт", callback_data="survey_5_cards"),
-         types.InlineKeyboardButton(text="5. Глубокий разбор", callback_data="survey_5_depth")]
+        [types.InlineKeyboardButton(text="Да", callback_data="survey_1_yes"),
+         types.InlineKeyboardButton(text="Нет, не вижу смысла", callback_data="survey_1_no_reason"),
+         types.InlineKeyboardButton(text="Не знала", callback_data="survey_1_no_knowledge")]
     ])
 
     try:
-        await message.answer(text, reply_markup=keyboard)
+        await message.answer(intro_text)
+        await message.answer(question_1_text, reply_markup=keyboard)
         await logger.log_action(user_id, "survey_initiated")
+        await state.set_state(SurveyState.question_1)
     except Exception as e:
         logger_root.error(f"Failed to send survey to user {user_id}: {e}")
 
 # Обработчик ответов опросника
-async def process_survey_response(callback: types.CallbackQuery, db, logger):
+async def process_survey_response(callback: types.CallbackQuery, state: FSMContext, db, logger):
     user_id = callback.from_user.id
     callback_data = callback.data
-    question, answer = callback_data.split("_", 1)
+    current_state = await state.get_state()
 
-    logger_root.info(f"Processing survey response for user {user_id}: {callback_data}")
+    logger_root.info(f"Processing survey response for user {user_id}: {callback_data}, state: {current_state}")
 
     answer_map = {
         "survey_1_yes": "Да",
@@ -144,7 +133,7 @@ async def process_survey_response(callback: types.CallbackQuery, db, logger):
         "survey_5_depth": "Глубокий разбор"
     }
 
-    question_num = question.split("_")[1]
+    question_num = callback_data.split("_")[1]
     response = answer_map.get(callback_data, "Неизвестный ответ")
 
     try:
@@ -153,15 +142,61 @@ async def process_survey_response(callback: types.CallbackQuery, db, logger):
             "answer": response
         })
         await callback.answer(f"Спасибо за ответ на вопрос {question_num}!")
+
+        # Переход к следующему вопросу в зависимости от текущего состояния
+        if current_state == SurveyState.question_1.state:
+            question_2_text = "2. Пишешь запрос перед картой или держишь в голове?"
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="Пишу", callback_data="survey_2_write"),
+                 types.InlineKeyboardButton(text="В голове", callback_data="survey_2_head"),
+                 types.InlineKeyboardButton(text="Не хочу делиться", callback_data="survey_2_private")]
+            ])
+            await callback.message.answer(question_2_text, reply_markup=keyboard)
+            await state.set_state(SurveyState.question_2)
+
+        elif current_state == SurveyState.question_2.state:
+            question_3_text = "3. Вопросы после карты — твоё?"
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="Нравятся", callback_data="survey_3_like"),
+                 types.InlineKeyboardButton(text="Хочу глубины", callback_data="survey_3_depth"),
+                 types.InlineKeyboardButton(text="Не моё", callback_data="survey_3_not_mine")]
+            ])
+            await callback.message.answer(question_3_text, reply_markup=keyboard)
+            await state.set_state(SurveyState.question_3)
+
+        elif current_state == SurveyState.question_3.state:
+            question_4_text = "4. Хочешь более глубокий анализ твоих ответов?"
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="Да", callback_data="survey_4_yes"),
+                 types.InlineKeyboardButton(text="Нет", callback_data="survey_4_no"),
+                 types.InlineKeyboardButton(text="Боюсь последствий", callback_data="survey_4_fear")]
+            ])
+            await callback.message.answer(question_4_text, reply_markup=keyboard)
+            await state.set_state(SurveyState.question_4)
+
+        elif current_state == SurveyState.question_4.state:
+            question_5_text = "5. Какие новые идеи тебе интересны?"
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="Напоминания", callback_data="survey_5_reminders"),
+                 types.InlineKeyboardButton(text="Больше карт", callback_data="survey_5_cards"),
+                 types.InlineKeyboardButton(text="Глубокий разбор", callback_data="survey_5_depth")]
+            ])
+            await callback.message.answer(question_5_text, reply_markup=keyboard)
+            await state.set_state(SurveyState.question_5)
+
+        elif current_state == SurveyState.question_5.state:
+            await callback.message.answer("Спасибо, что прошла опрос! 💌 Твои ответы помогут мне стать лучше.")
+            await state.clear()
+
     except Exception as e:
         logger_root.error(f"Failed to process survey response for user {user_id}: {e}")
 
 # Явная асинхронная функция для /survey
-async def handle_survey(message: types.Message):
+async def handle_survey(message: types.Message, state: FSMContext):
     logger_root.info(f"Handle_survey called for message: {message.text} from user {message.from_user.id}")
-    await send_survey(message, db, logger)
+    await send_survey(message, state, db, logger)
 
-# Фабрики для команд
+# Фабрики для команд (без изменений)
 def make_start_handler(db, logger, user_manager):
     async def wrapped_handler(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
@@ -574,7 +609,7 @@ dp.message.register(make_process_reminder_time_handler(db, logger, user_manager)
 dp.message.register(make_logs_handler(db), Command("logs"))
 dp.message.register(make_bonus_request_handler(db, logger), lambda m: m.text == "💌 Подсказка Вселенной")
 dp.message.register(handle_survey, Command("survey"))
-dp.callback_query.register(lambda c: process_survey_response(c, db, logger), lambda c: c.data.startswith("survey_"))
+dp.callback_query.register(process_survey_response, lambda c: c.data.startswith("survey_"))
 
 # Обработка "Карта дня"
 dp.message.register(make_card_request_handler(db, logger), lambda m: m.text == "✨ Карта дня")
@@ -613,7 +648,7 @@ async def main():
         # Устанавливаем команды для бота
         commands = [
             types.BotCommand(command="start", description="🔄 Перезагрузка"),
-            types.BotCommand(command="name", description="У🧑 Указать имя"),
+            types.BotCommand(command="name", description="🧑 Указать имя"),
             types.BotCommand(command="remind", description="⏰ Напоминание"),
             types.BotCommand(command="share", description="🎁 Поделиться"),
             types.BotCommand(command="feedback", description="📩 Отзыв")
