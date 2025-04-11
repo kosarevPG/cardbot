@@ -77,7 +77,7 @@ class SurveyState(StatesGroup):
 # Обработчик начала опросника
 async def send_survey(message: types.Message, state: FSMContext, db, logger):
     user_id = message.from_user.id
-    allowed_users = [6682555021, 392141189]
+    allowed_users = [6682555021, 392141189, 457463804, 517423026, 1264280911, 806894927, 1159751971, 1887924167, 683970407]
     
     logger_root.info(f"Processing /survey for user {user_id}")
     if user_id not in allowed_users:
@@ -87,16 +87,16 @@ async def send_survey(message: types.Message, state: FSMContext, db, logger):
     name = db.get_user(user_id)["name"]
     intro_text = (
         f"Привет, {name}! 🌟 Ты уже успела поработать с картами — как впечатления? "
-        "Помоги мне стать лучше, отвечая на вопросы по очереди. Начнём!"
+        "Помоги мне стать лучше, ответь на вопросы по очереди. Начнём!"
         if name else
         "Привет! 🌟 Ты уже успела поработать с картами — как впечатления? "
-        "Помоги мне стать лучше, отвечая на вопросы по очереди. Начнём!"
+        "Помоги мне стать лучше, ответь на вопросы по очереди. Начнём!"
     )
-    question_1_text = "1. Пробовала делиться мной через /share?"
+    question_1_text = "1. Пробовала делиться мной (Меню -> '🎁 Поделиться')?"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="Да", callback_data="survey_1_yes")],
         [types.InlineKeyboardButton(text="Нет, не вижу смысла", callback_data="survey_1_no_reason")],
-        [types.InlineKeyboardButton(text="Не знала", callback_data="survey_1_no_knowledge")]
+        [types.InlineKeyboardButton(text="Не знала, что можно", callback_data="survey_1_no_knowledge")]
     ])
 
     try:
@@ -118,19 +118,19 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
     answer_map = {
         "survey_1_yes": "Да",
         "survey_1_no_reason": "Нет, не вижу смысла",
-        "survey_1_no_knowledge": "Не знала",
+        "survey_1_no_knowledge": "Не знала, что можно",
         "survey_2_write": "Пишу",
         "survey_2_head": "В голове",
         "survey_2_private": "Не хочу делиться",
-        "survey_3_like": "Нравятся",
-        "survey_3_depth": "Хочу глубины",
-        "survey_3_not_mine": "Не моё",
+        "survey_3_like": "Да",
+        "survey_3_depth": "Хочу большей глубины",
+        "survey_3_not_mine": "Не понравились",
         "survey_4_yes": "Да",
         "survey_4_no": "Нет",
         "survey_4_fear": "Пока не уверена",
-        "survey_5_reminders": "Добавить новые задания",
-        "survey_5_cards": "Расширить колоду карт",
-        "survey_5_depth": "Давать более глубокие ответы"
+        "survey_5_reminders": "Все устраивает",
+        "survey_5_cards": "Хочется больше интерактива",
+        "survey_5_depth": "Хочется более глубокие ответы"
     }
 
     question_num = callback_data.split("_")[1]
@@ -155,11 +155,11 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
             await state.set_state(SurveyState.question_2)
 
         elif current_state == SurveyState.question_2.state:
-            question_3_text = "3. Вопросы, котрые я задаю после карты — твоё?"
+            question_3_text = "3. Вопросы, котрые я задаю после карты были ценны для тебя?"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="Нравятся", callback_data="survey_3_like")],
-                [types.InlineKeyboardButton(text="Хочу глубины", callback_data="survey_3_depth")],
-                [types.InlineKeyboardButton(text="Не моё", callback_data="survey_3_not_mine")]
+                [types.InlineKeyboardButton(text="Да", callback_data="survey_3_like")],
+                [types.InlineKeyboardButton(text="Хочу большей глубины", callback_data="survey_3_depth")],
+                [types.InlineKeyboardButton(text="Не понравились", callback_data="survey_3_not_mine")]
             ])
             await callback.message.answer(question_3_text, reply_markup=keyboard)
             await state.set_state(SurveyState.question_3)
@@ -177,9 +177,9 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
         elif current_state == SurveyState.question_4.state:
             question_5_text = "5. Как я могу стать ещё полезнее для тебя?"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="Добавить новые задания", callback_data="survey_5_reminders")],
-                [types.InlineKeyboardButton(text="Расширить колоду карт", callback_data="survey_5_cards")],
-                [types.InlineKeyboardButton(text="Давать более глубокие ответы", callback_data="survey_5_depth")]
+                [types.InlineKeyboardButton(text="Все устраивает", callback_data="survey_5_reminders")],
+                [types.InlineKeyboardButton(text="Хочется больше интерактива", callback_data="survey_5_cards")],
+                [types.InlineKeyboardButton(text="Хочется более глубокие ответы", callback_data="survey_5_depth")]
             ])
             await callback.message.answer(question_5_text, reply_markup=keyboard)
             await state.set_state(SurveyState.question_5)
@@ -665,7 +665,7 @@ async def main():
         asyncio.create_task(notifier.check_reminders())
         
         # Рассылка опросника конкретным пользователям
-        survey_users = [6682555021, 392141189]
+        survey_users = [6682555021, 392141189, 457463804, 517423026, 1264280911, 806894927, 1159751971, 1887924167, 683970407]
         broadcast_data_survey = {
             "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0),
             "text": "Привет! 🌟 Нажми /survey, чтобы поделиться впечатлениями и помочь мне стать лучше!",
