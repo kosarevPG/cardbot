@@ -154,6 +154,8 @@ async def process_initial_response(message: types.Message, state: FSMContext, db
     card_number = data.get("card_number", "N/A")
     user_request = data.get("user_request", "")
 
+    await message.bot.send_chat_action(message.from_user.id, 'typing') # Индикаторы "Печатает...":
+    
     await logger_service.log_action(user_id, "initial_response", {"card_number": card_number, "request": user_request, "response": response_text})
     grok_question = await get_grok_question(user_id, user_request, response_text, "Начало", step=1, db=db)
     await logger_service.log_action(user_id, "grok_question", {"step": 1, "grok_question": grok_question})
@@ -170,6 +172,8 @@ async def process_first_grok_response(message: types.Message, state: FSMContext,
     user_request = data.get("user_request", "")
     first_grok_question = data.get("first_grok_question", "")
 
+    await message.bot.send_chat_action(message.from_user.id, 'typing') # Индикаторы "Печатает...":
+    
     await logger_service.log_action(user_id, "first_grok_response", {"card_number": card_number, "request": user_request, "question": first_grok_question, "response": first_response})
     previous_responses_context = {
         "first_question": first_grok_question,
@@ -231,6 +235,8 @@ async def process_third_grok_response(message: types.Message, state: FSMContext,
     }
     interaction_summary_data["qna"] = [item for item in interaction_summary_data["qna"] if item.get("question") and item.get("answer")]
 
+    await message.bot.send_chat_action(message.from_user.id, 'typing') # Индикаторы "Печатает...":
+    
     summary_text = await get_grok_summary(user_id, interaction_summary_data, db)
 
     if summary_text and not summary_text.startswith("Ошибка") and not summary_text.startswith("К сожалению") and not summary_text.startswith("Не получилось"):
@@ -239,6 +245,8 @@ async def process_third_grok_response(message: types.Message, state: FSMContext,
     else:
          await logger_service.log_action(user_id, "summary_failed", {"error_message": summary_text})
 
+    await message.bot.send_chat_action(message.from_user.id, 'typing') # Индикаторы "Печатает...":
+    
     try:
          await build_user_profile(user_id, db)
          logger.info(f"User profile updated after interaction for user {user_id}")
