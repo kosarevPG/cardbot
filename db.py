@@ -126,32 +126,52 @@ class Database:
         # Возвращаем дефолтную структуру, если пользователь не найден
         return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
 
-    def update_user(self, user_id, data):
+   def update_user(self, user_id, data):
         # Получаем текущие данные пользователя ОДИН РАЗ, чтобы избежать лишних запросов
-        current_user_data = self.get_user(user_id)
+        # Используем try-except на случай, если get_user вернет None или вызовет ошибку
+        try:
+            current_user_data = self.get_user(user_id)
+            if current_user_data is None: # get_user может вернуть None, если использовать другую логику
+                 # Создаем дефолтную структуру, если пользователя нет, чтобы избежать ошибок ниже
+                 current_user_data = {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
+        except Exception as e:
+             print(f"Error fetching current user data for {user_id} in update_user: {e}")
+             # В случае ошибки используем дефолтную структуру
+             current_user_data = {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
+
 
         # --- Начало исправления для last_request ---
         last_request_to_save = None
         if "last_request" in data:
             # Если передано новое значение (ожидается строка ISO)
-            last_request_to_save = data["last_request"]
-            # Дополнительная проверка, что это строка (на всякий случай)
-            if not isinstance(last_request_to_save, str):
-                 print(f"Warning: last_request passed to update_user is not a string for user {user_id}. Type: {type(last_request_to_save)}. Trying to convert.")
-                 try:
-                     # Попытка конвертировать, если это datetime
-                     last_request_to_save = last_request_to_save.isoformat()
-                 except AttributeError:
-                     print(f"Error: Could not convert last_request to string for user {user_id}. Using None.")
-                     last_request_to_save = None # Обнуляем, если конвертация не удалась
+            new_last_request_value = data["last_request"]
+            if isinstance(new_last_request_value, str):
+                 last_request_to_save = new_last_request_value # Используем строку напрямую
+            elif isinstance(new_last_request_value, datetime):
+                 # Если вдруг передали datetime, конвертируем (но это не ожидается из card_of_the_day)
+                 print(f"Warning: last_request passed as datetime to update_user for {user_id}. Converting.")
+                 last_request_to_save = new_last_request_value.isoformat()
+            else:
+                 print(f"Error: Invalid type for last_request passed to update_user for {user_id}. Type: {type(new_last_request_value)}. Using None.")
+                 last_request_to_save = None # Обнуляем при неверном типе
         else:
-            # Если новое значение НЕ передано, используем текущее из БД (которое get_user вернул как datetime)
-            current_last_request_dt = current_user_data["last_request"]
+            # Если новое значение НЕ передано, используем текущее из БД (get_user вернул datetime или None)
+            current_last_request_dt = current_user_data.get("last_request") # Используем .get для безопасности
             if isinstance(current_last_request_dt, datetime):
                 last_request_to_save = current_last_request_dt.isoformat() # Преобразуем в строку ISO
             else:
-                last_request_to_save = None # Если текущего значения нет или оно не datetime
+                # Если текущего значения нет или оно не datetime (например, None или старая строка), сохраняем None
+                last_request_to_save = None
         # --- Конец исправления для last_request ---
+
+        # Используем текущие данные как основу и обновляем их из data
+        name_to_save = data.get("name", current_user_data.get("name"))
+        username_to_save = data.get("username", current_user_data.get("username"))
+        reminder_time_to_save = data.get("reminder_time", current_user_data.get("reminder_time"))
+        bonus_available_to_save = data.get("bonus_available", current_user_data.get("bonus_available"))
+
+        # Преобразуем boolean в integer для SQLite
+        bonus_available_int = 1 if bonus_available_to_save else 0
 
         with self.conn:
             self.conn.execute("""
@@ -159,11 +179,11 @@ class Database:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (
                 user_id,
-                data.get("name", current_user_data["name"]),
-                data.get("username", current_user_data["username"]),
+                name_to_save,
+                username_to_save,
                 last_request_to_save, # Используем подготовленное значение (строка ISO или None)
-                data.get("reminder_time", current_user_data["reminder_time"]),
-                data.get("bonus_available", current_user_data["bonus_available"])
+                reminder_time_to_save,
+                bonus_available_int # Сохраняем 0 или 1
             ))
 
     def get_user_cards(self, user_id):
