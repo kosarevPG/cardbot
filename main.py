@@ -256,17 +256,21 @@ def make_remind_handler(db, logger, user_manager):
         user_id = message.from_user.id
         name = db.get_user(user_id)["name"]
         current_reminder = db.get_user(user_id)["reminder_time"]
+
         if current_reminder:
              current_reminder_text = f"Текущее время напоминания: <b>{current_reminder}</b> МСК."
         else:
              current_reminder_text = "Напоминания сейчас отключены."
 
-        # Обновленный текст:
-        text = (f"{name}, {current_reminder_text}\n"
-                f"Введи новое время (например, <b>09:00</b>), чтобы получать напоминание по Москве.\n"
-                f"Или используй команду /remind_off, чтобы отключить напоминания совсем.")
-        # Старый текст для сравнения:
-        # text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)."
+        # --- УЛУЧШЕННЫЙ ТЕКСТ ---
+        purpose_text = ("⏰ Ежедневное напоминание поможет тебе не забывать уделять время себе "
+                        "и сделать работу с картами регулярной практикой самопознания.")
+
+        instruction_text = ("Введи удобное время (например, <b>09:00</b>), чтобы получать напоминание по Москве.\n"
+                            "Или используй команду /remind_off, чтобы отключить их совсем.")
+
+        text = f"{name}, привет!\n\n{purpose_text}\n\n{current_reminder_text}\n{instruction_text}"
+        # --- Конец улучшенного текста ---
 
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.set_state(UserState.waiting_for_reminder_time)
@@ -337,34 +341,41 @@ def make_user_profile_handler(db, logger):
         await logger.log_action(user_id, "user_profile_viewed")
         profile = await build_user_profile(user_id, db)
 
-        if not profile:
-            await message.answer("У тебя пока нет профиля. Попробуй вытянуть карту дня и ответить на вопросы! ✨")
+        if not profile or profile.get("response_count", 0) == 0: # Добавил проверку на response_count
+            await message.answer("У тебя пока нет профиля или ты еще не взаимодействовала с картами. Попробуй вытянуть карту дня и ответить на вопросы! ✨")
             return
 
-        mood = profile["mood"]
-        mood_trend = " → ".join(profile["mood_trend"]) if profile["mood_trend"] else "Нет данных"
-        themes = ", ".join(profile["themes"]) if profile["themes"] else "Нет данных"
-        response_count = profile["response_count"]
-        request_count = profile["request_count"]
-        avg_response_length = round(profile["avg_response_length"], 2)
-        days_active = profile["days_active"]
-        interactions_per_day = round(profile["interactions_per_day"], 2)
-        last_updated = profile["last_updated"].strftime("%Y-%m-%d %H:%M:%S") if profile["last_updated"] else "Не обновлялся"
+        # Используем get для безопасного извлечения, на случай если профиль неполный
+        mood = profile.get("mood", "неизвестно")
+        mood_trend_list = profile.get("mood_trend", [])
+        mood_trend = " → ".join(mood_trend_list) if mood_trend_list else "нет данных"
+        themes_list = profile.get("themes", [])
+        themes = ", ".join(themes_list) if themes_list else "нет данных"
+        response_count = profile.get("response_count", 0)
+        request_count = profile.get("request_count", 0)
+        avg_response_length = round(profile.get("avg_response_length", 0), 1) # Округлим до 1 знака
+        days_active = profile.get("days_active", 0)
+        interactions_per_day = round(profile.get("interactions_per_day", 0), 1) # Округлим до 1 знака
+        last_updated_dt = profile.get("last_updated")
+        last_updated = last_updated_dt.strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) else "не обновлялся" # Убрал секунды
 
+        # Новый форматированный текст с пояснением
         text = (
-            f"🌟 Твой профиль:\n\n"
-            f"Настроение: {mood}\n"
-            f"Тренд настроения: {mood_trend}\n"
-            f"Основные темы: {themes}\n"
-            f"Количество ответов: {response_count}\n"
-            f"Количество запросов: {request_count}\n"
-            f"Средняя длина ответа: {avg_response_length} символов\n"
-            f"Дней активности: {days_active}\n"
-            f"Взаимодействий в день: {interactions_per_day}\n"
-            f"Последнее обновление: {last_updated}"
+            f"📊 <b>Твой профиль взаимодействия с ботом:</b>\n\n"
+            f"<b>Настроение (последнее):</b> {mood}\n"
+            f"<b>Тренд настроения (последние ответы):</b> {mood_trend}\n\n"
+            f"<b>Основные темы в запросах/ответах:</b>\n{themes}\n\n"
+            f"<b>Статистика:</b>\n"
+            f"  - Ответов на вопросы бота: {response_count}\n"
+            f"  - Запросов к картам (с текстом): {request_count}\n"
+            f"  - Средняя длина ответа: {avg_response_length} симв.\n"
+            f"  - Дней активности с ботом: {days_active}\n"
+            f"  - Взаимодействий в день (в среднем): {interactions_per_day}\n\n"
+            f"<b>Профиль обновлен:</b> {last_updated} МСК\n\n"
+            f"<i><small>Этот профиль помогает мне лучше понимать контекст твоих запросов и адаптировать уточняющие вопросы во время работы с картами.</small></i>"
         )
 
-        await message.answer(text)
+        await message.answer(text) # Отправляем улучшенный текст
     return wrapped_handler
 
 def make_admin_user_profile_handler(db):
@@ -519,7 +530,7 @@ def make_process_reminder_time_handler(db, logger, user_manager):
             await message.answer(text, reply_markup=await get_main_menu(user_id, db))
             await state.clear()
         except ValueError:
-            text = f"{name}, время указано неверно. Попробуй ещё раз (чч:мм)." if name else "Время указано неверно. Попробуй ещё раз (чч:мм)."
+            text = f"{name}, пожалуйста, используй формат ЧЧ:ММ (например, <b>08:30</b> или <b>21:00</b>)." if name else "Пожалуйста, используй формат ЧЧ:ММ (например, <b>08:30</b> или <b>21:00</b>)."
             await message.answer(text, reply_markup=await get_main_menu(user_id, db))
     return wrapped_handler
 
@@ -657,7 +668,7 @@ dp.callback_query.register(make_process_card_feedback_handler(db, logger), lambd
 # Обработчик для неизвестных сообщений
 @dp.message()
 async def handle_unknown_message(message: types.Message):
-    await message.answer("Извините, я не понял ваш запрос. Попробуйте нажать '✨ Карта дня' или используйте команды /start, /name, /remind, /share, /feedback, /user_profile")
+    await message.answer("Извините, я не понял ваш запрос. Попробуйте нажать '✨ Карта дня' или используйте команды /start, /name, /remind, /share, /feedback")
 
 # Запуск
 async def main():
