@@ -255,8 +255,19 @@ def make_remind_handler(db, logger, user_manager):
     async def wrapped_handler(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
         name = db.get_user(user_id)["name"]
-        current_reminder = db.get_user(user_id)["reminder_time"] or "не установлено"
-        text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)."
+        current_reminder = db.get_user(user_id)["reminder_time"]
+        if current_reminder:
+             current_reminder_text = f"Текущее время напоминания: <b>{current_reminder}</b> МСК."
+        else:
+             current_reminder_text = "Напоминания сейчас отключены."
+
+        # Обновленный текст:
+        text = (f"{name}, {current_reminder_text}\n"
+                f"Введи новое время (например, <b>09:00</b>), чтобы получать напоминание по Москве.\n"
+                f"Или используй команду /remind_off, чтобы отключить напоминания совсем.")
+        # Старый текст для сравнения:
+        # text = f"{name}, текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)." if name else f"Текущее время напоминания: {current_reminder}. Введи новое время (чч:мм)."
+
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.set_state(UserState.waiting_for_reminder_time)
     return wrapped_handler
@@ -480,6 +491,21 @@ def make_process_skip_name_handler(db, logger, user_manager):
         await callback.answer()
     return wrapped_handler
 
+def make_remind_off_handler(db, logger, user_manager):
+    async def wrapped_handler(message: types.Message, state: FSMContext):
+        user_id = message.from_user.id
+        await state.clear() # На всякий случай очистим состояние
+        try:
+            await user_manager.set_reminder(user_id, None) # Устанавливаем время в None
+            await logger.log_action(user_id, "set_reminder_time", {"reminder_time": None})
+            name = db.get_user(user_id)["name"]
+            text = f"{name}, я отключил напоминания для тебя." if name else "Я отключил напоминания для тебя."
+            await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+        except Exception as e:
+            logger_root.error(f"Failed to disable reminders for user {user_id}: {e}")
+            await message.answer("Ой, не получилось отключить напоминания. Попробуй еще раз позже.")
+    return wrapped_handler
+
 def make_process_reminder_time_handler(db, logger, user_manager):
     async def wrapped_handler(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
@@ -610,6 +636,7 @@ dp.message.register(make_feedback_handler(db, logger), Command("feedback"))
 dp.message.register(make_process_feedback_handler(db, logger), UserState.waiting_for_feedback)
 dp.message.register(make_name_handler(db, logger, user_manager), Command("name"))
 dp.message.register(make_process_name_handler(db, logger, user_manager), UserState.waiting_for_name)
+dp.message.register(make_remind_off_handler(db, logger, user_manager), Command("remind_off"), StateFilter("*")) # StateFilter("*") на случай, если пользователь введет команду в каком-то состоянии
 dp.callback_query.register(make_process_skip_name_handler(db, logger, user_manager), lambda c: c.data == "skip_name")
 dp.message.register(make_process_reminder_time_handler(db, logger, user_manager), UserState.waiting_for_reminder_time)
 dp.message.register(make_logs_handler(db), Command("logs"))
