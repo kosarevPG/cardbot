@@ -77,7 +77,7 @@ class SurveyState(StatesGroup):
 # Обработчик начала опросника
 async def send_survey(message: types.Message, state: FSMContext, db, logger):
     user_id = message.from_user.id
-    allowed_users = [6682555021, 392141189]
+    allowed_users = [6682555021]
     
     logger_root.info(f"Processing /survey for user {user_id}")
     if user_id not in allowed_users:
@@ -665,7 +665,7 @@ async def main():
         asyncio.create_task(notifier.check_reminders())
         
         # Рассылка опросника конкретным пользователям
-        survey_users = [6682555021, 392141189]
+        survey_users = [6682555021]
         broadcast_data_survey = {
             "datetime": datetime.now(TIMEZONE).replace(second=0, microsecond=0),
             "text": "Привет! 🌟 Нажми /survey, чтобы поделиться впечатлениями и помочь мне стать лучше!",
