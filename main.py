@@ -233,7 +233,7 @@ def make_start_handler(db, logger, user_manager):
             await state.set_state(UserState.waiting_for_name)
         else:
             name = db.get_user(user_id)["name"]
-            await message.answer(f"{name}, рада тебя видеть! Нажми '✨ Карта дня'." if name else "Рада тебя видеть! Нажми '✨ Карта дня'.", reply_markup=await get_main_menu(user_id, db))
+            await message.answer(f"{name}, рад тебя видеть! Нажми '✨ Карта дня'." if name else "Рад тебя видеть! Нажми '✨ Карта дня'.", reply_markup=await get_main_menu(user_id, db))
     return wrapped_handler
 
 def make_share_handler(db):
