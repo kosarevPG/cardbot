@@ -497,7 +497,7 @@ def make_process_skip_name_handler(db, logger, user_manager):
         user_id = callback.from_user.id
         await user_manager.set_name(user_id, "")
         await logger.log_action(user_id, "skip_name")
-        await callback.message.answer("Хорошо, без имени тоже здорово! Выбери '✨ Карта дня'!", reply_markup=await get_main_menu(user_id, db))
+        await callback.message.answer("Понимаю. Имя не главное. Тогда просто нажми '✨ Карта дня', когда будешь готова начать.", reply_markup=await get_main_menu(user_id, db))
         await state.clear()
         await callback.answer()
     return wrapped_handler
