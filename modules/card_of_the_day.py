@@ -267,7 +267,7 @@ async def process_third_grok_response(message: types.Message, state: FSMContext,
             types.InlineKeyboardButton(text="🤔 Интересно", callback_data=f"feedback_v2_interesting_{card_number}"),
         ],
         [
-             types.InlineKeyboardButton(text="😕 Не хватило глубины", callback_data=f"feedback_v2_not_deep_{card_number}")
+             types.InlineKeyboardButton(text="😕 Не хватило глубины", callback_data=f"feedback_v2_notdeep_{card_number}")
         ]
     ])
     await message.answer(feedback_text, reply_markup=feedback_keyboard)
@@ -285,7 +285,7 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
         # Парсим callback_data нового формата: feedback_v2_<type>_<card_number>
         parts = callback_data.split('_')
         if len(parts) >= 4 and parts[0] == 'feedback' and parts[1] == 'v2':
-            feedback_type = parts[2] # helped, interesting, not_deep
+            feedback_type = parts[2] # helped, interesting, notdeep
             try:
                  card_number = int(parts[-1]) # Последняя часть - номер карты
             except ValueError:
@@ -298,7 +298,7 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
                 text = "Отлично! Рад, что наша беседа была для тебя полезной. 😊 Жду тебя завтра!"
             elif feedback_type == "interesting":
                 text = "Здорово, что было интересно! Размышления и новые углы зрения - это тоже важный результат. 👍"
-            elif feedback_type == "not_deep":
+            elif feedback_type == "notdeep":
                 text = f"{name}, спасибо за честность! Мне жаль, если не удалось копнуть достаточно глубоко в этот раз. Твои идеи в /feedback помогут мне учиться и развиваться." if name else "Спасибо за честность! Мне жаль, если не удалось копнуть достаточно глубоко в этот раз. Твои идеи в /feedback помогут мне учиться и развиваться."
             else:
                 logger.warning(f"Unknown feedback_v2 type: {feedback_type} in {callback_data}")
