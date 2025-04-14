@@ -130,7 +130,7 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "model": "grok-2-latest", # Или другая доступная модель
+        "model": "grok-3-latest", # Или другая доступная модель
         "max_tokens": 80, # Немного увеличим для возможной эмпатичной фразы + вопроса
         "stream": False,
         "temperature": 0.4 # Чуть повысим температуру для большей вариативности и глубины, но не слишком сильно
@@ -241,7 +241,7 @@ async def get_grok_summary(user_id, interaction_data, db=None):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "model": "grok-2-latest",
+        "model": "grok-3-latest",
         "max_tokens": 150, # Больше места для связного резюме
         "stream": False,
         "temperature": 0.3 # Температура пониже для более сфокусированного резюме
