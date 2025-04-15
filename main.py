@@ -33,7 +33,7 @@ storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 db_path = "/data/bot.db"
 print(f"Checking if database file exists at {db_path}: {os.path.exists(db_path)}")
-db = Database(path=db_path)
+db = Database(path=db_path, bot=bot)  # Передаем bot в Database
 print(f"Database initialized at {db.conn}")
 logger = LoggingService(db)
 notifier = NotificationService(bot, db)
@@ -46,6 +46,12 @@ except Exception as e:
     logger.log_action(0, "db_init_error", {"error": str(e)})
     print(f"Database initialization failed: {e}")
     raise
+
+class DependenciesMiddleware:
+    async def __call__(self, handler, event, data):
+        data["db"] = db
+        data["logger_service"] = logger
+        return await handler(event, data)
 
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
@@ -66,6 +72,7 @@ class SubscriptionMiddleware:
                 return
         return await handler(event, data)
 
+dp.message.middleware(DependenciesMiddleware())
 dp.message.middleware(SubscriptionMiddleware())
 
 class SurveyState(StatesGroup):
@@ -75,7 +82,7 @@ class SurveyState(StatesGroup):
     question_4 = State()
     question_5 = State()
 
-async def send_survey(message: types.Message, state: FSMContext, db, logger):
+async def send_survey(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     allowed_users = [6682555021]
     logger_root.info(f"Processing /survey for user {user_id}")
@@ -99,7 +106,7 @@ async def send_survey(message: types.Message, state: FSMContext, db, logger):
     await message.answer(question_1_text, reply_markup=keyboard)
     await state.set_state(SurveyState.question_1)
 
-async def process_survey_response(callback: types.CallbackQuery, state: FSMContext):
+async def process_survey_response(callback: types.CallbackQuery, state: FSMContext, db, logger_service):
     user_id = callback.from_user.id
     data = callback.data
     current_state = await state.get_state()
@@ -128,7 +135,7 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
     }
 
     if current_state in questions:
-        await logger.log_action(user_id, "survey_response", {"question": current_state, "response": data})
+        await logger_service.log_action(user_id, "survey_response", {"question": current_state, "response": data})
         next_question = questions[current_state]
         if next_question["options"]:
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
@@ -141,13 +148,13 @@ async def process_survey_response(callback: types.CallbackQuery, state: FSMConte
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.answer()
     elif current_state == SurveyState.question_5:
-        await logger.log_action(user_id, "survey_response", {"question": current_state, "response": data})
+        await logger_service.log_action(user_id, "survey_response", {"question": current_state, "response": data})
         await callback.message.answer("Спасибо за твои ответы! Они помогут мне стать лучше. 😊")
         await state.clear()
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.answer()
 
-async def start_command(message: types.Message, state: FSMContext):
+async def start_command(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     name = message.from_user.first_name
     username = message.from_user.username
@@ -160,35 +167,35 @@ async def start_command(message: types.Message, state: FSMContext):
     )
     await message.answer(text, reply_markup=await get_main_menu(user_id, db))
     await state.clear()
-    await logger.log_action(user_id, "start_command", {})
+    await logger_service.log_action(user_id, "start_command", {})
 
-async def set_name_command(message: types.Message, state: FSMContext):
+async def set_name_command(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     await message.answer("Как тебя зовут? Напиши своё имя.")
     await state.set_state(UserState.waiting_for_name)
-    await logger.log_action(user_id, "set_name_command", {})
+    await logger_service.log_action(user_id, "set_name_command", {})
 
-async def process_name(message: types.Message, state: FSMContext):
+async def process_name(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     name = message.text.strip()
     if name:
         await user_manager.set_name(user_id, name)
         await message.answer(f"Приятно познакомиться, {name}! 😊 Теперь я буду обращаться к тебе так.", reply_markup=await get_main_menu(user_id, db))
         await state.clear()
-        await logger.log_action(user_id, "name_set", {"name": name})
+        await logger_service.log_action(user_id, "name_set", {"name": name})
     else:
         await message.answer("Пожалуйста, напиши своё имя.")
-        await logger.log_action(user_id, "name_set_failed", {"reason": "empty_name"})
+        await logger_service.log_action(user_id, "name_set_failed", {"reason": "empty_name"})
 
-async def set_reminder_command(message: types.Message, state: FSMContext):
+async def set_reminder_command(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     name = db.get_user(user_id)["name"]
     text = f"{name}, во сколько напоминать тебе о карте дня? Напиши время в формате ЧЧ:ММ (по Москве, например, 09:00)." if name else "Во сколько напоминать тебе о карте дня? Напиши время в формате ЧЧ:ММ (по Москве, например, 09:00)."
     await message.answer(text)
     await state.set_state(UserState.waiting_for_reminder_time)
-    await logger.log_action(user_id, "set_reminder_command", {})
+    await logger_service.log_action(user_id, "set_reminder_command", {})
 
-async def process_reminder_time(message: types.Message, state: FSMContext):
+async def process_reminder_time(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     time_str = message.text.strip()
     name = db.get_user(user_id)["name"]
@@ -198,29 +205,29 @@ async def process_reminder_time(message: types.Message, state: FSMContext):
         text = f"{name}, я запомнил! Буду напоминать тебе о карте дня в {time_str} по Москве. 😊" if name else f"Я запомнил! Буду напоминать тебе о карте дня в {time_str} по Москве. 😊"
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.clear()
-        await logger.log_action(user_id, "reminder_set", {"time": time_str})
+        await logger_service.log_action(user_id, "reminder_set", {"time": time_str})
     except ValueError:
         await message.answer("Пожалуйста, укажи время в формате ЧЧ:ММ, например, 09:00.")
-        await logger.log_action(user_id, "reminder_set_failed", {"reason": "invalid_format", "input": time_str})
+        await logger_service.log_action(user_id, "reminder_set_failed", {"reason": "invalid_format", "input": time_str})
 
-async def cancel_reminder_command(message: types.Message, state: FSMContext):
+async def cancel_reminder_command(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     name = db.get_user(user_id)["name"]
     await user_manager.set_reminder(user_id, None)
     text = f"{name}, я отключил напоминания. Ты всегда можешь включить их снова с помощью /reminder." if name else "Я отключил напоминания. Ты всегда можешь включить их снова с помощью /reminder."
     await message.answer(text, reply_markup=await get_main_menu(user_id, db))
     await state.clear()
-    await logger.log_action(user_id, "cancel_reminder", {})
+    await logger_service.log_action(user_id, "cancel_reminder", {})
 
-async def feedback_command(message: types.Message, state: FSMContext):
+async def feedback_command(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     name = db.get_user(user_id)["name"]
     text = f"{name}, поделись, что думаешь о работе со мной? Что нравится, что можно улучшить?" if name else "Поделись, что думаешь о работе со мной? Что нравится, что можно улучшить?"
     await message.answer(text)
     await state.set_state(UserState.waiting_for_feedback)
-    await logger.log_action(user_id, "feedback_command", {})
+    await logger_service.log_action(user_id, "feedback_command", {})
 
-async def process_feedback(message: types.Message, state: FSMContext):
+async def process_feedback(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     feedback_text = message.text.strip()
     name = db.get_user(user_id)["name"]
@@ -233,12 +240,12 @@ async def process_feedback(message: types.Message, state: FSMContext):
         text = f"{name}, спасибо за твой отзыв! Это очень помогает мне становиться лучше. 😊" if name else "Спасибо за твой отзыв! Это очень помогает мне становиться лучше. 😊"
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.clear()
-        await logger.log_action(user_id, "feedback_submitted", {"feedback": feedback_text[:50] + "..." if len(feedback_text) > 50 else feedback_text})
+        await logger_service.log_action(user_id, "feedback_submitted", {"feedback": feedback_text[:50] + "..." if len(feedback_text) > 50 else feedback_text})
     else:
         await message.answer("Пожалуйста, напиши свой отзыв.")
-        await logger.log_action(user_id, "feedback_failed", {"reason": "empty_feedback"})
+        await logger_service.log_action(user_id, "feedback_failed", {"reason": "empty_feedback"})
 
-async def universe_advice_command(message: types.Message, state: FSMContext):
+async def universe_advice_command(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     user_data = db.get_user(user_id)
     name = user_data["name"]
@@ -250,10 +257,10 @@ async def universe_advice_command(message: types.Message, state: FSMContext):
     text = f"{name}, вот подсказка от Вселенной: {advice}" if name else f"Вот подсказка от Вселенной: {advice}"
     await message.answer(text, reply_markup=await get_main_menu(user_id, db))
     await user_manager.set_bonus_available(user_id, False)
-    await logger.log_action(user_id, "universe_advice", {"advice": advice})
+    await logger_service.log_action(user_id, "universe_advice", {"advice": advice})
     await state.clear()
 
-async def share_command(message: types.Message, state: FSMContext):
+async def share_command(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     name = db.get_user(user_id)["name"]
     text = (
@@ -264,10 +271,10 @@ async def share_command(message: types.Message, state: FSMContext):
         "Поделись ею, и я открою тебе бонус — подсказку от Вселенной!"
     )
     await message.answer(text, reply_markup=await get_main_menu(user_id, db))
-    await logger.log_action(user_id, "share_command", {"referral_link": f"{BOT_LINK}?start={user_id}"})
+    await logger_service.log_action(user_id, "share_command", {"referral_link": f"{BOT_LINK}?start={user_id}"})
     await state.clear()
 
-async def process_referral(message: types.Message, state: FSMContext):
+async def process_referral(message: types.Message, state: FSMContext, db, logger_service):
     user_id = message.from_user.id
     args = message.get_args()
     if args and args.isdigit():
@@ -282,8 +289,8 @@ async def process_referral(message: types.Message, state: FSMContext):
                 if referrer_name else
                 "Твоя подруга присоединилась! 😊 Теперь тебе доступна подсказка Вселенной — выбери '💌 Подсказка Вселенной' в меню."
             )
-            await logger.log_action(user_id, "referral_added", {"referrer_id": referrer_id})
-    await start_command(message, state)
+            await logger_service.log_action(user_id, "referral_added", {"referrer_id": referrer_id})
+    await start_command(message, state, db, logger_service)
 
 # Регистрация обработчиков
 dp.message.register(start_command, Command(commands=["start"]), StateFilter(None))
