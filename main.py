@@ -319,12 +319,9 @@ dp.callback_query.register(process_survey_response, lambda callback: callback.da
 
 async def on_startup():
     logger_root.info("Bot is starting...")
-    await notifier.start()
-    logger_root.info("Notification service started.")
 
 async def on_shutdown():
     logger_root.info("Bot is shutting down...")
-    await notifier.stop()
     db.conn.close()
     logger_root.info("Database connection closed.")
 
