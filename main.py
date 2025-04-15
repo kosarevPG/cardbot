@@ -72,7 +72,8 @@ class SubscriptionMiddleware:
                 return
         return await handler(event, data)
 
-dp.message.middleware(DependenciesMiddleware())
+# Регистрируем middleware
+dp.update.outer_middleware(DependenciesMiddleware())  # Применяем ко всем обновлениям
 dp.message.middleware(SubscriptionMiddleware())
 
 class SurveyState(StatesGroup):
