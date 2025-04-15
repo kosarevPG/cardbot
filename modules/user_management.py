@@ -9,6 +9,13 @@ class UserState(StatesGroup):
     waiting_for_first_grok_response = State()
     waiting_for_second_grok_response = State()
     waiting_for_third_grok_response = State()
+    waiting_for_initial_resource = State()
+    waiting_for_scenario_choice = State()
+    waiting_for_card_draw = State()
+    waiting_for_continue_choice = State()
+    waiting_for_final_resource = State()
+    waiting_for_recovery_method = State()
+    waiting_for_card_feedback = State()
 
 class UserManager:
     def __init__(self, db):
