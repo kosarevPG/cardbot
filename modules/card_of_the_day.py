@@ -116,37 +116,35 @@ async def process_initial_resource_callback(callback: types.CallbackQuery, state
 
     # Переходим к шагу 2 - выбор типа запроса
     # Отправляем новое сообщение с вопросом о типе запроса
-    await ask_request_type_choice(callback.message, state, db, logger_service)
+    await ask_request_type_choice(callback, state, db, logger_service)
 
 # --- Шаг 2: Выбор типа запроса (в уме / написать) ---
-async def ask_request_type_choice(message: types.Message, state: FSMContext, db, logger_service):
+async def ask_request_type_choice(event: types.Message | types.CallbackQuery, state: FSMContext, db, logger_service):
     """Шаг 2: Спрашивает, как пользователь хочет сформулировать запрос."""
-    user_id = message.from_user.id
+    if isinstance(event, types.CallbackQuery):
+        user_id = event.from_user.id
+        message = event.message
+    else:
+        user_id = event.from_user.id
+        message = event
+
     name = db.get_user(user_id).get("name", "")
 
-    if name:
-        text = (
-            f"{name}, теперь подумай о своем запросе или теме дня.\n"
-            "Как тебе удобнее?\n\n"
-            "1️⃣ Сформулировать запрос <b>в уме</b>?\n"
-            "2️⃣ <b>Написать</b> запрос прямо здесь в чат?\n\n"
-            "<i>(Если напишешь, я смогу задать более точные вопросы к твоим ассоциациям ✨).</i>"
-        )
-    else:
-        text = (
-            "Теперь подумай о своем запросе или теме дня.\n"
-            "Как тебе удобнее?\n\n"
-            "1️⃣ Сформулировать запрос <b>в уме</b>?\n"
-            "2️⃣ <b>Написать</b> запрос прямо здесь в чат?\n\n"
-            "<i>(Если напишешь, я смогу задать более точные вопросы к твоим ассоциациям ✨).</i>"
-        )
+    text = (
+        f"{name}, теперь подумай о своем запросе или теме дня.\n"
+        if name else
+        "Теперь подумай о своем запросе или теме дня.\n"
+    ) + (
+        "Как тебе удобнее?\n\n"
+        "1️⃣ Сформулировать запрос <b>в уме</b>?\n"
+        "2️⃣ <b>Написать</b> запрос прямо здесь в чат?\n\n"
+        "<i>(Если напишешь, я смогу задать более точные вопросы к твоим ассоциациям ✨).</i>"
+    )
 
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [
-            types.InlineKeyboardButton(text="1️⃣ В уме", callback_data="request_type_mental"),
-            types.InlineKeyboardButton(text="2️⃣ Написать", callback_data="request_type_typed"),
-        ]
-    ])
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[
+        types.InlineKeyboardButton(text="1️⃣ В уме", callback_data="request_type_mental"),
+        types.InlineKeyboardButton(text="2️⃣ Написать", callback_data="request_type_typed"),
+    ]])
 
     await message.answer(text, reply_markup=keyboard)
     await state.set_state(UserState.waiting_for_request_type_choice)
