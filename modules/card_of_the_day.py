@@ -59,23 +59,22 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
     logger.info(f"User {user_id}: Card available? {card_available}") # <--- Добавлено
 
     # 1. Проверка доступности карты
-    if user_id not in NO_CARD_LIMIT_USERS and not card_available: # Используем переменную
-        last_req_time_str = "неизвестно"
-        user_data = db.get_user(user_id)
-        if user_data and isinstance(user_data.get('last_request'), datetime):
-            last_req_time_str = user_data['last_request'].astimezone(TIMEZONE).strftime('%H:%M %d.%m.%Y')
+    if user_id not in NO_CARD_LIMIT_USERS and not card_available:
+    last_req_time_str = "неизвестно"
+    user_data = db.get_user(user_id)
+    if user_data and isinstance(user_data.get('last_request'), datetime):
+        last_req_time_str = user_data['last_request'].astimezone(TIMEZONE).strftime('%H:%M %d.%m.%Y')
 
-        text = f"{name}, ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨" if name else f"Ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
-        return
-        
-        logger.info(f"User {user_id}: Sending 'already drawn' message.") # <--- Добавлено
-        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
-        await state.clear() # Очищаем состояние, т.к. флоу прерван
-        
-        # 2. Запускаем первый шаг - замер ресурса
-        logger.info(f"User {user_id}: Card available, starting initial resource check.") # <--- Добавлено
-        await logger_service.log_action(user_id, "card_flow_started", {"trigger": "button"})
-        await ask_initial_resource(message, state, db, logger_service)
+    text = f"{name}, ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨" if name else f"Ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
+    logger.info(f"User {user_id}: Sending 'already drawn' message.")
+    await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+    await state.clear()
+    return  # ✅ Возвращаемся только после отправки сообщения
+
+# --- Теперь код запускается правильно ---
+logger.info(f"User {user_id}: Card available, starting initial resource check.")
+await logger_service.log_action(user_id, "card_flow_started", {"trigger": "button"})
+await ask_initial_resource(message, state, db, logger_service)
 
 # --- Шаг 1: Замер начального ресурса ---
 async def ask_initial_resource(message: types.Message, state: FSMContext, db, logger_service):
