@@ -690,7 +690,11 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     # Используем F.text == "..." для явного указания текста кнопки
     dp.message.register(make_bonus_request_handler(db, logger_service, user_manager), F.text == "💌 Подсказка Вселенной", StateFilter("*"))
     # Обработчик кнопки "Карта дня" - точка входа в новый флоу
-    dp.message.register(handle_card_request, F.text == "✨ Карта дня", StateFilter("*"))
+    dp.message.register(
+    lambda message, state: handle_card_request(message=message, state=state, db=db, logger_service=logger_service),
+    F.text == "✨ Карта дня",
+    StateFilter("*") # Разрешаем запуск флоу из любого состояния
+    )    
 
     # --- Обработчики состояний FSM ---
 
