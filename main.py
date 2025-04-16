@@ -716,7 +716,11 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     # --- Флоу "Карты Дня" (регистрация в порядке шагов) ---
 
     # Шаг 1: Ожидание выбора НАЧАЛЬНОГО ресурса
-    dp.callback_query.register(process_initial_resource_callback, UserState.waiting_for_initial_resource, F.data.startswith("resource_"))
+    dp.callback_query.register(
+    partial(process_initial_resource_callback, db=db, logger_service=logging_service),
+    UserState.waiting_for_initial_resource,
+    F.data.startswith("resource_")
+)
     dp.message.register(handle_text_when_waiting_callback, UserState.waiting_for_initial_resource) # Ошибка: текст вместо кнопки
 
     # Шаг 2: Ожидание выбора ТИПА запроса (в уме / написать)
