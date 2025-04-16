@@ -85,7 +85,7 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
 async def ask_initial_resource(message: types.Message, state: FSMContext, db, logger_service):
     """Шаг 1: Задает вопрос о начальном ресурсном состоянии."""
     user_id = message.from_user.id
-   name_raw = db.get_user(user_id).get("name")
+    name_raw = db.get_user(user_id).get("name")
     name = name_raw.strip() if name_raw else None
 
     text = f"{name}, привет! ✨ Прежде чем мы начнем, как ты сейчас себя чувствуешь? Оцени свой уровень внутреннего ресурса:" if name else "Привет! ✨ Прежде чем мы начнем, как ты сейчас себя чувствуешь? Оцени свой уровень внутреннего ресурса:"
