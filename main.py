@@ -470,7 +470,7 @@ def make_process_feedback_handler(db, logger_service):
                logger.error(f"Failed to save feedback from user {user_id} to DB: {db_err}", exc_info=True)
                await message.answer("Ой, не получилось сохранить твой отзыв. Попробуй позже.", reply_markup=await get_main_menu(user_id, db))
                # Не очищаем состояние при ошибке БД
-     return wrapped_handler
+      return wrapped_handler
 
 def make_name_handler(db, logger_service, user_manager):
      async def wrapped_handler(message: types.Message, state: FSMContext):
