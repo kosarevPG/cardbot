@@ -724,42 +724,76 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.message.register(handle_text_when_waiting_callback, UserState.waiting_for_initial_resource) # Ошибка: текст вместо кнопки
 
     # Шаг 2: Ожидание выбора ТИПА запроса (в уме / написать)
-    dp.callback_query.register(process_request_type_callback, UserState.waiting_for_request_type_choice, F.data.startswith("request_type_"))
+    dp.callback_query.register(
+    partial(process_request_type_callback, db=db, logger_service=logging_service),
+    UserState.waiting_for_request_type_choice,
+    F.data.startswith("request_type_")
+)
     dp.message.register(handle_text_when_waiting_callback, UserState.waiting_for_request_type_choice) # Ошибка: текст вместо кнопки
 
     # Шаг 3а: Ожидание ввода ТЕКСТА запроса
-    dp.message.register(process_request_text, UserState.waiting_for_request_text_input)
+    dp.message.register(
+    partial(process_request_text, db=db, logger_service=logging_service),
+    UserState.waiting_for_request_text_input
+)
     dp.callback_query.register(handle_callback_when_waiting_text, UserState.waiting_for_request_text_input) # Ошибка: кнопка вместо текста
 
     # Шаг 4: Ожидание ПЕРВОЙ АССОЦИАЦИИ (текст)
-    dp.message.register(process_initial_response, UserState.waiting_for_initial_response)
+    dp.message.register(
+    partial(process_initial_response, db=db, logger_service=logging_service),
+    UserState.waiting_for_initial_response
+)
     dp.callback_query.register(handle_callback_when_waiting_text, UserState.waiting_for_initial_response) # Ошибка: кнопка вместо текста
 
     # Шаг 5: Ожидание выбора ИССЛЕДОВАТЬ ДАЛЬШЕ (да/нет)
-    dp.callback_query.register(process_exploration_choice_callback, UserState.waiting_for_exploration_choice, F.data.startswith("explore_"))
+    dp.callback_query.register(
+    partial(process_exploration_choice_callback, db=db, logger_service=logging_service),
+    UserState.waiting_for_exploration_choice,
+    F.data.startswith("explore_")
+)
     dp.message.register(handle_text_when_waiting_callback, UserState.waiting_for_exploration_choice) # Ошибка: текст вместо кнопки
 
     # Шаг 6: Ожидание ответов на вопросы GROK (текст)
-    dp.message.register(process_first_grok_response, UserState.waiting_for_first_grok_response)
+    dp.message.register(
+    partial(process_first_grok_response, db=db, logger_service=logging_service),
+    UserState.waiting_for_first_grok_response
+)
     dp.callback_query.register(handle_callback_when_waiting_text, UserState.waiting_for_first_grok_response)
 
-    dp.message.register(process_second_grok_response, UserState.waiting_for_second_grok_response)
+    dp.message.register(
+    partial(process_second_grok_response, db=db, logger_service=logging_service),
+    UserState.waiting_for_second_grok_response
+)
     dp.callback_query.register(handle_callback_when_waiting_text, UserState.waiting_for_second_grok_response)
 
-    dp.message.register(process_third_grok_response, UserState.waiting_for_third_grok_response)
+    dp.message.register(
+    partial(process_third_grok_response, db=db, logger_service=logging_service),
+    UserState.waiting_for_third_grok_response
+)
     dp.callback_query.register(handle_callback_when_waiting_text, UserState.waiting_for_third_grok_response)
 
     # Шаг 7: Ожидание выбора КОНЕЧНОГО ресурса
-    dp.callback_query.register(process_final_resource_callback, UserState.waiting_for_final_resource, F.data.startswith("resource_"))
+    dp.callback_query.register(
+    partial(process_final_resource_callback, db=db, logger_service=logging_service),
+    UserState.waiting_for_final_resource,
+    F.data.startswith("resource_")
+)
     dp.message.register(handle_text_when_waiting_callback, UserState.waiting_for_final_resource) # Ошибка: текст вместо кнопки
 
     # Шаг 8: Ожидание ввода СПОСОБА ВОССТАНОВЛЕНИЯ (текст)
-    dp.message.register(process_recharge_method, UserState.waiting_for_recharge_method)
+    dp.message.register(
+    partial(process_recharge_method, db=db, logger_service=logging_service),
+    UserState.waiting_for_recharge_method
+)
     dp.callback_query.register(handle_callback_when_waiting_text, UserState.waiting_for_recharge_method) # Ошибка: кнопка вместо текста
 
     # Шаг 9: Обработка кнопок ФИНАЛЬНОГО ФИДБЕКА (👍/🤔/😕)
     # Эти кнопки появляются после очистки состояния, поэтому StateFilter("*")
-    dp.callback_query.register(process_card_feedback, F.data.startswith("feedback_v2_"), StateFilter("*"))
+    dp.callback_query.register(
+    partial(process_card_feedback, db=db, logger_service=logging_service),
+    F.data.startswith("feedback_v2_"),
+    StateFilter("*")
+)
 
     # --- Обработчики неизвестных команд/сообщений (должны быть последними) ---
     @dp.message(StateFilter("*")) # Ловит любое не обработанное сообщение В ЛЮБОМ СОСТОЯНИИ
