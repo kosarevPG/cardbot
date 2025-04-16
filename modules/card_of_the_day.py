@@ -1,337 +1,499 @@
-# код/card_of_the_day.py
+import requests
+import json
+from config import GROK_API_KEY, GROK_API_URL, TIMEZONE
+from datetime import datetime, timedelta
+import re
+import logging
 
-import random
-import os
-from aiogram import types
-from aiogram.fsm.context import FSMContext
-from config import TIMEZONE, NO_CARD_LIMIT_USERS
-# Импортируем обе функции из ai_service
-from .ai_service import get_grok_question, get_grok_summary, build_user_profile
-from datetime import datetime
-from modules.user_management import UserState
-import logging # Добавим логирование
-
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def get_main_menu(user_id, db):
-    """Возвращает основную клавиатуру меню."""
-    keyboard = [[types.KeyboardButton(text="✨ Карта дня")]]
-    user_data = db.get_user(user_id) # Предполагаем, что get_user синхронный
-    if user_data and user_data.get("bonus_available"):
-        keyboard.append([types.KeyboardButton(text="💌 Подсказка Вселенной")])
-    return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
+# --- Анализ текста (без изменений) ---
+def analyze_mood(text):
+    """Анализирует настроение в тексте по ключевым словам."""
+    text = text.lower()
+    positive_keywords = ["хорошо", "рад", "счастлив", "здорово", "круто", "отлично", "прекрасно", "вдохновлен", "доволен", "спокоен", "уверен", "лучше", "полегче", "спокойнее", "ресурсно"]
+    negative_keywords = ["плохо", "грустно", "тревож", "страх", "боюсь", "злюсь", "устал", "раздражен", "обижен", "разочарован", "одиноко", "негатив", "тяжело", "сложно", "низко", "не очень", "хуже", "обессилен"]
+    neutral_keywords = ["нормально", "обычно", "никак", "спокойно", "ровно", "задумался", "размышляю", "средне", "так себе", "не изменилось"]
 
-async def handle_card_request(message: types.Message, state: FSMContext, db, logger_service):
-    """Обрабатывает запрос на получение карты дня."""
-    user_id = message.from_user.id
-    name = db.get_user(user_id).get("name", "") # Безопасное получение имени
+    # Приоритет негативных, затем позитивных, затем нейтральных
+    if any(keyword in text for keyword in negative_keywords): return "negative"
+    if any(keyword in text for keyword in positive_keywords): return "positive"
+    if any(keyword in text for keyword in neutral_keywords): return "neutral"
+    return "unknown"
+
+def extract_themes(text):
+    """Извлекает основные темы из текста по ключевым словам."""
+    themes = {
+        "отношения": ["отношения", "любовь", "партнёр", "муж", "жена", "парень", "девушка", "семья", "близкие", "друзья", "общение", "конфликт", "расставание", "свидание", "ссора", "развод"],
+        "работа/карьера": ["работа", "карьера", "проект", "коллеги", "начальник", "бизнес", "профессия", "успех", "деньги", "финансы", "должность", "задача", "увольнение", "зарплата", "занятость"],
+        "саморазвитие/цели": ["развитие", "цель", "мечта", "рост", "обучение", "поиск себя", "смысл", "предназначение", "планы", "достижения", "мотивация", "духовность", "самооценка", "уверенность"],
+        "здоровье/состояние": ["здоровье", "состояние", "энергия", "болезнь", "усталость", "самочувствие", "тело", "спорт", "питание", "сон", "отдых", "ресурс", "наполненность", "выгорание"],
+        "эмоции/чувства": ["чувствую", "эмоции", "ощущения", "настроение", "страх", "радость", "грусть", "злость", "тревога", "счастье", "переживания", "вина", "стыд", "обида"],
+        "творчество/хобби": ["творчество", "хобби", "увлечение", "искусство", "музыка", "рисование", "создание", "вдохновение"],
+        "быт/рутина": ["дом", "быт", "рутина", "повседневность", "дела", "организация", "порядок", "уборка"]
+    }
+    found_themes = set()
+    text = text.lower()
+    # Добавим обработку коротких фраз для тем
+    words = set(re.findall(r'\b\w{3,}\b', text)) # Находим слова от 3 букв
+    for theme, keywords in themes.items():
+        # Проверяем наличие ключевых слов или отдельных слов из запроса/ответа в списке ключевых слов темы
+        if any(keyword in text for keyword in keywords) or any(word in keywords for word in words):
+             found_themes.add(theme)
+    return list(found_themes) if found_themes else ["не определено"]
+
+# --- Генерация вопросов Grok (без существенных изменений, кроме логгирования и обработки ошибок) ---
+async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None, db=None):
+    """
+    Генерирует углубляющий вопрос от Grok на основе контекста диалога,
+    истории, профиля пользователя и его настроения.
+    """
+    if db is None:
+        logger.error("Database object 'db' is required for get_grok_question")
+        # Возвращаем запасной вопрос вместо падения
+        universal_questions = {
+            1: "Какие самые сильные чувства или ощущения возникают, глядя на эту карту?",
+            2: "Если бы эта карта могла говорить, какой главный совет она бы дала тебе сейчас?",
+            3: "Какой один маленький шаг ты могла бы сделать сегодня, вдохновившись этими размышлениями?"
+        }
+        fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё приходит на ум?')}"
+        return fallback_question
+        # raise ValueError("Parameter 'db' is required for get_grok_question") # Старый вариант
+
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+
+    # Получаем профиль пользователя
+    profile = await build_user_profile(user_id, db) # Должен возвращать словарь, даже если профиля нет
+    profile_themes = profile.get("themes", ["не определено"])
+    profile_mood_trend = " -> ".join(profile.get("mood_trend", [])) or "нет данных"
+    avg_resp_len = profile.get("avg_response_length", 50) # Используем среднюю длину ответа
+
+    current_mood = analyze_mood(user_response)
+
+    system_prompt = (
+        "Ты — тёплый, мудрый и поддерживающий коуч, работающий с метафорическими ассоциативными картами (МАК). "
+        "Твоя главная задача — помочь пользователю глубже понять себя через рефлексию над картой и своими ответами. "
+        "Не интерпретируй карту сам, фокусируйся на чувствах, ассоциациях и мыслях пользователя. "
+        f"Задай ОДИН открытый, глубокий и приглашающий к размышлению вопрос (15-25 слов). " # Чуть увеличим лимит
+        "Вопрос должен побуждать пользователя исследовать причины своих чувств, посмотреть на ситуацию под новым углом или связать увиденное с его жизнью. "
+        f"Текущее настроение пользователя по его ответу: {current_mood}. "
+        f"Основные темы из его прошлых запросов/ответов: {', '.join(profile_themes)}. "
+        f"Тренд настроения (по последним ответам): {profile_mood_trend}. "
+        # Улучшенные инструкции по адаптации:
+        "Если настроение пользователя 'negative', начни вопрос с эмпатичной фразы ('Понимаю, это может быть непросто...', 'Спасибо, что делишься...', 'Сочувствую, если это отзывается болью...'), затем задай бережный, поддерживающий вопрос, возможно, сфокусированный на ресурсах или маленьких шагах. "
+        f"Если пользователь обычно отвечает кратко (средняя длина ответа ~{avg_resp_len:.0f} симв.), задай более конкретный, возможно, закрытый вопрос ('Что именно вызывает это чувство?', 'Какой аспект карты связан с этим?'). Если отвечает развернуто - можно задать более открытый ('Как это перекликается с твоим опытом?', 'Что эта ассоциация говорит о твоих потребностях?'). "
+        "Постарайся связать вопрос с основными темами пользователя (отношения, работа, саморазвитие и т.д.), если это уместно и естественно вытекает из его ответа. "
+        "НЕ используй нумерацию или префиксы вроде 'Вопрос X:' - это будет добавлено позже. "
+        "Избегай прямых советов или решений. Не задавай вопросы, на которые пользователь уже ответил."
+        "НЕ повторяй вопросы из предыдущих шагов." # Добавлено важное уточнение
+    )
+
+    # Формируем пользовательский промпт с контекстом
+    actions = db.get_actions(user_id) # Получаем всю историю для лучшего контекста
+    # Собираем контекст текущей сессии (используем данные из state, переданные в previous_responses)
+    session_context = []
+    if user_request: session_context.append(f"Начальный запрос: '{user_request}'")
+    # Добавляем предыдущие шаги из previous_responses
+    initial_response = previous_responses.get("initial_response") if previous_responses else None
+    if initial_response: session_context.append(f"Первая ассоциация на карту: '{initial_response}'")
+
+    if step > 1 and previous_responses:
+        # Используем ключи, как они сохраняются в card_of_the_day.py
+        if 'first_grok_question' in previous_responses:
+             session_context.append(f"Вопрос ИИ (1/3): '{previous_responses['first_grok_question']}'")
+        if 'first_grok_response' in previous_responses: # Имя ответа на первый вопрос
+             session_context.append(f"Ответ пользователя 1: '{previous_responses['first_grok_response']}'")
+    if step > 2 and previous_responses:
+        if 'second_grok_question' in previous_responses:
+             session_context.append(f"Вопрос ИИ (2/3): '{previous_responses['second_grok_question']}'")
+        if 'second_grok_response' in previous_responses: # Имя ответа на второй вопрос
+             session_context.append(f"Ответ пользователя 2: '{previous_responses['second_grok_response']}'")
+
+    # Текущий ответ пользователя, на который нужен вопрос
+    session_context.append(f"ПОСЛЕДНИЙ ответ пользователя (на него нужен вопрос {step}/3): '{user_response}'")
+
+    user_prompt = "Контекст текущей сессии:\n" + "\n".join(session_context)
+
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "model": "grok-3-latest", # Проверьте актуальность модели
+        "max_tokens": 100, # Достаточно для вопроса + эмпатии
+        "stream": False,
+        "temperature": 0.5 # Немного увеличим вариативность
+    }
+
+    universal_questions = {
+        1: "Какие самые сильные чувства или ощущения возникают, глядя на эту карту в контексте твоего запроса?",
+        2: "Если бы эта карта могла говорить, какой главный совет она бы дала тебе сейчас?",
+        3: "Какой один маленький шаг ты могла бы сделать сегодня, вдохновившись этими размышлениями?"
+    }
+
+    try:
+        logger.info(f"Sending Q{step} request to Grok API for user {user_id}. Payload: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=20) # Увеличен таймаут
+        response.raise_for_status()
+        data = response.json()
+        logger.info(f"Received Q{step} response from Grok API: {json.dumps(data, ensure_ascii=False, indent=2)}")
+
+        if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
+             raise ValueError("Invalid response structure from Grok API (choices or content missing)")
+
+        question_text = data["choices"][0]["message"]["content"].strip()
+        question_text = re.sub(r'^(Хорошо|Вот ваш вопрос|Конечно|Отлично|Понятно)[,.:]?\s*', '', question_text, flags=re.IGNORECASE).strip()
+        # Убираем кавычки в начале/конце, если модель их добавляет
+        question_text = re.sub(r'^"|"$', '', question_text).strip()
+        # Убираем префиксы вопросов, если модель их добавила
+        question_text = re.sub(r'^Вопрос\s*\d/\d[:.]?\s*', '', question_text).strip()
+
+
+        if not question_text or len(question_text) < 5: # Проверка на пустой или слишком короткий вопрос
+            raise ValueError("Empty or too short question content after cleaning")
+
+        # Проверка на повторение предыдущих вопросов (если есть previous_responses)
+        if previous_responses:
+            prev_q1 = previous_responses.get('first_grok_question','').split(':')[-1].strip()
+            prev_q2 = previous_responses.get('second_grok_question','').split(':')[-1].strip()
+            if question_text.lower() == prev_q1.lower() or question_text.lower() == prev_q2.lower():
+                logger.warning(f"Grok generated a repeated question for step {step}, user {user_id}. Using fallback.")
+                raise ValueError("Repeated question generated")
+
+
+        final_question = f"Вопрос ({step}/3): {question_text}"
+        return final_question
+
+    except requests.exceptions.Timeout:
+        logger.error(f"Grok API request timed out for user {user_id}, step {step}.")
+        fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё приходит на ум, когда ты смотришь на эту карту?')}"
+        return fallback_question
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Grok API request failed for user {user_id}, step {step}: {e}")
+        fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Какие детали карты привлекают твоё внимание больше всего?')}"
+        return fallback_question
+    except (ValueError, KeyError, IndexError) as e:
+        logger.error(f"Failed to parse Grok API response or invalid data for user {user_id}, step {step}: {e}")
+        fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Как твои ощущения изменились за время размышления над картой?')}"
+        return fallback_question
+    except Exception as e:
+        logger.error(f"An unexpected error occurred in get_grok_question for user {user_id}, step {step}: {e}", exc_info=True)
+        fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Попробуй описать свои мысли одним словом. Что это за слово?')}" # Другой запасной вопрос
+        return fallback_question
+
+# --- Генерация саммари (без существенных изменений) ---
+async def get_grok_summary(user_id, interaction_data, db=None):
+    """
+    Генерирует краткое резюме/инсайт по завершении сессии с картой,
+    используя весь контекст взаимодействия.
+    """
+    if db is None:
+        logger.error("Database object 'db' is required for get_grok_summary")
+        return "Ошибка: Не удалось получить доступ к базе данных для генерации резюме."
+
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+
+    profile = await build_user_profile(user_id, db)
+    profile_themes = profile.get("themes", [])
+
+    system_prompt = (
+        "Ты — внимательный и проницательный ИИ-помощник. Твоя задача — проанализировать завершенный диалог пользователя с метафорической картой. "
+        "На основе запроса (если был), ответов пользователя на карту и на уточняющие вопросы, сформулируй краткое (2-4 предложения) резюме или основной инсайт сессии. "
+        "Резюме должно отражать ключевые чувства, мысли или возможные направления для дальнейших размышлений пользователя, которые проявились в диалоге. "
+        "Будь поддерживающим и НЕ давай прямых советов. Фокусируйся на том, что сказал сам пользователь. "
+        "Можешь мягко подсветить связь с его основными темами, если она явно прослеживается: " + ", ".join(profile_themes) + "."
+        "Не используй фразы вроде 'Ваше резюме:', 'Итог:'. Начни прямо с сути."
+        "Избегай общих фраз, старайся быть конкретным по содержанию диалога."
+    )
+
+    # Собираем текст диалога, пропуская пустые вопросы/ответы
+    qna_items = []
+    if interaction_data.get("initial_response"):
+         qna_items.append(f"Первый ответ на карту: {interaction_data['initial_response']}")
+    for item in interaction_data.get("qna", []):
+        question = item.get('question','').split(':')[-1].strip() # Убираем префикс "Вопрос (X/3):"
+        answer = item.get('answer','').strip()
+        if question and answer:
+             qna_items.append(f"Вопрос ИИ: {question}\nОтвет: {answer}")
+
+    qna_text = "\n\n".join(qna_items)
+
+    user_prompt = (
+        "Проанализируй следующий диалог:\n"
+        f"Запрос пользователя: '{interaction_data.get('user_request', 'не указан')}'\n"
+        # f"Номер карты: {interaction_data.get('card_number', 'N/A')}\n" # Номер карты может быть не нужен для саммари
+        f"Диалог:\n{qna_text}\n\n"
+        "Сформулируй краткое резюме или основной инсайт этой сессии (2-4 предложения)."
+    )
+
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "model": "grok-3-latest",
+        "max_tokens": 180, # Немного больше места
+        "stream": False,
+        "temperature": 0.4 # Чуть выше для более живого резюме
+    }
+
+    try:
+        logger.info(f"Sending SUMMARY request to Grok API for user {user_id}. Payload: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=25) # Таймаут чуть больше
+        response.raise_for_status()
+        data = response.json()
+        logger.info(f"Received SUMMARY response from Grok API: {json.dumps(data, ensure_ascii=False, indent=2)}")
+
+        if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
+             raise ValueError("Invalid response structure for summary from Grok API")
+
+        summary_text = data["choices"][0]["message"]["content"].strip()
+        summary_text = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итог|Итак)[,.:]?\s*', '', summary_text, flags=re.IGNORECASE).strip()
+        summary_text = re.sub(r'^"|"$', '', summary_text).strip() # Убираем кавычки
+
+        if not summary_text or len(summary_text) < 10:
+             raise ValueError("Empty or too short summary content after cleaning")
+
+        return summary_text
+
+    except requests.exceptions.Timeout:
+        logger.error(f"Grok API summary request timed out for user {user_id}.")
+        return "К сожалению, не удалось сгенерировать резюме сессии (таймаут). Но твои размышления очень ценны!"
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Grok API summary request failed for user {user_id}: {e}")
+        return "К сожалению, не удалось сгенерировать резюме сессии из-за технической проблемы. Но твои размышления очень ценны!"
+    except (ValueError, KeyError, IndexError) as e:
+        logger.error(f"Failed to parse Grok API summary response or invalid data for user {user_id}: {e}")
+        return "Не получилось сформулировать итог сессии. Главное — те мысли и чувства, которые возникли у тебя."
+    except Exception as e:
+        logger.error(f"An unexpected error occurred in get_grok_summary for user {user_id}: {e}", exc_info=True)
+        return "Произошла неожиданная ошибка при подведении итогов. Пожалуйста, попробуй позже."
+
+
+# --- НОВАЯ ФУНКЦИЯ: Генерация поддерживающего сообщения ---
+
+async def get_grok_supportive_message(user_id, db=None):
+    """
+    Генерирует поддерживающее сообщение для пользователя,
+    если его ресурсное состояние низкое после сессии.
+    """
+    if db is None:
+        logger.error("Database object 'db' is required for get_grok_supportive_message")
+        return "Пожалуйста, позаботься о себе. Ты важен(на). ✨" # Запасной вариант
+
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+
+    profile = await build_user_profile(user_id, db)
+    name = db.get_user(user_id).get("name", "Друг") # Получаем имя пользователя
+    profile_themes = profile.get("themes", [])
+    recharge_method = profile.get("recharge_method", "") # Получаем известный способ подзарядки
+
+    # 1. Формируем системный промпт
+    system_prompt = (
+        f"Ты — очень тёплый, эмпатичный и заботливый друг-помощник. Твоя задача — поддержать пользователя ({name}), который сообщил о низком уровне внутреннего ресурса после работы с картой. "
+        "Напиши короткое (2-3 предложения), искреннее и ободряющее сообщение. "
+        "Признай его чувства, напомни о его ценности и силе. "
+        "Избегай банальностей и ложного позитива. Не давай советов, если не просят. "
+        "Тон должен быть мягким, принимающим и обнимающим."
+        # Добавляем контекст, если есть
+        f" Основные темы, которые волнуют пользователя: {', '.join(profile_themes)}. "
+        if recharge_method:
+            system_prompt += f" Известно, что ему обычно помогает восстанавливаться: {recharge_method}. Можно мягко напомнить об этом или похожих способах заботы о себе, если это уместно."
+    )
+
+    # 2. Пользовательский промпт (краткий, т.к. основное в system)
+    user_prompt = f"Пользователь {name} сообщил, что его ресурсное состояние сейчас низкое (😔). Напиши для него поддерживающее сообщение."
+
+    # 3. Payload
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "model": "grok-3-latest",
+        "max_tokens": 120, # Достаточно для теплого сообщения
+        "stream": False,
+        "temperature": 0.6 # Чуть выше для более душевного ответа
+    }
+
+    # 4. Запрос и обработка
+    try:
+        logger.info(f"Sending SUPPORTIVE request to Grok API for user {user_id}. Payload: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        logger.info(f"Received SUPPORTIVE response from Grok API: {json.dumps(data, ensure_ascii=False, indent=2)}")
+
+        if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
+             raise ValueError("Invalid response structure for supportive message from Grok API")
+
+        support_text = data["choices"][0]["message"]["content"].strip()
+        support_text = re.sub(r'^(Хорошо|Вот сообщение|Конечно|Понятно)[,.:]?\s*', '', support_text, flags=re.IGNORECASE).strip()
+        support_text = re.sub(r'^"|"$', '', support_text).strip()
+
+        if not support_text or len(support_text) < 10:
+             raise ValueError("Empty or too short support message content after cleaning")
+
+        # Добавляем вопрос о способе восстановления
+        question_about_recharge = "\n\nПоделись, пожалуйста, что обычно помогает тебе восстановить силы и позаботиться о себе в такие моменты?"
+        # Если уже знаем способ, можно спросить иначе:
+        if recharge_method:
+             question_about_recharge = f"\n\nПомнишь, ты упоминал(а), что тебе помогает '{recharge_method}'? Может, стоит уделить этому время сейчас? Или есть что-то другое, что поддержит тебя сегодня?"
+
+        return support_text + question_about_recharge
+
+    except requests.exceptions.Timeout:
+        logger.error(f"Grok API supportive message request timed out for user {user_id}.")
+        return "Мне очень жаль, что ты сейчас так себя чувствуешь... Пожалуйста, будь к себе особенно бережен(на). ✨\n\nЧто обычно помогает тебе восстановить силы?" # Запасной вариант + вопрос
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Grok API supportive message request failed for user {user_id}: {e}")
+        return "Очень сочувствую твоему состоянию... Помни, что любые чувства важны и имеют право быть. Позаботься о себе. 🙏\n\nКак ты обычно восстанавливаешь ресурс?" # Запасной вариант + вопрос
+    except (ValueError, KeyError, IndexError) as e:
+        logger.error(f"Failed to parse Grok API supportive message response for user {user_id}: {e}")
+        return "Слышу тебя... Иногда бывает тяжело. Помни, ты не один(на) в своих переживаниях. ❤️\n\nЧто могло бы тебя сейчас поддержать?" # Запасной вариант + вопрос
+    except Exception as e:
+        logger.error(f"An unexpected error occurred in get_grok_supportive_message for user {user_id}: {e}", exc_info=True)
+        return "Мне жаль, что тебе сейчас нелегко... Пожалуйста, найди минутку для себя, сделай что-то приятное. ☕️\n\nРасскажешь, что тебе помогает в такие моменты?" # Запасной вариант + вопрос
+
+
+# --- Построение профиля пользователя (доработанное) ---
+async def build_user_profile(user_id, db):
+    """Строит или обновляет профиль пользователя на основе его истории действий и данных из БД."""
+    profile_data = db.get_user_profile(user_id) # Получаем профиль из БД (может быть None)
     now = datetime.now(TIMEZONE)
-    today = now.date()
 
-    last_request_str = db.get_user(user_id).get("last_request")
-    last_request_date = None
-    if last_request_str:
-        try:
-            if isinstance(last_request_str, str):
-                 last_request_dt = datetime.fromisoformat(last_request_str.replace('Z', '+00:00')).astimezone(TIMEZONE)
-            elif isinstance(last_request_str, datetime):
-                 last_request_dt = last_request_str.astimezone(TIMEZONE)
-            else:
-                 last_request_dt = None
-
-            if last_request_dt:
-                last_request_date = last_request_dt.date()
-        except Exception as e:
-             logger.error(f"Error parsing last_request timestamp '{last_request_str}' for user {user_id}: {e}")
-             last_request_date = None
-
-    if user_id not in NO_CARD_LIMIT_USERS and last_request_date == today:
-        text = f"{name}, ты уже вытянула карту сегодня! Новая будет завтра в 00:00 по Москве." if name else "Ты уже вытянула карту сегодня! Новая будет завтра в 00:00 по Москве."
-        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
-        return
-
-    text = f"{name}, готова поисследовать свой внутренний мир? 🌿 Подумай о своем запросе или теме дня. Можешь написать его мне или просто держать в голове, а затем нажми 'Вытянуть карту'" if name else ", Готова поисследовать свой внутренний мир? 🌿 Подумай о своем запросе или теме дня. Можешь написать его мне или просто держать в голове, а затем нажми 'Вытянуть карту'"
-    await message.answer(text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="Вытянуть карту", callback_data="draw_card")]
-    ]))
-    await state.set_state(UserState.waiting_for_request_text)
-    await logger_service.log_action(user_id, "card_request_initiated")
-
-async def draw_card(callback: types.CallbackQuery, state: FSMContext, db, logger_service):
-    """Вытягивает карту без предварительного текстового запроса."""
-    user_id = callback.from_user.id
-    name = db.get_user(user_id).get("name", "")
-    now_iso = datetime.now(TIMEZONE).isoformat() # Сохраняем в ISO формате
-
-    used_cards = db.get_user_cards(user_id)
-    all_cards = list(range(1, 41)) # Предполагаем 40 карт
-    available_cards = [c for c in all_cards if c not in used_cards]
-
-    if not available_cards:
-        logger.info(f"Card deck reset for user {user_id}")
-        db.reset_user_cards(user_id)
-        available_cards = all_cards.copy()
-
-    card_number = random.choice(available_cards)
-    db.add_user_card(user_id, card_number)
-    db.update_user(user_id, {"last_request": now_iso})
-
-    card_path = f"cards/card_{card_number}.jpg"
-    if os.path.exists(card_path):
-        try:
-            await callback.message.bot.send_photo(
-                user_id,
-                types.FSInputFile(card_path),
-                protect_content=True
-            )
-            text = f"{name}, взгляни на карту. Какие первые чувства, образы, воспоминания приходят? Как это может быть связано с твоим сегодняшним состоянием или запросом? Поделись своими ассоциациями." if name else "Взгляни на карту. Какие первые чувства, образы, воспоминания приходят? Как это может быть связано с твоим сегодняшним состоянием или запросом? Поделись своими ассоциациями."
-            await callback.message.answer(text) # Отправляем вопрос после карты
-
-            await state.update_data(card_number=card_number, user_request="") # Запрос пустой
-            await state.set_state(UserState.waiting_for_initial_response)
-            await logger_service.log_action(user_id, "card_drawn", {"card_number": card_number})
-
-        except Exception as e:
-            logger.error(f"Failed to send card photo to user {user_id}: {e}")
-            await callback.message.answer("Ой, не получилось отправить карту. Попробуй еще раз чуть позже.")
-            await state.clear() # Очищаем состояние при ошибке
+    # Проверка на актуальность профиля (например, обновлять не чаще раза в 30 минут)
+    if profile_data and isinstance(profile_data.get("last_updated"), datetime):
+        last_updated_dt = profile_data["last_updated"].astimezone(TIMEZONE)
+        if (now - last_updated_dt).total_seconds() < 1800:  # 30 минут
+            logger.info(f"Using cached profile for user {user_id}, updated at {last_updated_dt}")
+            # Убедимся, что все ключи существуют при возврате кэша
+            profile_data.setdefault("mood", "unknown")
+            profile_data.setdefault("mood_trend", [])
+            profile_data.setdefault("themes", ["не определено"])
+            profile_data.setdefault("response_count", 0)
+            profile_data.setdefault("request_count", 0)
+            profile_data.setdefault("avg_response_length", 0)
+            profile_data.setdefault("days_active", 0)
+            profile_data.setdefault("interactions_per_day", 0)
+            profile_data.setdefault("initial_resource", None)
+            profile_data.setdefault("final_resource", None)
+            profile_data.setdefault("recharge_method", None)
+            # last_updated уже datetime объект
+            return profile_data
+    elif profile_data is None:
+         logger.info(f"No existing profile found for user {user_id}. Creating new one.")
+         profile_data = {"user_id": user_id} # Начинаем с пустого словаря, если профиля нет
     else:
-        logger.error(f"Card image not found: {card_path}")
-        await callback.message.answer("Кажется, изображение для этой карты потерялось. Попробуй вытянуть еще раз.")
-        await state.clear()
+         # Если профиль есть, но last_updated некорректный, используем его как базу
+         logger.warning(f"Invalid or missing last_updated time in profile for user {user_id}. Rebuilding.")
 
-    await callback.answer() # Отвечаем на callback query
 
-async def process_request_text(message: types.Message, state: FSMContext, db, logger_service):
-    """Обрабатывает текстовый запрос пользователя и вытягивает карту."""
-    user_id = message.from_user.id
-    name = db.get_user(user_id).get("name", "")
-    request_text = message.text.strip()
-    now_iso = datetime.now(TIMEZONE).isoformat()
+    logger.info(f"Rebuilding profile for user {user_id}")
+    actions = db.get_actions(user_id)
+    if not actions:
+        logger.info(f"No actions found for user {user_id}, returning/creating empty profile.")
+        empty_profile = {
+            "user_id": user_id, "mood": "unknown", "mood_trend": [], "themes": ["не определено"],
+            "response_count": 0, "request_count": 0, "avg_response_length": 0,
+            "days_active": 0, "interactions_per_day": 0,
+            "initial_resource": profile_data.get("initial_resource"), # Сохраняем старые значения, если были
+            "final_resource": profile_data.get("final_resource"),
+            "recharge_method": profile_data.get("recharge_method"),
+            "last_updated": now # Обновляем время
+        }
+        db.update_user_profile(user_id, empty_profile) # Сохраняем/обновляем профиль
+        return empty_profile
 
-    used_cards = db.get_user_cards(user_id)
-    all_cards = list(range(1, 41))
-    available_cards = [c for c in all_cards if c not in used_cards]
+    # --- Извлечение данных из действий ---
+    requests_texts = []
+    responses = []
+    mood_trend_responses = []
+    timestamps = []
+    # Новые данные из логов
+    last_initial_resource = profile_data.get("initial_resource") # Берем из старого профиля как дефолт
+    last_final_resource = profile_data.get("final_resource")
+    last_recharge_method = profile_data.get("recharge_method")
 
-    if not available_cards:
-        logger.info(f"Card deck reset for user {user_id}")
-        db.reset_user_cards(user_id)
-        available_cards = all_cards.copy()
+    for action in actions:
+        details = action.get("details", {})
+        action_type = action.get("action", "")
 
-    card_number = random.choice(available_cards)
-    db.add_user_card(user_id, card_number)
-    db.update_user(user_id, {"last_request": now_iso})
+        # Запросы
+        if action_type == "card_drawn_with_request" and "request" in details:
+            requests_texts.append(details["request"])
 
-    card_path = f"cards/card_{card_number}.jpg"
-    if os.path.exists(card_path):
+        # Ответы
+        if action_type in ["initial_response", "first_grok_response", "second_grok_response", "third_grok_response"] and "response" in details:
+            responses.append(details["response"])
+            mood_trend_responses.append(details["response"]) # Для тренда настроения
+
+        # Ресурсы и методы восстановления
+        if action_type == "initial_resource_selected" and "resource" in details:
+             last_initial_resource = details["resource"] # Обновляем последним значением из логов
+        if action_type == "final_resource_selected" and "resource" in details:
+             last_final_resource = details["resource"]
+        if action_type == "recharge_method_provided" and "recharge_method" in details:
+             last_recharge_method = details["recharge_method"]
+
+        # Временные метки
         try:
-            await message.bot.send_photo(
-                user_id,
-                types.FSInputFile(card_path),
-                protect_content=True
-            )
-            text = f"{name}, вот карта для твоего запроса: '{request_text}'. Рассмотри ее внимательно. Что замечаешь? Какие мысли или чувства она вызывает в контексте твоего вопроса?" if name else f"Вот карта для твоего запроса: '{request_text}'. Рассмотри ее внимательно. Что замечаешь? Какие мысли или чувства она вызывает в контексте твоего вопроса?"
-            await message.answer(text) # Отправляем вопрос после карты
+            ts_str = action.get("timestamp")
+            if ts_str:
+                 ts = datetime.fromisoformat(ts_str).astimezone(TIMEZONE)
+                 timestamps.append(ts)
+        except (ValueError, TypeError):
+            logger.warning(f"Could not parse timestamp {action.get('timestamp')} for user {user_id}, action {action_type}")
+            continue
 
-            await state.update_data(card_number=card_number, user_request=request_text)
-            await state.set_state(UserState.waiting_for_initial_response)
-            await logger_service.log_action(user_id, "card_drawn_with_request", {"card_number": card_number, "request": request_text})
+    # --- Расчет метрик ---
+    all_responses_text = " ".join(responses)
+    all_requests_text = " ".join(requests_texts)
+    full_text = all_requests_text + " " + all_responses_text
 
-        except Exception as e:
-            logger.error(f"Failed to send card photo to user {user_id} after request: {e}")
-            await message.answer("Ой, не получилось отправить карту. Попробуй еще раз чуть позже.")
-            await state.clear()
-    else:
-        logger.error(f"Card image not found: {card_path}")
-        await message.answer("Кажется, изображение для этой карты потерялось. Попробуй вытянуть еще раз.")
-        await state.clear()
+    # Настроение по последним 500 символам или последнему ответу
+    mood_source = all_responses_text[-500:] if all_responses_text else ""
+    mood = analyze_mood(mood_source) if mood_source else profile_data.get("mood", "unknown")
 
-async def process_initial_response(message: types.Message, state: FSMContext, db, logger_service):
-    """Обрабатывает первый ответ пользователя на карту и задает первый вопрос Grok."""
-    user_id = message.from_user.id
-    response_text = message.text.strip()
-    data = await state.get_data()
-    card_number = data.get("card_number", "N/A")
-    user_request = data.get("user_request", "")
+    themes = extract_themes(full_text) if full_text.strip() else profile_data.get("themes", ["не определено"])
 
-    await message.bot.send_chat_action(message.from_user.id, 'typing') # Индикаторы "Печатает...":
-    
-    await logger_service.log_action(user_id, "initial_response", {"card_number": card_number, "request": user_request, "response": response_text})
-    grok_question = await get_grok_question(user_id, user_request, response_text, "Начало", step=1, db=db)
-    await logger_service.log_action(user_id, "grok_question", {"step": 1, "grok_question": grok_question})
-    await message.answer(grok_question)
-    await state.update_data(first_grok_question=grok_question, initial_response=response_text)
-    await state.set_state(UserState.waiting_for_first_grok_response)
+    response_count = len(responses)
+    request_count = len(requests_texts)
+    avg_response_length = sum(len(r) for r in responses) / response_count if response_count > 0 else 0
 
-async def process_first_grok_response(message: types.Message, state: FSMContext, db, logger_service):
-    """Обрабатывает ответ на первый вопрос Grok и задает второй."""
-    user_id = message.from_user.id
-    first_response = message.text.strip()
-    data = await state.get_data()
-    card_number = data.get("card_number", "N/A")
-    user_request = data.get("user_request", "")
-    first_grok_question = data.get("first_grok_question", "")
+    days_active = 0
+    interactions_per_day = 0
+    if timestamps:
+        first_interaction = min(timestamps)
+        last_interaction = max(timestamps)
+        # Считаем дни правильно (даже если < 24 часов, но разные даты)
+        days_active = (last_interaction.date() - first_interaction.date()).days + 1
+        # Считаем взаимодействия только релевантные (опционально)
+        relevant_actions_count = len([a for a in actions if a.get("action","").startswith("card_") or a.get("action","").endswith("_response") or "grok" in a.get("action","")])
+        interactions_per_day = relevant_actions_count / days_active if days_active > 0 else relevant_actions_count
 
-    await message.bot.send_chat_action(message.from_user.id, 'typing') # Индикаторы "Печатает...":
-    
-    await logger_service.log_action(user_id, "first_grok_response", {"card_number": card_number, "request": user_request, "question": first_grok_question, "response": first_response})
-    previous_responses_context = {
-        "first_question": first_grok_question,
-        "first_response": first_response
+    # Тренд настроения по последним 3-5 ответам
+    mood_trend = [analyze_mood(resp) for resp in mood_trend_responses[-5:]] # Берем последние 5
+
+    # --- Собираем обновленный профиль ---
+    updated_profile = {
+        "user_id": user_id,
+        "mood": mood,
+        "mood_trend": mood_trend,
+        "themes": themes,
+        "response_count": response_count,
+        "request_count": request_count,
+        "avg_response_length": round(avg_response_length, 2),
+        "days_active": days_active,
+        "interactions_per_day": round(interactions_per_day, 2),
+        "initial_resource": last_initial_resource, # Сохраняем последние значения
+        "final_resource": last_final_resource,
+        "recharge_method": last_recharge_method,
+        "last_updated": now # Новое время обновления
     }
-    second_grok_question = await get_grok_question(user_id, user_request, first_response, "Продолжение", step=2, previous_responses=previous_responses_context, db=db)
-    await logger_service.log_action(user_id, "grok_question", {"step": 2, "grok_question": second_grok_question})
-    await message.answer(second_grok_question)
-    await state.update_data(second_grok_question=second_grok_question, previous_responses=previous_responses_context)
-    await state.set_state(UserState.waiting_for_second_grok_response)
 
-async def process_second_grok_response(message: types.Message, state: FSMContext, db, logger_service):
-    """Обрабатывает ответ на второй вопрос Grok и задает третий."""
-    user_id = message.from_user.id
-    second_response = message.text.strip()
-    data = await state.get_data()
-    card_number = data.get("card_number", "N/A")
-    user_request = data.get("user_request", "")
-    second_grok_question = data.get("second_grok_question", "")
-    previous_responses_context = data.get("previous_responses", {})
+    db.update_user_profile(user_id, updated_profile) # Сохраняем обновленный профиль в БД
+    logger.info(f"Profile updated for user {user_id}: {updated_profile}")
 
-    await logger_service.log_action(user_id, "second_grok_response", {"card_number": card_number, "request": user_request, "question": second_grok_question, "response": second_response})
-    previous_responses_context["second_question"] = second_grok_question
-    previous_responses_context["second_response"] = second_response
-    third_grok_question = await get_grok_question(user_id, user_request, second_response, "Завершение", step=3, previous_responses=previous_responses_context, db=db)
-    await logger_service.log_action(user_id, "grok_question", {"step": 3, "grok_question": third_grok_question})
-    await message.answer(third_grok_question)
-    await state.update_data(third_grok_question=third_grok_question, previous_responses=previous_responses_context)
-    await state.set_state(UserState.waiting_for_third_grok_response)
-
-async def process_third_grok_response(message: types.Message, state: FSMContext, db, logger_service):
-    """Обрабатывает ответ на третий вопрос Grok, генерирует саммари и запрашивает фидбек о процессе."""
-    user_id = message.from_user.id
-    name = db.get_user(user_id).get("name", "")
-    third_response = message.text.strip()
-    data = await state.get_data()
-    # Извлекаем card_number надежно, даже если N/A
-    card_number = data.get("card_number")
-    if card_number is None:
-        logger.warning(f"Card number not found in state for user {user_id} at third response.")
-        card_number = 0 # Или другое значение по умолчанию
-
-    user_request = data.get("user_request", "")
-    third_grok_question = data.get("third_grok_question", "")
-    previous_responses_context = data.get("previous_responses", {})
-
-    await logger_service.log_action(user_id, "third_grok_response", {"card_number": card_number, "request": user_request, "question": third_grok_question, "response": third_response})
-
-    logger.info(f"Starting summary generation for user {user_id}")
-    interaction_summary_data = {
-        "user_request": user_request,
-        "card_number": card_number,
-        "initial_response": data.get("initial_response", "N/A"),
-        "qna": [
-            {"question": previous_responses_context.get("first_question", ""), "answer": previous_responses_context.get("first_response", "")},
-            {"question": previous_responses_context.get("second_question", ""), "answer": previous_responses_context.get("second_response", "")},
-            {"question": third_grok_question, "answer": third_response}
-        ]
-    }
-    interaction_summary_data["qna"] = [item for item in interaction_summary_data["qna"] if item.get("question") and item.get("answer")]
-
-    await message.bot.send_chat_action(message.from_user.id, 'typing') # Индикаторы "Печатает...":
-    
-    summary_text = await get_grok_summary(user_id, interaction_summary_data, db)
-
-    if summary_text and not summary_text.startswith("Ошибка") and not summary_text.startswith("К сожалению") and not summary_text.startswith("Не получилось"):
-         await message.answer(f"✨ Давай попробуем подвести итог нашей беседы:\n{summary_text}")
-         await logger_service.log_action(user_id, "summary_sent", {"summary": summary_text})
-    else:
-         await logger_service.log_action(user_id, "summary_failed", {"error_message": summary_text})
-
-    await message.bot.send_chat_action(message.from_user.id, 'typing') # Индикаторы "Печатает...":
-    
-    try:
-         await build_user_profile(user_id, db)
-         logger.info(f"User profile updated after interaction for user {user_id}")
-    except Exception as e:
-         logger.error(f"Failed to update user profile for user {user_id} after interaction: {e}")
-
-    await message.answer("Благодарю за твои мысли и открытость! 🙏", reply_markup=await get_main_menu(user_id, db)) # Добавляем меню здесь
-
-    # --- Начало изменений: Новый вопрос и кнопки фидбека ---
-    feedback_text = f"{name}, насколько ценной для тебя оказалась эта сессия? Удалось ли найти что-то важное или по-новому взглянуть на свой запрос?" if name else "Насколько ценной для тебя оказалась эта сессия? Удалось ли найти что-то важное или по-новому взглянуть на свой запрос?"
-
-    # Используем card_number в callback_data для связи с сессией
-    feedback_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [
-            types.InlineKeyboardButton(text="👍 Помогло", callback_data=f"feedback_v2_helped_{card_number}"),
-        ],
-        [
-            types.InlineKeyboardButton(text="🤔 Интересно", callback_data=f"feedback_v2_interesting_{card_number}"),
-        ],
-        [
-             types.InlineKeyboardButton(text="😕 Не хватило глубины", callback_data=f"feedback_v2_notdeep_{card_number}")
-        ]
-    ])
-    await message.answer(feedback_text, reply_markup=feedback_keyboard)
-    # --- Конец изменений ---
-
-async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext, db, logger_service):
-    """Обрабатывает новую систему обратной связи пользователя по сессии."""
-    user_id = callback.from_user.id
-    name = db.get_user(user_id).get("name", "")
-    callback_data = callback.data
-    feedback_type = "unknown"
-    card_number = 0 # Значение по умолчанию
-
-    try:
-        # Парсим callback_data нового формата: feedback_v2_<type>_<card_number>
-        parts = callback_data.split('_')
-        if len(parts) >= 4 and parts[0] == 'feedback' and parts[1] == 'v2':
-            feedback_type = parts[2] # helped, interesting, notdeep
-            try:
-                 card_number = int(parts[-1]) # Последняя часть - номер карты
-            except ValueError:
-                 logger.error(f"Could not parse card number from feedback callback data: {callback_data}")
-                 # Можно попробовать извлечь из state, если он еще не очищен, но лучше полагаться на callback
-                 card_number = 0 # Или другое дефолтное значение
-
-            # --- Начало изменений: Ответы на новый фидбек ---
-            if feedback_type == "helped":
-                text = "Отлично! Рад, что наша беседа была для тебя полезной. 😊 Жду тебя завтра!"
-            elif feedback_type == "interesting":
-                text = "Здорово, что было интересно! Размышления и новые углы зрения - это тоже важный результат. 👍"
-            elif feedback_type == "notdeep":
-                text = f"{name}, спасибо за честность! Мне жаль, если не удалось копнуть достаточно глубоко в этот раз. Твои идеи в /feedback помогут мне учиться и развиваться." if name else "Спасибо за честность! Мне жаль, если не удалось копнуть достаточно глубоко в этот раз. Твои идеи в /feedback помогут мне учиться и развиваться."
-            else:
-                logger.warning(f"Unknown feedback_v2 type: {feedback_type} in {callback_data}")
-                await callback.answer("Неизвестный тип ответа.", show_alert=True)
-                return # Выходим, если тип фидбека неизвестен
-            # --- Конец изменений ---
-
-            # Логируем новый фидбек
-            await logger_service.log_action(user_id, "interaction_feedback", {"card_session": card_number, "feedback": feedback_type}) # Используем новый тип action
-
-            await callback.message.edit_reply_markup(reply_markup=None) # Убираем кнопки
-            await callback.message.answer(text, reply_markup=await get_main_menu(user_id, db))
-            await state.clear() # Очищаем состояние
-            await callback.answer() # Отвечаем на callback query
-
-        # Обработка старого формата для обратной совместимости (если нужно)
-        elif callback_data.startswith("feedback_yes_") or callback_data.startswith("feedback_no_"):
-             logger.warning(f"Received old format feedback callback: {callback_data}")
-             # Можно обработать как раньше или просто сказать, что формат устарел
-             await callback.answer("Формат ответа обновлен.", show_alert=True)
-             # await state.clear() # Очистить состояние и тут, если надо
-             return
-
-        else:
-             logger.warning(f"Unknown feedback callback data format: {callback_data}")
-             await callback.answer("Неизвестная команда.", show_alert=True)
-             return
-
-    except Exception as e:
-        logger.error(f"Error processing interaction feedback for user {user_id}: {e}")
-        await callback.answer("Произошла ошибка при обработке ответа.", show_alert=True)
-        # Попытаемся очистить состояние даже при ошибке
-        try:
-            await state.clear()
-        except Exception as clear_err:
-            logger.error(f"Failed to clear state after feedback error: {clear_err}")
+    return updated_profile
