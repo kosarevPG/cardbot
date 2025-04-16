@@ -8,6 +8,14 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+async def get_main_menu(user_id, db):
+    """Возвращает основную клавиатуру меню."""
+    keyboard = [[types.KeyboardButton(text="✨ Карта дня")]]
+    user_data = db.get_user(user_id) # Предполагаем, что get_user синхронный
+    if user_data and user_data.get("bonus_available"):
+        keyboard.append([types.KeyboardButton(text="💌 Подсказка Вселенной")])
+    return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
+
 # --- Анализ текста (без изменений) ---
 def analyze_mood(text):
     """Анализирует настроение в тексте по ключевым словам."""
