@@ -1,8 +1,12 @@
+# код/db.py
 import sqlite3
 import json
 from datetime import datetime
 import os
 from config import TIMEZONE # Убедись, что TIMEZONE импортирован правильно
+import logging # Добавим логирование
+
+logger = logging.getLogger(__name__)
 
 class Database:
     def __init__(self, path="/data/bot.db"):  # Используем путь, соответствующий Amvera
@@ -15,6 +19,28 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.bot = None  # Для обратной совместимости
         self.create_tables()
+        # Выполняем миграцию при инициализации
+        self._run_migrations()
+
+    def _run_migrations(self):
+        """Добавляет новые столбцы, если их нет."""
+        try:
+            cursor = self.conn.cursor()
+            # Проверяем и добавляем столбцы в user_profiles
+            profile_columns = [desc[1] for desc in cursor.execute("PRAGMA table_info(user_profiles)").fetchall()]
+            if 'initial_resource' not in profile_columns:
+                cursor.execute("ALTER TABLE user_profiles ADD COLUMN initial_resource TEXT")
+                logger.info("Added column 'initial_resource' to user_profiles")
+            if 'final_resource' not in profile_columns:
+                cursor.execute("ALTER TABLE user_profiles ADD COLUMN final_resource TEXT")
+                logger.info("Added column 'final_resource' to user_profiles")
+            if 'recharge_method' not in profile_columns:
+                cursor.execute("ALTER TABLE user_profiles ADD COLUMN recharge_method TEXT")
+                logger.info("Added column 'recharge_method' to user_profiles")
+            self.conn.commit()
+        except sqlite3.Error as e:
+            logger.error(f"Database migration error: {e}")
+            self.conn.rollback() # Откатываем изменения в случае ошибки
 
     def create_tables(self):
         with self.conn:
@@ -78,7 +104,7 @@ class Database:
                     timestamp TEXT, -- Изменен на TEXT
                     FOREIGN KEY (user_id) REFERENCES users(user_id)
                 )""")
-            # Таблица user_profiles: last_updated теперь TEXT
+            # Таблица user_profiles: last_updated теперь TEXT, добавлены новые поля
             self.conn.execute("""
                 CREATE TABLE IF NOT EXISTS user_profiles (
                     user_id INTEGER PRIMARY KEY,
@@ -90,7 +116,10 @@ class Database:
                     avg_response_length REAL,
                     days_active INTEGER,
                     interactions_per_day REAL,
-                    last_updated TEXT  -- Изменен на TEXT
+                    last_updated TEXT,  -- Изменен на TEXT
+                    initial_resource TEXT, -- НОВОЕ ПОЛЕ: Начальный ресурс (эмодзи/текст)
+                    final_resource TEXT,   -- НОВОЕ ПОЛЕ: Конечный ресурс (эмодзи/текст)
+                    recharge_method TEXT  -- НОВОЕ ПОЛЕ: Способ восстановления ресурса
                 )""")
 
     def get_user(self, user_id):
@@ -106,13 +135,10 @@ class Database:
                     if 'Z' in last_request_val:
                          last_request_val = last_request_val.replace('Z', '+00:00')
                     elif '+' not in last_request_val and '-' not in last_request_val[10:]: # Проверка на наличие таймзоны
-                         # Попытка добавить UTC, если таймзона отсутствует (опасно, если время локальное)
-                         # Лучше всегда сохранять с таймзоной из TIMEZONE
-                         # last_request_val += '+00:00'
                          pass # Оставим как есть, если нет таймзоны - fromisoformat справится
                     last_request_dt = datetime.fromisoformat(last_request_val)
                 except ValueError as e:
-                    print(f"Error parsing last_request '{last_request_val}' for user {user_id}: {e}") # Логирование ошибки
+                    logger.error(f"Error parsing last_request '{last_request_val}' for user {user_id}: {e}") # Логирование ошибки
                     last_request_dt = None
 
             return {
@@ -124,54 +150,49 @@ class Database:
                 "bonus_available": bool(row["bonus_available"])
             }
         # Возвращаем дефолтную структуру, если пользователь не найден
-        return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
-
-   def update_user(self, user_id, data):
-        # Получаем текущие данные пользователя ОДИН РАЗ, чтобы избежать лишних запросов
-        # Используем try-except на случай, если get_user вернет None или вызовет ошибку
+        # Добавляем дефолтную запись о пользователе, если его нет
+        logger.info(f"User {user_id} not found, creating default entry.")
+        default_user_data = {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
         try:
-            current_user_data = self.get_user(user_id)
-            if current_user_data is None: # get_user может вернуть None, если использовать другую логику
-                 # Создаем дефолтную структуру, если пользователя нет, чтобы избежать ошибок ниже
-                 current_user_data = {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
-        except Exception as e:
-             print(f"Error fetching current user data for {user_id} in update_user: {e}")
-             # В случае ошибки используем дефолтную структуру
-             current_user_data = {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO users (user_id, name, username, last_request, reminder_time, bonus_available) VALUES (?, ?, ?, ?, ?, ?)",
+                    (user_id, default_user_data["name"], default_user_data["username"],
+                     default_user_data["last_request"].isoformat() if default_user_data["last_request"] else None,
+                     default_user_data["reminder_time"], default_user_data["bonus_available"])
+                )
+            logger.info(f"Default user entry created for {user_id}")
+            return default_user_data
+        except sqlite3.Error as e:
+            logger.error(f"Failed to insert default user {user_id}: {e}")
+            # Возвращаем дефолтную структуру, чтобы не сломать дальнейшую логику
+            return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "bonus_available": False}
 
+    def update_user(self, user_id, data):
+        current_user_data = self.get_user(user_id) # Получаем текущие данные (или дефолтные)
 
-        # --- Начало исправления для last_request ---
         last_request_to_save = None
         if "last_request" in data:
-            # Если передано новое значение (ожидается строка ISO)
-            new_last_request_value = data["last_request"]
-            if isinstance(new_last_request_value, str):
-                 last_request_to_save = new_last_request_value # Используем строку напрямую
-            elif isinstance(new_last_request_value, datetime):
-                 # Если вдруг передали datetime, конвертируем (но это не ожидается из card_of_the_day)
-                 print(f"Warning: last_request passed as datetime to update_user for {user_id}. Converting.")
-                 last_request_to_save = new_last_request_value.isoformat()
+            last_request_input = data["last_request"]
+            if isinstance(last_request_input, datetime):
+                last_request_to_save = last_request_input.isoformat()
+            elif isinstance(last_request_input, str):
+                 try:
+                     # Проверяем, что строка валидна, прежде чем сохранить
+                     datetime.fromisoformat(last_request_input.replace('Z', '+00:00'))
+                     last_request_to_save = last_request_input
+                 except ValueError:
+                      logger.warning(f"Invalid ISO string format for last_request '{last_request_input}' for user {user_id}. Using None.")
+                      last_request_to_save = None
             else:
-                 print(f"Error: Invalid type for last_request passed to update_user for {user_id}. Type: {type(new_last_request_value)}. Using None.")
-                 last_request_to_save = None # Обнуляем при неверном типе
+                 logger.warning(f"Unexpected type for last_request '{type(last_request_input)}' for user {user_id}. Using None.")
+                 last_request_to_save = None
         else:
-            # Если новое значение НЕ передано, используем текущее из БД (get_user вернул datetime или None)
-            current_last_request_dt = current_user_data.get("last_request") # Используем .get для безопасности
+            current_last_request_dt = current_user_data.get("last_request")
             if isinstance(current_last_request_dt, datetime):
-                last_request_to_save = current_last_request_dt.isoformat() # Преобразуем в строку ISO
+                last_request_to_save = current_last_request_dt.isoformat()
             else:
-                # Если текущего значения нет или оно не datetime (например, None или старая строка), сохраняем None
                 last_request_to_save = None
-        # --- Конец исправления для last_request ---
-
-        # Используем текущие данные как основу и обновляем их из data
-        name_to_save = data.get("name", current_user_data.get("name"))
-        username_to_save = data.get("username", current_user_data.get("username"))
-        reminder_time_to_save = data.get("reminder_time", current_user_data.get("reminder_time"))
-        bonus_available_to_save = data.get("bonus_available", current_user_data.get("bonus_available"))
-
-        # Преобразуем boolean в integer для SQLite
-        bonus_available_int = 1 if bonus_available_to_save else 0
 
         with self.conn:
             self.conn.execute("""
@@ -179,11 +200,11 @@ class Database:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (
                 user_id,
-                name_to_save,
-                username_to_save,
-                last_request_to_save, # Используем подготовленное значение (строка ISO или None)
-                reminder_time_to_save,
-                bonus_available_int # Сохраняем 0 или 1
+                data.get("name", current_user_data.get("name")), # Используем .get() для безопасности
+                data.get("username", current_user_data.get("username")),
+                last_request_to_save,
+                data.get("reminder_time", current_user_data.get("reminder_time")),
+                data.get("bonus_available", current_user_data.get("bonus_available"))
             ))
 
     def get_user_cards(self, user_id):
@@ -199,33 +220,41 @@ class Database:
             self.conn.execute("DELETE FROM user_cards WHERE user_id = ?", (user_id,))
 
     def save_action(self, user_id, username, name, action, details, timestamp):
-         # Убедимся, что timestamp это строка ISO
          if isinstance(timestamp, datetime):
              timestamp_str = timestamp.isoformat()
          elif isinstance(timestamp, str):
-             timestamp_str = timestamp # Уже строка
+             timestamp_str = timestamp
          else:
-             timestamp_str = datetime.now(TIMEZONE).isoformat() # Fallback
+             timestamp_str = datetime.now(TIMEZONE).isoformat()
+
+         # Преобразуем детали в JSON, обрабатывая ошибки
+         try:
+             details_json = json.dumps(details, ensure_ascii=False) # ensure_ascii=False для корректного отображения кириллицы
+         except TypeError as e:
+             logger.error(f"Failed to serialize details for action '{action}' for user {user_id}: {e}. Details: {details}")
+             details_json = json.dumps({"error": "serialization_failed", "original_details": str(details)}) # Сохраняем как строку в случае ошибки
 
          with self.conn:
             self.conn.execute(
                 "INSERT INTO actions (user_id, username, name, action, details, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-                (user_id, username, name, action, json.dumps(details), timestamp_str) # Сохраняем строку
+                (user_id, username, name, action, details_json, timestamp_str)
             )
 
     def get_actions(self, user_id=None):
         if user_id:
-            cursor = self.conn.execute("SELECT * FROM actions WHERE user_id = ? ORDER BY timestamp ASC", (user_id,)) # Добавил сортировку
+            cursor = self.conn.execute("SELECT * FROM actions WHERE user_id = ? ORDER BY timestamp ASC", (user_id,))
         else:
-            cursor = self.conn.execute("SELECT * FROM actions ORDER BY timestamp ASC") # Добавил сортировку
+            cursor = self.conn.execute("SELECT * FROM actions ORDER BY timestamp ASC")
         actions = []
         for row in cursor.fetchall():
             try:
+                # ensure_ascii=False не нужен при загрузке, json.loads работает с unicode
                 details_dict = json.loads(row["details"])
             except json.JSONDecodeError:
-                details_dict = {"error": "invalid_json"}
+                details_dict = {"error": "invalid_json", "raw_details": row["details"]}
+            except TypeError: # Если details == None
+                 details_dict = {}
 
-            # timestamp уже строка из БД (тип TEXT)
             timestamp_str = row["timestamp"]
 
             actions.append({
@@ -234,7 +263,7 @@ class Database:
                 "name": row["name"],
                 "action": row["action"],
                 "details": details_dict,
-                "timestamp": timestamp_str # Возвращаем строку ISO
+                "timestamp": timestamp_str
             })
         return actions
 
@@ -248,12 +277,13 @@ class Database:
         return [row["user_id"] for row in cursor.fetchall()]
 
     def is_card_available(self, user_id, today):
-        # get_user уже возвращает datetime или None
-        last_request_dt = self.get_user(user_id)["last_request"]
-        if last_request_dt:
-            # Сравниваем только даты
+        user_data = self.get_user(user_id) # Получаем данные пользователя
+        if not user_data: # Если пользователя нет в БД (хотя get_user теперь создает дефолт)
+            return True
+        last_request_dt = user_data.get("last_request") # Используем .get()
+        if last_request_dt and isinstance(last_request_dt, datetime):
             return last_request_dt.astimezone(TIMEZONE).date() < today
-        return True # Если запросов не было, карта доступна
+        return True
 
     def add_referral(self, referrer_id, referred_id):
         with self.conn:
@@ -269,25 +299,26 @@ class Database:
         if row:
             last_updated_val = row["last_updated"]
             last_updated_dt = None
-            # Преобразуем строку ISO обратно в datetime
             if last_updated_val:
                  try:
-                     if 'Z' in last_updated_val: # Обработка 'Z'
+                     if 'Z' in last_updated_val:
                           last_updated_val = last_updated_val.replace('Z', '+00:00')
                      last_updated_dt = datetime.fromisoformat(last_updated_val)
                  except ValueError as e:
-                     print(f"Error parsing last_updated '{last_updated_val}' for profile user {user_id}: {e}")
+                     logger.error(f"Error parsing last_updated '{last_updated_val}' for profile user {user_id}: {e}")
                      last_updated_dt = None
 
-            # Безопасная загрузка JSON
             try:
                  mood_trend_list = json.loads(row["mood_trend"]) if row["mood_trend"] else []
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError):
                  mood_trend_list = []
             try:
                  themes_list = json.loads(row["themes"]) if row["themes"] else []
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError):
                  themes_list = []
+
+            # Добавляем новые поля с дефолтными значениями None, если их нет в строке
+            # row_keys = row.keys() # Получаем ключи из конкретной строки
 
             return {
                 "user_id": row["user_id"],
@@ -299,35 +330,44 @@ class Database:
                 "avg_response_length": row["avg_response_length"],
                 "days_active": row["days_active"],
                 "interactions_per_day": row["interactions_per_day"],
-                "last_updated": last_updated_dt # Возвращаем datetime или None
+                "last_updated": last_updated_dt, # Возвращаем datetime или None
+                # Используем row['column'] вместо row.get() т.к. миграция должна была добавить столбцы
+                "initial_resource": row["initial_resource"], # Ожидаем, что столбец есть
+                "final_resource": row["final_resource"],     # Ожидаем, что столбец есть
+                "recharge_method": row["recharge_method"]   # Ожидаем, что столбец есть
             }
-        return None # Возвращаем None, если профиль не найден
+        return None
 
     def update_user_profile(self, user_id, profile):
-         # Убедимся, что last_updated это datetime объект перед форматированием
          last_updated_dt = profile.get("last_updated")
          if isinstance(last_updated_dt, datetime):
              last_updated_iso = last_updated_dt.isoformat()
          else:
-             # Если объект не datetime, используем текущее время
-             print(f"Warning: last_updated in profile for user {user_id} is not datetime. Using current time.")
+             logger.warning(f"last_updated in profile for user {user_id} is not datetime. Using current time.")
              last_updated_iso = datetime.now(TIMEZONE).isoformat()
+
+         # Получаем текущий профиль, чтобы не перезаписать существующие значения новыми None, если они не переданы
+         current_profile = self.get_user_profile(user_id) or {}
 
          with self.conn:
             self.conn.execute("""
                 INSERT OR REPLACE INTO user_profiles (
                     user_id, mood, mood_trend, themes, response_count, request_count,
-                    avg_response_length, days_active, interactions_per_day, last_updated
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    avg_response_length, days_active, interactions_per_day, last_updated,
+                    initial_resource, final_resource, recharge_method -- Новые поля
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 user_id,
-                profile.get("mood"),
-                json.dumps(profile.get("mood_trend", [])), # Сериализуем в JSON
-                json.dumps(profile.get("themes", [])),     # Сериализуем в JSON
-                profile.get("response_count"),
-                profile.get("request_count"),
-                profile.get("avg_response_length"),
-                profile.get("days_active"),
-                profile.get("interactions_per_day"),
-                last_updated_iso # Сохраняем строку ISO
+                profile.get("mood", current_profile.get("mood")),
+                json.dumps(profile.get("mood_trend", current_profile.get("mood_trend", []))),
+                json.dumps(profile.get("themes", current_profile.get("themes", []))),
+                profile.get("response_count", current_profile.get("response_count")),
+                profile.get("request_count", current_profile.get("request_count")),
+                profile.get("avg_response_length", current_profile.get("avg_response_length")),
+                profile.get("days_active", current_profile.get("days_active")),
+                profile.get("interactions_per_day", current_profile.get("interactions_per_day")),
+                last_updated_iso, # Всегда обновляем время
+                profile.get("initial_resource", current_profile.get("initial_resource")), # Новое
+                profile.get("final_resource", current_profile.get("final_resource")),     # Новое
+                profile.get("recharge_method", current_profile.get("recharge_method"))    # Новое
             ))
