@@ -666,6 +666,11 @@ async def handle_callback_when_waiting_text(callback: types.CallbackQuery, state
     # Отвечаем на колбэк и просим ввести текст
     await callback.answer("Пожалуйста, отправь ответ текстом в чат.", show_alert=True)
 
+@dp.message()
+async def debug_all_messages(message: types.Message):
+    print(f"[DEBUG] Получено сообщение: {repr(message.text)}")
+    await message.answer(f"Ты отправил: {repr(message.text)}")
+
 # --- Регистрация всех обработчиков ---
 def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingService, user_manager: UserManager):
     """Регистрирует все обработчики сообщений и колбэков."""
