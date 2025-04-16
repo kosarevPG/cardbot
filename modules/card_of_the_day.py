@@ -50,7 +50,8 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
     Проверяет доступность карты и запускает замер ресурса.
     """
     user_id = message.from_user.id
-    name = db.get_user(user_id).get("name", "")
+    name_raw = db.get_user(user_id).get("name")
+name = name_raw.strip() if name_raw else None
     now = datetime.now(TIMEZONE)
     today = now.date()
 
@@ -84,7 +85,8 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
 async def ask_initial_resource(message: types.Message, state: FSMContext, db, logger_service):
     """Шаг 1: Задает вопрос о начальном ресурсном состоянии."""
     user_id = message.from_user.id
-    name = db.get_user(user_id).get("name", "")
+   name_raw = db.get_user(user_id).get("name")
+name = name_raw.strip() if name_raw else None
 
     text = f"{name}, привет! ✨ Прежде чем мы начнем, как ты сейчас себя чувствуешь? Оцени свой уровень внутреннего ресурса:" if name else "Привет! ✨ Прежде чем мы начнем, как ты сейчас себя чувствуешь? Оцени свой уровень внутреннего ресурса:"
 
@@ -128,7 +130,8 @@ async def ask_request_type_choice(event: types.Message | types.CallbackQuery, st
         user_id = event.from_user.id
         message = event
 
-    name = db.get_user(user_id).get("name", "")
+    name_raw = db.get_user(user_id).get("name")
+name = name_raw.strip() if name_raw else None
 
     text = (
         f"{name}, теперь подумай о своем запросе или теме дня.\n"
@@ -209,7 +212,8 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db, logger
     # Получаем user_request из состояния (он мог быть установлен в process_request_text или отсутствовать)
     user_data_fsm = await state.get_data()
     user_request = user_data_fsm.get("user_request", "")
-    name = db.get_user(user_id).get("name", "")
+    name_raw = db.get_user(user_id).get("name")
+name = name_raw.strip() if name_raw else None
     now_iso = datetime.now(TIMEZONE).isoformat() # Время вытягивания карты
 
     # Обновляем время последнего запроса в БД ТОЛЬКО при вытягивании карты
@@ -339,7 +343,8 @@ async def process_initial_response(message: types.Message, state: FSMContext, db
 async def ask_exploration_choice(message: types.Message, state: FSMContext, db, logger_service):
     """Шаг 5: Спрашивает, хочет ли пользователь исследовать ассоциации дальше с помощью Grok."""
     user_id = message.from_user.id
-    name = db.get_user(user_id).get("name", "")
+    name_raw = db.get_user(user_id).get("name")
+name = name_raw.strip() if name_raw else None
 
     text = f"{name}, спасибо, что поделился(ась)! Хочешь поисследовать эти ассоциации глубже с помощью нескольких вопросов от меня (это займет еще 5-7 минут)?"
 
@@ -575,7 +580,8 @@ async def finish_interaction_flow(message: types.Message, state: FSMContext, db,
     Устанавливает состояние waiting_for_final_resource.
     """
     user_id = message.from_user.id
-    name = db.get_user(user_id).get("name", "")
+    name_raw = db.get_user(user_id).get("name")
+name = name_raw.strip() if name_raw else None
     data = await state.get_data()
     initial_resource = data.get("initial_resource", "неизвестно") # Получаем начальный ресурс из state
 
@@ -635,7 +641,8 @@ async def process_recharge_method(message: types.Message, state: FSMContext, db,
     """Шаг 8.5: Обрабатывает ответ о способе восстановления ресурса."""
     user_id = message.from_user.id
     recharge_method_text = message.text.strip()
-    name = db.get_user(user_id).get("name", "")
+    name_raw = db.get_user(user_id).get("name")
+name = name_raw.strip() if name_raw else None
 
     # Валидация ответа
     if not recharge_method_text:
@@ -673,7 +680,8 @@ async def show_final_feedback_and_menu(message: types.Message, state: FSMContext
     главное меню и очищает состояние FSM.
     """
     user_id = message.from_user.id
-    name = db.get_user(user_id).get("name", "")
+    name_raw = db.get_user(user_id).get("name")
+name = name_raw.strip() if name_raw else None
     data = await state.get_data()
     card_number = data.get("card_number", 0) # Номер карты для callback_data фидбека
 
@@ -727,7 +735,8 @@ async def show_final_feedback_and_menu(message: types.Message, state: FSMContext
 async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext, db, logger_service):
     """Обрабатывает обратную связь пользователя по сессии (кнопки 👍/🤔/😕)."""
     user_id = callback.from_user.id
-    name = db.get_user(user_id).get("name", "")
+    name_raw = db.get_user(user_id).get("name")
+name = name_raw.strip() if name_raw else None
     callback_data = callback.data
     feedback_type = "unknown"
     card_number = 0 # Значение по умолчанию
