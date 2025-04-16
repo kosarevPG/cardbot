@@ -50,26 +50,31 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
     Проверяет доступность карты и запускает замер ресурса.
     """
     user_id = message.from_user.id
-    name = db.get_user(user_id).get("name", "") # Имя пользователя
-    now = datetime.now(TIMEZONE)
-    today = now.date()
+name = db.get_user(user_id).get("name", "") # Имя пользователя
+now = datetime.now(TIMEZONE)
+today = now.date()
 
-    # 1. Проверка доступности карты
-    # Используем функцию из db.py, которая учитывает часовой пояс
-    if user_id not in NO_CARD_LIMIT_USERS and not db.is_card_available(user_id, today):
-        last_req_time_str = "неизвестно"
-        user_data = db.get_user(user_id)
-        if user_data and isinstance(user_data.get('last_request'), datetime):
-             last_req_time_str = user_data['last_request'].astimezone(TIMEZONE).strftime('%H:%M %d.%m.%Y')
+logger.info(f"User {user_id}: Checking card availability for {today}") # <--- Добавлено
+card_available = db.is_card_available(user_id, today)
+logger.info(f"User {user_id}: Card available? {card_available}") # <--- Добавлено
 
-        text = f"{name}, ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨" if name else f"Ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
-        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
-        await state.clear() # Очищаем состояние, т.к. флоу прерван
-        return
+# 1. Проверка доступности карты
+if user_id not in NO_CARD_LIMIT_USERS and not card_available: # Используем переменную
+    last_req_time_str = "неизвестно"
+    user_data = db.get_user(user_id)
+    if user_data and isinstance(user_data.get('last_request'), datetime):
+         last_req_time_str = user_data['last_request'].astimezone(TIMEZONE).strftime('%H:%M %d.%m.%Y')
 
-    # 2. Запускаем первый шаг - замер ресурса
-    await logger_service.log_action(user_id, "card_flow_started", {"trigger": "button"})
-    await ask_initial_resource(message, state, db, logger_service)
+    text = f"{name}, ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨" if name else f"Ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
+    logger.info(f"User {user_id}: Sending 'already drawn' message.") # <--- Добавлено
+    await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+    await state.clear() # Очищаем состояние, т.к. флоу прерван
+    return
+
+# 2. Запускаем первый шаг - замер ресурса
+logger.info(f"User {user_id}: Card available, starting initial resource check.") # <--- Добавлено
+await logger_service.log_action(user_id, "card_flow_started", {"trigger": "button"})
+await ask_initial_resource(message, state, db, logger_service)
 
 # --- Шаг 1: Замер начального ресурса ---
 async def ask_initial_resource(message: types.Message, state: FSMContext, db, logger_service):
