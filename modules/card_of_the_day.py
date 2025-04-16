@@ -16,6 +16,13 @@ async def get_main_menu(user_id, db):
         keyboard.append([types.KeyboardButton(text="💌 Подсказка Вселенной")])
     return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
 
+async def handle_card_request(message: types.Message, state: FSMContext, db, logger_service):
+    """Обрабатывает запрос на получение карты дня."""
+    user_id = message.from_user.id
+    name = db.get_user(user_id).get("name", "") # Безопасное получение имени
+    now = datetime.now(TIMEZONE)
+    today = now.date()
+
 # --- Анализ текста (без изменений) ---
 def analyze_mood(text):
     """Анализирует настроение в тексте по ключевым словам."""
