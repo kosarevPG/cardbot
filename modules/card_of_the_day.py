@@ -68,9 +68,9 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
             last_req_time_str = user_data['last_request'].astimezone(TIMEZONE).strftime('%H:%M %d.%m.%Y')
 
         text = (
-            f"{name}, ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
+            f"{name}, ты уже вытянула карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
             if name else
-            f"Ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
+            f"Ты уже вытянула карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
         )
         logger.info(f"User {user_id}: Sending 'already drawn' message.")
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
@@ -111,7 +111,7 @@ async def process_initial_resource_callback(callback: types.CallbackQuery, state
     await state.update_data(initial_resource=resource_choice_label) # Сохраняем полное описание ресурса в state
     await logger_service.log_action(user_id, "initial_resource_selected", {"resource": resource_choice_label})
 
-    await callback.answer(f"Понял(а), твое состояние: {resource_choice_label.split()[0]}") # Отвечаем на callback кратким эмодзи
+    await callback.answer(f"Понял, твое состояние: {resource_choice_label.split()[0]}") # Отвечаем на callback кратким эмодзи
     try:
         # Убираем кнопки ресурса из предыдущего сообщения
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -174,7 +174,7 @@ async def process_request_type_callback(callback: types.CallbackQuery, state: FS
     if request_type == "request_type_mental":
         await callback.answer("Хорошо, держи запрос в голове.")
         # Сразу тянем карту
-        await callback.message.answer("Понял(а). Сейчас вытяну для тебя карту...") # Сообщение о процессе
+        await callback.message.answer("Понял. Сейчас вытяну для тебя карту...") # Сообщение о процессе
         # Передаем message из callback для отправки карты и первого вопроса
         await draw_card_direct(callback.message, state, db, logger_service)
         # Состояние будет установлено внутри draw_card_direct
@@ -325,7 +325,7 @@ async def process_initial_response(message: types.Message, state: FSMContext, db
 
     # Валидация ответа
     if not initial_response_text:
-        await message.answer("Кажется, ты ничего не написал(а). Пожалуйста, поделись своими ассоциациями.")
+        await message.answer("Кажется, ты ничего не написала. Пожалуйста, поделись своими ассоциациями.")
         return # Остаемся в том же состоянии UserState.waiting_for_initial_response
     if len(initial_response_text) < 3:
         await message.answer("Пожалуйста, опиши свои ассоциации чуть подробнее (хотя бы 3 символа).")
@@ -592,7 +592,7 @@ async def finish_interaction_flow(message: types.Message, state: FSMContext, db,
     initial_resource = data.get("initial_resource", "неизвестно") # Получаем начальный ресурс из state
 
     text = (f"{name}, наша работа с картой на сегодня подходит к концу. 🙏\n"
-            f"Ты начал(а) с состоянием '{initial_resource}'.\n\n"
+            f"Ты начала с состоянием '{initial_resource}'.\n\n"
             f"Как ты чувствуешь себя <b>сейчас</b>? Как изменился твой уровень ресурса?")
 
     buttons = [
@@ -616,7 +616,7 @@ async def process_final_resource_callback(callback: types.CallbackQuery, state: 
     await state.update_data(final_resource=resource_choice_label)
     await logger_service.log_action(user_id, "final_resource_selected", {"resource": resource_choice_label})
 
-    await callback.answer(f"Понял(а), твое состояние сейчас: {resource_choice_label.split()[0]}")
+    await callback.answer(f"Понял, твое состояние сейчас: {resource_choice_label.split()[0]}")
     try:
         # Убираем кнопки выбора ресурса
         await callback.message.edit_reply_markup(reply_markup=None)
@@ -764,7 +764,7 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
 
             # Формируем ответ пользователю
             text_map = {
-                "helped": "Отлично! Рад(а), что наша беседа была для тебя полезной. 😊 Жду тебя завтра!",
+                "helped": "Отлично! Рад, что наша беседа была для тебя полезной. 😊 Жду тебя завтра!",
                 "interesting": "Здорово, что было интересно! Размышления и новые углы зрения - это тоже важный результат. 👍",
                 "notdeep": f"{name}, спасибо за честность! Мне жаль, если не удалось копнуть достаточно глубоко в этот раз. Твои идеи в /feedback помогут мне учиться и развиваться." if name else "Спасибо за честность! Мне жаль, если не удалось копнуть достаточно глубоко в этот раз. Твои идеи в /feedback помогут мне учиться и развиваться."
             }
