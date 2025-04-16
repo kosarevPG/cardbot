@@ -433,7 +433,7 @@ def make_process_feedback_handler(db, logger_service):
           user_id = message.from_user.id
           feedback_text = message.text.strip()
           if not feedback_text:
-              await message.answer("Кажется, ты ничего не написал(а). Попробуй еще раз.", reply_markup=await get_main_menu(user_id, db))
+              await message.answer("Кажется, ты ничего не написала. Попробуй еще раз.", reply_markup=await get_main_menu(user_id, db))
               return # Остаемся в состоянии ожидания фидбека
 
           user_data = db.get_user(user_id)
@@ -518,7 +518,7 @@ def make_process_skip_name_handler(db, logger_service, user_manager):
              await callback.message.edit_reply_markup(reply_markup=None) # Убираем кнопку
          except Exception as e:
               logger.warning(f"Could not edit message on skip_name for user {user_id}: {e}")
-         await callback.message.answer("Хорошо, буду обращаться к тебе без имени.\nНажми '✨ Карта дня', когда будешь готов(а).", reply_markup=await get_main_menu(user_id, db))
+         await callback.message.answer("Хорошо, буду обращаться к тебе без имени.\nНажми '✨ Карта дня', когда будешь готова.", reply_markup=await get_main_menu(user_id, db))
          await state.clear()
          await callback.answer()
      return wrapped_handler
@@ -801,12 +801,12 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
         current_state = await state.get_state()
         logger.warning(f"Unknown message '{message.text}' received from user {message.from_user.id} in state {current_state}")
         # Даем подсказку или предлагаем сбросить
-        await message.reply("Ой, кажется, я не ожидал(а) этого сейчас. 🤔 Попробуй ответить на последний вопрос или используй кнопки, если они есть. Для выхода из текущего диалога можно нажать /start.")
+        await message.reply("Ой, кажется, я не ожидал этого сейчас. 🤔 Попробуй ответить на последний вопрос или используй кнопки, если они есть. Для выхода из текущего диалога можно нажать /start.")
 
     @dp.message() # Ловит любое не обработанное сообщение БЕЗ СОСТОЯНИЯ
     async def handle_unknown_message_no_state(message: types.Message):
         logger.warning(f"Unknown message '{message.text}' received from user {message.from_user.id} with no state.")
-        await message.reply("Извини, не понял(а) твой запрос. 🤔 Попробуй нажать '✨ Карта дня' или используй одну из команд: /start, /name, /remind, /share, /feedback, /user_profile.")
+        await message.reply("Извини, не понял твой запрос. 🤔 Попробуй нажать '✨ Карта дня' или используй одну из команд: /start, /name, /remind, /share, /feedback, /user_profile.")
 
     @dp.callback_query(StateFilter("*")) # Ловит любой не обработанный колбэк В ЛЮБОМ СОСТОЯНИИ
     async def handle_unknown_callback_state(callback: types.CallbackQuery, state: FSMContext):
