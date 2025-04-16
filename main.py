@@ -7,6 +7,7 @@ from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage # Используем MemoryStorage
+from functools import partial
 
 # --- Импорты из проекта ---
 from config import (
@@ -666,11 +667,6 @@ async def handle_callback_when_waiting_text(callback: types.CallbackQuery, state
     # Отвечаем на колбэк и просим ввести текст
     await callback.answer("Пожалуйста, отправь ответ текстом в чат.", show_alert=True)
 
-@dp.message()
-async def debug_all_messages(message: types.Message):
-    print(f"[DEBUG] Получено сообщение: {repr(message.text)}")
-    await message.answer(f"Ты отправил: {repr(message.text)}")
-
 # --- Регистрация всех обработчиков ---
 def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingService, user_manager: UserManager):
     """Регистрирует все обработчики сообщений и колбэков."""
@@ -696,9 +692,9 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.message.register(make_bonus_request_handler(db, logger_service, user_manager), F.text == "💌 Подсказка Вселенной", StateFilter("*"))
     # Обработчик кнопки "Карта дня" - точка входа в новый флоу
     dp.message.register(
-    lambda message, state: handle_card_request(message=message, state=state, db=db, logger_service=logger_service),
+    partial(handle_card_request, db=db, logger_service=logger_service),
     F.text == "✨ Карта дня",
-    StateFilter("*") # Разрешаем запуск флоу из любого состояния
+    StateFilter("*")
 )    
 
     # --- Обработчики состояний FSM ---
