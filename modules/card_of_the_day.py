@@ -63,7 +63,7 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
         last_req_time_str = "неизвестно"
         user_data = db.get_user(user_id)
         if user_data and isinstance(user_data.get('last_request'), datetime):
-        last_req_time_str = user_data['last_request'].astimezone(TIMEZONE).strftime('%H:%M %d.%m.%Y')
+            last_req_time_str = user_data['last_request'].astimezone(TIMEZONE).strftime('%H:%M %d.%m.%Y')
 
         text = f"{name}, ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨" if name else f"Ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
         logger.info(f"User {user_id}: Sending 'already drawn' message.") # <--- Добавлено
