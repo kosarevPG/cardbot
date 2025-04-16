@@ -66,11 +66,12 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
             last_req_time_str = user_data['last_request'].astimezone(TIMEZONE).strftime('%H:%M %d.%m.%Y')
 
         text = f"{name}, ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨" if name else f"Ты уже вытянул(а) карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨"
+        return
+        
         logger.info(f"User {user_id}: Sending 'already drawn' message.") # <--- Добавлено
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.clear() # Очищаем состояние, т.к. флоу прерван
-        return
-
+        
         # 2. Запускаем первый шаг - замер ресурса
         logger.info(f"User {user_id}: Card available, starting initial resource check.") # <--- Добавлено
         await logger_service.log_action(user_id, "card_flow_started", {"trigger": "button"})
