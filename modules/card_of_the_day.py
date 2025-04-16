@@ -50,13 +50,13 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
     Проверяет доступность карты и запускает замер ресурса.
     """
     user_id = message.from_user.id
-name = db.get_user(user_id).get("name", "") # Имя пользователя
-now = datetime.now(TIMEZONE)
-today = now.date()
+    name = db.get_user(user_id).get("name", "") # Имя пользователя
+    now = datetime.now(TIMEZONE)
+    today = now.date()
 
-logger.info(f"User {user_id}: Checking card availability for {today}") # <--- Добавлено
-card_available = db.is_card_available(user_id, today)
-logger.info(f"User {user_id}: Card available? {card_available}") # <--- Добавлено
+    logger.info(f"User {user_id}: Checking card availability for {today}") # <--- Добавлено
+    card_available = db.is_card_available(user_id, today)
+    logger.info(f"User {user_id}: Card available? {card_available}") # <--- Добавлено
 
 # 1. Проверка доступности карты
 if user_id not in NO_CARD_LIMIT_USERS and not card_available: # Используем переменную
