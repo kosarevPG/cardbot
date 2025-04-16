@@ -694,7 +694,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     lambda message, state: handle_card_request(message=message, state=state, db=db, logger_service=logger_service),
     F.text == "✨ Карта дня",
     StateFilter("*") # Разрешаем запуск флоу из любого состояния
-    )    
+)    
 
     # --- Обработчики состояний FSM ---
 
