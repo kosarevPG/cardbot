@@ -3,10 +3,12 @@ import sqlite3
 import json
 from datetime import datetime
 import os
-from config import TIMEZONE
-import logging
+from config import TIMEZONE # Убедись, что TIMEZONE импортирован правильно
+import logging # Добавим логирование
 
 logger = logging.getLogger(__name__)
+
+# Строка "from database.db import Database" была здесь (или рядом) и ее нужно удалить
 
 class Database:
     def __init__(self, path="/data/bot.db"):
