@@ -1,7 +1,8 @@
 # код/ai_service.py
 
-import requests
+import httpx  # <--- ИЗМЕНЕНИЕ: Импортируем httpx
 import json
+import random # <--- ИЗМЕНЕНИЕ: Добавляем импорт random
 from config import GROK_API_KEY, GROK_API_URL, TIMEZONE
 from datetime import datetime, timedelta
 import re
@@ -137,7 +138,8 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         "Если отвечает развернуто - можно задать более открытый ('Как это перекликается с твоим опытом?', 'Что эта ассоциация говорит о твоих потребностях?'). "
         "Постарайся связать вопрос с основными темами пользователя или его начальным ресурсным состоянием, если это уместно и естественно вытекает из его ответа. "
         "НЕ используй нумерацию или префиксы вроде 'Вопрос X:' - это будет добавлено позже. "
-        "Избегай прямых советов или решений. Не задавай вопросы, на которые пользователь уже ответил. "
+        "Избегай прямых советов или решений. "
+        "Не задавай вопросы, на которые пользователь уже ответил. "
         "НЕ повторяй вопросы из предыдущих шагов."
     )
 
@@ -183,14 +185,16 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
     }
 
     try:
-        # Логгирование полезно для отладки промптов
-        logger.info(f"Sending Q{step} request to Grok API for user {user_id}.")
-        # logger.debug(f"Payload Q{step} for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
-        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=20)
-        response.raise_for_status() # Проверка HTTP ошибок
-        data = response.json()
-        logger.info(f"Received Q{step} response from Grok API for user {user_id}.")
-        # logger.debug(f"Response data Q{step} for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
+        # <--- ИЗМЕНЕНИЕ: Используем httpx ---
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            logger.info(f"Sending Q{step} request to Grok API for user {user_id}.")
+            # logger.debug(f"Payload Q{step} for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+            response = await client.post(GROK_API_URL, headers=headers, json=payload) # Используем await client.post
+            response.raise_for_status() # Проверка HTTP ошибок
+            data = response.json()
+            logger.info(f"Received Q{step} response from Grok API for user {user_id}.")
+            # logger.debug(f"Response data Q{step} for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
+        # --- Конец изменений httpx ---
 
         if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
              raise ValueError("Invalid response structure from Grok API (choices or content missing)")
@@ -216,15 +220,16 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         final_question = f"Вопрос ({step}/3): {question_text}"
         return final_question
 
-    # Обработка ошибок (более детально)
-    except requests.exceptions.Timeout:
+    # <--- ИЗМЕНЕНИЕ: Обработка ошибок httpx ---
+    except httpx.TimeoutException:
         logger.error(f"Grok API request Q{step} timed out for user {user_id}.")
         fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё приходит на ум, когда ты смотришь на эту карту?')}"
         return fallback_question
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Grok API request Q{step} failed for user {user_id}: {e}")
         fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Какие детали карты привлекают твоё внимание больше всего?')}"
         return fallback_question
+    # --- Конец изменений ошибок httpx ---
     except (ValueError, KeyError, IndexError) as e:
         logger.error(f"Failed to parse Grok API response Q{step} or invalid data for user {user_id}: {e}")
         fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Как твои ощущения изменились за время размышления над картой?')}"
@@ -235,7 +240,7 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         return fallback_question
 
 
-# --- Генерация саммари (без существенных изменений) ---
+# --- Генерация саммари ---
 async def get_grok_summary(user_id, interaction_data, db=None):
     """
     Генерирует краткое резюме сессии с картой.
@@ -291,13 +296,16 @@ async def get_grok_summary(user_id, interaction_data, db=None):
     }
 
     try:
-        logger.info(f"Sending SUMMARY request to Grok API for user {user_id}.")
-        # logger.debug(f"Payload SUMMARY for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
-        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=25)
-        response.raise_for_status()
-        data = response.json()
-        logger.info(f"Received SUMMARY response from Grok API for user {user_id}.")
-        # logger.debug(f"Response data SUMMARY for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
+        # <--- ИЗМЕНЕНИЕ: Используем httpx ---
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            logger.info(f"Sending SUMMARY request to Grok API for user {user_id}.")
+            # logger.debug(f"Payload SUMMARY for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+            response = await client.post(GROK_API_URL, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Received SUMMARY response from Grok API for user {user_id}.")
+            # logger.debug(f"Response data SUMMARY for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
+        # --- Конец изменений httpx ---
 
         if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
              raise ValueError("Invalid response structure for summary from Grok API")
@@ -311,12 +319,14 @@ async def get_grok_summary(user_id, interaction_data, db=None):
 
         return summary_text
 
-    except requests.exceptions.Timeout:
+    # <--- ИЗМЕНЕНИЕ: Обработка ошибок httpx ---
+    except httpx.TimeoutException:
         logger.error(f"Grok API summary request timed out for user {user_id}.")
         return "К сожалению, не удалось сгенерировать резюме сессии (таймаут). Но твои размышления очень ценны!"
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Grok API summary request failed for user {user_id}: {e}")
         return "К сожалению, не удалось сгенерировать резюме сессии из-за технической проблемы. Но твои размышления очень ценны!"
+    # --- Конец изменений ошибок httpx ---
     except (ValueError, KeyError, IndexError) as e:
         logger.error(f"Failed to parse Grok API summary response or invalid data for user {user_id}: {e}")
         return "Не получилось сформулировать итог сессии. Главное — те мысли и чувства, которые возникли у тебя."
@@ -349,7 +359,8 @@ async def get_grok_supportive_message(user_id, db=None):
         f"Ты — очень тёплый, эмпатичный и заботливый друг-помощник. Твоя задача — поддержать пользователя ({name}), который сообщил о низком уровне внутреннего ресурса (😔) после работы с метафорической картой. "
         "Напиши короткое (2-3 предложения), искреннее и ободряющее сообщение. "
         "Признай его чувства ('Слышу тебя...', 'Мне жаль, что сейчас так...', 'Понимаю, это непросто...'), напомни о его ценности и силе. "
-        "Избегай банальностей ('все будет хорошо') и ложного позитива. Не давай советов, кроме мягкого напоминания о заботе о себе. "
+        "Избегай банальностей ('все будет хорошо') и ложного позитива. "
+        "Не давай советов, кроме мягкого напоминания о заботе о себе. "
         "Тон должен быть мягким, принимающим и обнимающим."
         # Добавляем контекст, если есть
         f" Основные темы, которые волнуют пользователя: {', '.join(profile_themes)}. "
@@ -386,13 +397,16 @@ async def get_grok_supportive_message(user_id, db=None):
     ]
 
     try:
-        logger.info(f"Sending SUPPORTIVE request to Grok API for user {user_id}.")
-        # logger.debug(f"Payload SUPPORTIVE for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
-        response = requests.post(GROK_API_URL, headers=headers, json=payload, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-        logger.info(f"Received SUPPORTIVE response from Grok API for user {user_id}.")
-        # logger.debug(f"Response data SUPPORTIVE for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
+        # <--- ИЗМЕНЕНИЕ: Используем httpx ---
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            logger.info(f"Sending SUPPORTIVE request to Grok API for user {user_id}.")
+            # logger.debug(f"Payload SUPPORTIVE for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+            response = await client.post(GROK_API_URL, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Received SUPPORTIVE response from Grok API for user {user_id}.")
+            # logger.debug(f"Response data SUPPORTIVE for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
+        # --- Конец изменений httpx ---
 
         if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
              raise ValueError("Invalid response structure for supportive message from Grok API")
@@ -408,12 +422,14 @@ async def get_grok_supportive_message(user_id, db=None):
         # Добавляем вопрос к сообщению от Grok
         return support_text + question_about_recharge
 
-    except requests.exceptions.Timeout:
+    # <--- ИЗМЕНЕНИЕ: Обработка ошибок httpx ---
+    except httpx.TimeoutException:
         logger.error(f"Grok API supportive message request timed out for user {user_id}.")
         return random.choice(fallback_texts) # Возвращаем случайный запасной вариант
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logger.error(f"Grok API supportive message request failed for user {user_id}: {e}")
         return random.choice(fallback_texts)
+    # --- Конец изменений ошибок httpx ---
     except (ValueError, KeyError, IndexError) as e:
         logger.error(f"Failed to parse Grok API supportive message response for user {user_id}: {e}")
         return random.choice(fallback_texts)
