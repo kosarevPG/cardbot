@@ -9,6 +9,8 @@ from config import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR # DATA_DIR для п�
 from .ai_service import get_grok_question, get_grok_summary, build_user_profile, get_grok_supportive_message
 from datetime import datetime
 from modules.user_management import UserState
+from aiogram import types
+from database.db import Database # Убедись, что путь правильный
 import logging
 
 logger = logging.getLogger(__name__)
@@ -768,6 +770,21 @@ async def show_final_feedback_and_menu(message: types.Message, state: FSMContext
     current_state_after_clear = await state.get_state()
     logger.info(f"State cleared for user {user_id}. New state: {current_state_after_clear}")
 
+async def get_main_menu(user_id, db: Database): # Добавил аннотацию типа для db
+    """Возвращает основную клавиатуру меню."""
+    keyboard = [
+        [types.KeyboardButton(text="✨ Карта дня")],
+        # НОВАЯ КНОПКА
+        [types.KeyboardButton(text="🌙 Итог дня")]
+    ]
+    try:
+        user_data = db.get_user(user_id)
+        if user_data and user_data.get("bonus_available"):
+            # Добавляем кнопку бонуса перед Итогом дня для логичности
+            keyboard.insert(1, [types.KeyboardButton(text="💌 Подсказка Вселенной")])
+    except Exception as e:
+        logger.error(f"Error getting user data for main menu (user {user_id}): {e}", exc_info=True)
+    return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, one_time_keyboard=False) # Убрал persistent
 
 # === Обработчик финальной обратной связи (👍/🤔/😕) ===
 # Этот обработчик должен работать даже без активного состояния FSM,
