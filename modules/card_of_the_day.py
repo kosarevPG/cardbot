@@ -679,7 +679,7 @@ async def process_recharge_method(message: types.Message, state: FSMContext, db,
 
     # Валидация ответа
     if not recharge_method_text:
-         await message.answer("Пожалуйста, напиши, что тебе помогает восстановиться.")
+        await message.answer("Пожалуйста, напиши, что тебе помогает восстановиться.")
         return # Остаемся в UserState.waiting_for_recharge_method
     if len(recharge_method_text) < 5:
         await message.answer("Расскажи чуть подробнее, пожалуйста (хотя бы 5 символов).")
