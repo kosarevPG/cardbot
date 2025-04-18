@@ -723,14 +723,12 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     # можно зарегистрировать хендлеры "Итога дня" напрямую в dp, а не через роутер.
     # Выберем этот путь для явной передачи зависимостей:
 
-    # dp.message.register(partial(start_evening_reflection, db=db, logger_service=logger_service), F.text == "🌙 Итог дня", StateFilter("*")) # Уже зарегистрирован выше
-    # dp.message.register(partial(process_good_moments, db=db, logger_service=logger_service), UserState.waiting_for_good_moments)
-    # dp.message.register(partial(process_gratitude, db=db, logger_service=logger_service), UserState.waiting_for_gratitude)
-    # dp.message.register(partial(process_hard_moments, db=db, logger_service=logger_service), UserState.waiting_for_hard_moments)
-    # ПРИМЕЧАНИЕ: Код выше закомментирован, т.к. он дублирует регистрацию из reflection_router. Оставляем включение роутера:
-    # dp.include_router(reflection_router)
-    # !!! ВАЖНО: Для aiogram 3 нужно передать зависимости в роутер при его создании или через middleware
-    # Переделаем evening_reflection.py для явной передачи зависимостей
+# --- НОВЫЙ ФЛОУ: "Итог дня" ---
+    # Регистрируем хендлеры напрямую с передачей зависимостей через partial
+    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logger_service), F.text == "🌙 Итог дня", StateFilter("*")) # Уже был выше, дубль убран
+    dp.message.register(partial(process_good_moments, db=db, logger_service=logger_service), UserState.waiting_for_good_moments)
+    dp.message.register(partial(process_gratitude, db=db, logger_service=logger_service), UserState.waiting_for_gratitude)
+    dp.message.register(partial(process_hard_moments, db=db, logger_service=logger_service), UserState.waiting_for_hard_moments)
 
     # --- Обработчики некорректных вводов (без изменений) ---
     async def handle_text_when_waiting_callback(message: types.Message, state: FSMContext):
