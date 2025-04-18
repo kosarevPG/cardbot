@@ -42,8 +42,11 @@ from modules.card_of_the_day import (
 
 # НОВЫЙ ИМПОРТ: Модуль Вечерней Рефлексии
 from modules.evening_reflection import (
-    reflection_router, # Импортируем роутер из модуля
-    start_evening_reflection # Импортируем стартовый хендлер
+    reflection_router,
+    start_evening_reflection,
+    process_good_moments,  # <--- ДОБАВИТЬ
+    process_gratitude,     # <--- ДОБАВИТЬ
+    process_hard_moments   # <--- ДОБАВИТЬ
 )
 
 
