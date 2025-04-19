@@ -440,4 +440,3 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
         except Exception: pass
 
 # --- КОНЕЦ ФАЙЛА ---
-"
