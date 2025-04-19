@@ -85,7 +85,7 @@ async def process_hard_moments(message: types.Message, state: FSMContext, db: Da
     ai_summary_text = None # Инициализируем переменную для резюме
     try:
         # Показываем "печатает..." пока генерируется резюме
-        await message.bot.send_chat_action(user_id, 'typing')
+        await message.bot.send_chat_action(user_id, 'typing') # <--- Индикатор "печатает..."
         ai_summary_text = await get_reflection_summary(user_id, data, db)
 
         if ai_summary_text:
@@ -110,8 +110,8 @@ async def process_hard_moments(message: types.Message, state: FSMContext, db: Da
     try:
         today_str = datetime.now(TIMEZONE).strftime('%Y-%m-%d')
         created_at_iso = datetime.now(TIMEZONE).isoformat()
-        # Передаем ai_summary_text в функцию сохранения
-        await db.save_evening_reflection(
+        # --- ИСПРАВЛЕНИЕ: УБИРАЕМ await ПЕРЕД db.save_evening_reflection ---
+        db.save_evening_reflection(
             user_id=user_id,
             date=today_str,
             good_moments=good_moments,
@@ -120,7 +120,7 @@ async def process_hard_moments(message: types.Message, state: FSMContext, db: Da
             created_at=created_at_iso,
             ai_summary=ai_summary_text # <--- ПЕРЕДАЕМ РЕЗЮМЕ
         )
-        # Лог об успешном сохранении (с или без резюме) будет внутри save_evening_reflection
+        # Лог об успешном сохранении будет внутри db.save_evening_reflection
         await logger_service.log_action(user_id, "evening_reflection_saved_to_db") # Оставляем этот общий лог
     except Exception as db_err:
         logger.error(f"Failed to save evening reflection for user {user_id}: {db_err}", exc_info=True)
