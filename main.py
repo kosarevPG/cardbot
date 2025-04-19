@@ -304,54 +304,73 @@ def make_feedback_handler(db, logger_service):
 
 
 def make_user_profile_handler(db, logger_service):
-    # ... (код user_profile без изменений, т.к. build_user_profile уже учитывает новые поля) ...
      async def wrapped_handler(message: types.Message, state: FSMContext):
         await state.clear() # Clear any state
         user_id = message.from_user.id
+        name = db.get_user(user_id).get("name", "Друг") # Получаем имя пользователя
         await logger_service.log_action(user_id, "user_profile_viewed")
-        profile = await build_user_profile(user_id, db) # build_user_profile уже содержит новые поля
+        # Вызываем build_user_profile, который теперь возвращает обновленный профиль
+        profile = await build_user_profile(user_id, db)
 
+        # --- Извлекаем данные из профиля ---
         mood = profile.get("mood", "неизвестно")
-        mood_trend_list = profile.get("mood_trend", [])
+        # Фильтруем 'unknown' из тренда настроения
+        mood_trend_list = [m for m in profile.get("mood_trend", []) if m != "unknown"]
         mood_trend = " → ".join(mood_trend_list) if mood_trend_list else "нет данных"
+        # Темы
         themes_list = profile.get("themes", [])
         themes = ", ".join(themes_list) if themes_list and themes_list != ["не определено"] else "нет данных"
-        response_count = profile.get("response_count", 0)
-        request_count = profile.get("request_count", 0)
-        avg_response_length = round(profile.get("avg_response_length", 0), 1)
-        days_active = profile.get("days_active", 0)
-        interactions_per_day = round(profile.get("interactions_per_day", 0), 1)
-        last_updated_dt = profile.get("last_updated")
-        last_updated = last_updated_dt.astimezone(pytz.timezone("Europe/Moscow")).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) else "не обновлялся" # Используем TIMEZONE из config
+        # Ресурс
         initial_resource = profile.get("initial_resource") or "нет данных"
         final_resource = profile.get("final_resource") or "нет данных"
-        recharge_method = profile.get("recharge_method") or "нет данных"
+        recharge_method = profile.get("recharge_method") or "нет данных" # Последний метод
+        # Рефлексия
+        last_reflection_date = profile.get("last_reflection_date") or "пока не было" # Дата как строка или None
+        reflection_count = profile.get("reflection_count", 0)
+        # Статистика
+        response_count = profile.get("response_count", 0) # Ответов на карты
+        # request_count = profile.get("request_count", 0) # Убрали
+        # avg_response_length = round(profile.get("avg_response_length", 0), 1) # Убрали
+        days_active = profile.get("days_active", 0)
+        # interactions_per_day = round(profile.get("interactions_per_day", 0), 1) # Убрали
+        total_cards_drawn = profile.get("total_cards_drawn", 0) # Новая метрика
 
+        # Время обновления
+        last_updated_dt = profile.get("last_updated")
+        last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) else "не обновлялся"
+
+        # --- Формируем текст ---
         text = (
-             f"📊 <b>Твой профиль взаимодействия:</b>\n\n"
+             f"📊 <b>{name}, твой профиль взаимодействия:</b>\n\n"
              f"👤 <b>Состояние & Темы:</b>\n"
              f"  - Настроение (последнее): {mood}\n"
              f"  - Тренд настроения: {mood_trend}\n"
-             f"  - Ключевые темы: {themes}\n\n"
-             f"🌿 <b>Ресурс (последняя сессия 'Карта дня'):</b>\n"
+             f"  - Ключевые темы (из карт и рефлексий): {themes}\n\n"
+             f"🌿 <b>Ресурс (последняя 'Карта дня'):</b>\n"
              f"  - В начале: {initial_resource}\n"
              f"  - В конце: {final_resource}\n"
              f"  - Способ восстановления: {recharge_method}\n\n"
-             f"📈 <b>Статистика:</b>\n"
-             f"  - Ответов на вопросы: {response_count}\n"
-             f"  - Запросов к картам (с текстом): {request_count}\n"
-             f"  - Ср. длина ответа: {avg_response_length} симв.\n"
-             f"  - Дней активности: {days_active}\n"
-             f"  - Взаимодействий в день: {interactions_per_day}\n\n"
+             f"🌙 <b>Вечерняя Рефлексия:</b>\n" # Новый блок
+             f"  - Последний итог подведен: {last_reflection_date}\n"
+             f"  - Всего итогов подведено: {reflection_count}\n\n"
+             f"📈 <b>Статистика Активности:</b>\n" # Обновленный блок
+             f"  - Ответов в диалогах с картой: {response_count}\n"
+             f"  - Всего карт вытянуто: {total_cards_drawn}\n"
+             f"  - Дней активности: {days_active}\n\n"
+             # f"  - Запросов к картам (с текстом): {request_count}\n" # Убрали
+             # f"  - Ср. длина ответа: {avg_response_length} симв.\n" # Убрали
+             # f"  - Взаимодействий в день: {interactions_per_day}\n\n"# Убрали
              f"⏱ <b>Профиль обновлен:</b> {last_updated} МСК\n\n"
-             f"<i>Этот профиль помогает мне лучше понимать тебя и адаптировать вопросы. Данные из 'Итога дня' пока здесь не отображаются.</i>"
+             f"<i>Этот профиль помогает мне лучше понимать тебя. Он учитывает твои ответы в 'Карте дня' и 'Итогах дня'.</i>"
          )
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
      return wrapped_handler
 
-# --- Админские команды (без изменений) ---
+# --- Админские команды ---
+# !! ВАЖНО: Аналогичные изменения нужно внести и в make_admin_user_profile_handler,
+# если ты хочешь, чтобы админ видел профиль в новом формате !!
+
 def make_admin_user_profile_handler(db, logger_service):
-    # ... (код admin_user_profile без изменений) ...
      async def wrapped_handler(message: types.Message):
          user_id = message.from_user.id
          if user_id != ADMIN_ID:
@@ -370,22 +389,30 @@ def make_admin_user_profile_handler(db, logger_service):
          if not user_info:
              await message.answer(f"Пользователь с ID {target_user_id} не найден в базе.")
              return
+
+         # Получаем обновленный профиль
          profile = await build_user_profile(target_user_id, db)
          name = user_info.get("name", "N/A")
          username = user_info.get("username", "N/A")
+
+         # --- Извлекаем данные из профиля ---
          mood = profile.get("mood", "N/A")
-         mood_trend = " → ".join(profile.get("mood_trend", [])) or "N/A"
-         themes = ", ".join(profile.get("themes", [])) or "N/A"
-         response_count = profile.get("response_count", "N/A")
-         request_count = profile.get("request_count", "N/A")
-         avg_response_length = round(profile.get("avg_response_length", 0), 2)
-         days_active = profile.get("days_active", "N/A")
-         interactions_per_day = round(profile.get("interactions_per_day", 0), 2)
-         last_updated_dt = profile.get("last_updated")
-         last_updated = last_updated_dt.astimezone(pytz.timezone("Europe/Moscow")).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) else "N/A"
+         mood_trend_list = [m for m in profile.get("mood_trend", []) if m != "unknown"]
+         mood_trend = " → ".join(mood_trend_list) if mood_trend_list else "N/A"
+         themes_list = profile.get("themes", [])
+         themes = ", ".join(themes_list) if themes_list and themes_list != ["не определено"] else "N/A"
          initial_resource = profile.get("initial_resource") or "N/A"
          final_resource = profile.get("final_resource") or "N/A"
          recharge_method = profile.get("recharge_method") or "N/A"
+         last_reflection_date = profile.get("last_reflection_date") or "N/A"
+         reflection_count = profile.get("reflection_count", 0)
+         response_count = profile.get("response_count", 0)
+         days_active = profile.get("days_active", 0)
+         total_cards_drawn = profile.get("total_cards_drawn", 0)
+         last_updated_dt = profile.get("last_updated")
+         last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) else "N/A"
+
+         # --- Формируем текст для админа ---
          text = (
              f"👤 <b>Профиль пользователя:</b> <code>{target_user_id}</code>\n"
              f"   Имя: {name}, Ник: @{username}\n\n"
@@ -397,10 +424,13 @@ def make_admin_user_profile_handler(db, logger_service):
              f"  Начало: {initial_resource}\n"
              f"  Конец: {final_resource}\n"
              f"  Восстановление: {recharge_method}\n\n"
-             f"<b>Статистика:</b>\n"
-             f"  Ответов: {response_count}, Запросов: {request_count}\n"
-             f"  Ср. длина отв.: {avg_response_length}\n"
-             f"  Дней актив.: {days_active}, Взаим./день: {interactions_per_day}\n\n"
+             f"<b>Вечерняя Рефлексия:</b>\n" # Новый блок
+             f"  Последний итог: {last_reflection_date}\n"
+             f"  Всего итогов: {reflection_count}\n\n"
+             f"<b>Статистика Активности:</b>\n" # Обновленный блок
+             f"  Ответов (карта): {response_count}\n"
+             f"  Карт вытянуто: {total_cards_drawn}\n"
+             f"  Дней актив.: {days_active}\n\n"
              f"<b>Обновлено:</b> {last_updated} МСК"
          )
          await message.answer(text)
