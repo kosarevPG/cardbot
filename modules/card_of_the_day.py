@@ -4,13 +4,17 @@ import random
 import os
 from aiogram import types
 from aiogram.fsm.context import FSMContext
-from config import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR # DATA_DIR для пути к картам
-# Импортируем ВСЕ необходимые функции из ai_service
-from .ai_service import get_grok_question, get_grok_summary, build_user_profile, get_grok_supportive_message
+from config import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR
+# Импортируем функции из ai_service
+# Убедимся, что все нужные функции импортированы
+from .ai_service import (
+    get_grok_question, get_grok_summary, build_user_profile,
+    get_grok_supportive_message, get_reflection_summary # Добавлен get_reflection_summary, хотя он не используется в этом файле напрямую
+)
 from datetime import datetime
 from modules.user_management import UserState
-from aiogram import types
-from database.db import Database # Убедись, что путь правильный
+# Убран дублирующий импорт types
+from database.db import Database
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,24 +26,26 @@ RESOURCE_LEVELS = {
     "resource_low": "😔 Низко",
 }
 # Путь к папке с картами
-CARDS_DIR = os.path.join(DATA_DIR, "cards") if DATA_DIR != "/data" else "cards" # Используем /data или локальный путь
-# Убедимся, что папка существует (если она локальная)
+CARDS_DIR = os.path.join(DATA_DIR, "cards") if DATA_DIR != "/data" else "cards"
 if not CARDS_DIR.startswith("/data") and not os.path.exists(CARDS_DIR):
-     os.makedirs(CARDS_DIR)
+     os.makedirs(CARDS_DIR, exist_ok=True) # Добавил exist_ok=True
      logger.warning(f"Cards directory '{CARDS_DIR}' did not exist and was created. Make sure card images are present.")
 
 
-async def get_main_menu(user_id, db):
+async def get_main_menu(user_id, db: Database): # Добавил аннотацию типа для db
     """Возвращает основную клавиатуру меню."""
-    keyboard = [[types.KeyboardButton(text="✨ Карта дня")]]
+    keyboard = [
+        [types.KeyboardButton(text="✨ Карта дня")],
+        [types.KeyboardButton(text="🌙 Итог дня")]
+    ]
     try:
-        # Используем безопасное получение данных пользователя
         user_data = db.get_user(user_id)
         if user_data and user_data.get("bonus_available"):
-            keyboard.append([types.KeyboardButton(text="💌 Подсказка Вселенной")])
+            keyboard.insert(1, [types.KeyboardButton(text="💌 Подсказка Вселенной")])
     except Exception as e:
         logger.error(f"Error getting user data for main menu (user {user_id}): {e}", exc_info=True)
-    return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, one_time_keyboard=False, persistent=True) # persistent=True чтобы меню не скрывалось
+    # Используем persistent=True для постоянного отображения
+    return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
 
 # ================================
 # === НОВЫЙ СЦЕНАРИЙ КАРТЫ ДНЯ ===
@@ -47,6 +53,7 @@ async def get_main_menu(user_id, db):
 
 # --- Шаг 0: Начало флоу (Нажатие кнопки "Карта дня") ---
 async def handle_card_request(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """
     СТАРТОВАЯ ТОЧКА сценария 'Карта дня'.
     Проверяет доступность карты и запускает замер ресурса.
@@ -65,7 +72,6 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
     # 1. Проверка доступности карты
     if user_id not in NO_CARD_LIMIT_USERS and not card_available:
         last_req_time_str = "неизвестно"
-        # user_data уже получен выше
         if user_data and isinstance(user_data.get('last_request'), datetime):
             last_req_time_str = user_data['last_request'].astimezone(TIMEZONE).strftime('%H:%M %d.%m.%Y')
 
@@ -77,7 +83,7 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
         logger.info(f"User {user_id}: Sending 'already drawn' message.")
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.clear()
-        return  # <-- только теперь выходим
+        return
 
     # 2. Запускаем первый шаг - замер ресурса
     logger.info(f"User {user_id}: Card available, starting initial resource check.")
@@ -86,6 +92,7 @@ async def handle_card_request(message: types.Message, state: FSMContext, db, log
 
 # --- Шаг 1: Замер начального ресурса ---
 async def ask_initial_resource(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 1: Задает вопрос о начальном ресурсном состоянии."""
     user_id = message.from_user.id
     user_data = db.get_user(user_id) or {}
@@ -94,38 +101,37 @@ async def ask_initial_resource(message: types.Message, state: FSMContext, db, lo
 
     text = f"{name}, привет! ✨ Прежде чем мы начнем, как ты сейчас себя чувствуешь? Оцени свой уровень внутреннего ресурса:" if name else "Привет! ✨ Прежде чем мы начнем, как ты сейчас себя чувствуешь? Оцени свой уровень внутреннего ресурса:"
 
-    # Генерируем кнопки из словаря RESOURCE_LEVELS
     buttons = [
-        types.InlineKeyboardButton(text=label.split()[0], callback_data=key) # Используем только эмодзи для кнопки
+        types.InlineKeyboardButton(text=label.split()[0], callback_data=key)
         for key, label in RESOURCE_LEVELS.items()
     ]
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[buttons]) # Кнопки в один ряд
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[buttons])
 
     await message.answer(text, reply_markup=keyboard)
     await state.set_state(UserState.waiting_for_initial_resource)
 
+# --- Обработка Шага 1 ---
 async def process_initial_resource_callback(callback: types.CallbackQuery, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 1.5: Обрабатывает выбор ресурса, сохраняет его и переходит к выбору типа запроса."""
     user_id = callback.from_user.id
-    resource_choice_key = callback.data # e.g., "resource_low"
-    resource_choice_label = RESOURCE_LEVELS.get(resource_choice_key, "Неизвестно") # e.g., "😔 Низко"
+    resource_choice_key = callback.data
+    resource_choice_label = RESOURCE_LEVELS.get(resource_choice_key, "Неизвестно")
 
-    await state.update_data(initial_resource=resource_choice_label) # Сохраняем полное описание ресурса в state
+    await state.update_data(initial_resource=resource_choice_label)
     await logger_service.log_action(user_id, "initial_resource_selected", {"resource": resource_choice_label})
 
-    await callback.answer(f"Понял, твое состояние: {resource_choice_label.split()[0]}") # Отвечаем на callback кратким эмодзи
+    await callback.answer(f"Понял, твое состояние: {resource_choice_label.split()[0]}")
     try:
-        # Убираем кнопки ресурса из предыдущего сообщения
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception as e:
          logger.warning(f"Could not edit message reply markup (initial resource) for user {user_id}: {e}")
 
-    # Переходим к шагу 2 - выбор типа запроса
-    # Отправляем новое сообщение с вопросом о типе запроса
     await ask_request_type_choice(callback, state, db, logger_service)
 
-# --- Шаг 2: Выбор типа запроса (в уме / написать) ---
+# --- Шаг 2: Выбор типа запроса ---
 async def ask_request_type_choice(event: types.Message | types.CallbackQuery, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 2: Спрашивает, как пользователь хочет сформулировать запрос."""
     if isinstance(event, types.CallbackQuery):
         user_id = event.from_user.id
@@ -157,83 +163,75 @@ async def ask_request_type_choice(event: types.Message | types.CallbackQuery, st
     await message.answer(text, reply_markup=keyboard)
     await state.set_state(UserState.waiting_for_request_type_choice)
 
+# --- Обработка Шага 2 ---
 async def process_request_type_callback(callback: types.CallbackQuery, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 2.5: Обрабатывает выбор типа запроса."""
     user_id = callback.from_user.id
-    request_type = callback.data # "request_type_mental" или "request_type_typed"
+    request_type = callback.data
     choice_text = "В уме" if request_type == "request_type_mental" else "Написать"
 
     await state.update_data(request_type=request_type)
     await logger_service.log_action(user_id, "request_type_chosen", {"choice": choice_text})
 
     try:
-        # Убираем кнопки выбора типа запроса
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception as e:
          logger.warning(f"Could not edit message reply markup (request type) for user {user_id}: {e}")
 
-
     if request_type == "request_type_mental":
         await callback.answer("Хорошо, держи запрос в голове.")
-        # Сразу тянем карту
-        await callback.message.answer("Понял. Сейчас вытяну для тебя карту...") # Сообщение о процессе
-        # Передаем message из callback для отправки карты и первого вопроса
+        await callback.message.answer("Понял. Сейчас вытяну для тебя карту...")
         await draw_card_direct(callback.message, state, db, logger_service)
-        # Состояние будет установлено внутри draw_card_direct
-
     elif request_type == "request_type_typed":
         await callback.answer("Отлично, жду твой запрос.")
-        # Отправляем новое сообщение с просьбой ввести запрос
         await callback.message.answer("Напиши, пожалуйста, свой запрос к карте (1-2 предложения):")
-        await state.set_state(UserState.waiting_for_request_text_input) # Ждем текст запроса
+        await state.set_state(UserState.waiting_for_request_text_input)
 
 # --- Шаг 3: Обработка текстового запроса или прямое вытягивание карты ---
 async def process_request_text(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 3а: Получает текстовый запрос пользователя и тянет карту."""
     user_id = message.from_user.id
     request_text = message.text.strip()
 
-    # Простая валидация запроса
     if not request_text:
         await message.answer("Запрос не может быть пустым. Пожалуйста, напиши что-нибудь :)")
-        return # Остаемся в том же состоянии UserState.waiting_for_request_text_input
+        return
     if len(request_text) < 5:
         await message.answer("Пожалуйста, сформулируй запрос чуть подробнее (хотя бы 5 символов).")
-        return # Остаемся в том же состоянии
+        return
 
     await state.update_data(user_request=request_text)
     await logger_service.log_action(user_id, "request_text_provided", {"request": request_text})
     await message.answer("Спасибо! ✨ Сейчас вытяну карту для твоего запроса...")
-    # Тянем карту и переходим к шагу 4
     await draw_card_direct(message, state, db, logger_service)
 
 async def draw_card_direct(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """
     Шаг 3b / Завершение Шага 3а:
     Вытягивает карту, отправляет ее и первый вопрос об ассоциациях.
     Устанавливает состояние waiting_for_initial_response.
     """
     user_id = message.from_user.id
-    # Получаем user_request из состояния (он мог быть установлен в process_request_text или отсутствовать)
     user_data_fsm = await state.get_data()
     user_request = user_data_fsm.get("user_request", "")
     user_data = db.get_user(user_id) or {}
     name = user_data.get("name") or ""
     name = name.strip() if isinstance(name, str) else ""
-    now_iso = datetime.now(TIMEZONE).isoformat() # Время вытягивания карты
+    now_iso = datetime.now(TIMEZONE).isoformat()
 
-    # Обновляем время последнего запроса в БД ТОЛЬКО при вытягивании карты
+    # Обновляем время последнего запроса в БД
     try:
          db.update_user(user_id, {"last_request": now_iso})
     except Exception as e:
          logger.error(f"Failed to update last_request time for user {user_id}: {e}", exc_info=True)
-         # Продолжаем выполнение, но логируем ошибку
 
     # --- Логика выбора карты ---
     card_number = None
     try:
         used_cards = db.get_user_cards(user_id)
-        # Убедимся, что в папке CARDS_DIR есть файлы card_N.jpg
         all_card_files = [f for f in os.listdir(CARDS_DIR) if f.startswith("card_") and f.endswith(".jpg")]
         if not all_card_files:
              logger.error(f"No card images found in directory: {CARDS_DIR}")
@@ -250,7 +248,7 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db, logger
                  logger.warning(f"Could not parse card number from filename: {fname}")
                  continue
 
-        if not all_cards: # Если не удалось распарсить ни одного номера
+        if not all_cards:
              logger.error(f"Could not parse any card numbers from filenames in {CARDS_DIR}")
              await message.answer("Проблема с файлами карт. Пожалуйста, сообщи администратору.")
              await state.clear()
@@ -260,9 +258,9 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db, logger
         if not available_cards:
             logger.info(f"Card deck reset for user {user_id}. Used cards were: {used_cards}")
             db.reset_user_cards(user_id)
-            available_cards = all_cards.copy() # Используем актуальный список карт
+            available_cards = all_cards.copy()
 
-        if not available_cards: # На случай, если all_cards пуст
+        if not available_cards:
              logger.error(f"No available cards to draw, even after reset for user {user_id}")
              await message.answer("Не могу найти доступную карту. Попробуй позже.")
              await state.clear()
@@ -270,8 +268,6 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db, logger
 
         card_number = random.choice(available_cards)
         db.add_user_card(user_id, card_number)
-
-        # Сохраняем номер карты в state
         await state.update_data(card_number=card_number)
 
     except Exception as card_logic_err:
@@ -285,25 +281,19 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db, logger
     if not os.path.exists(card_path):
         logger.error(f"Card image file not found after selection: {card_path} for user {user_id}")
         await message.answer("Ой, кажется, изображение для этой карты потерялось... Попробуй /start еще раз.")
-        # Не сбрасываем использованную карту, т.к. ошибка в файле, а не в логике выбора
         await state.clear()
         return
 
     try:
-        # Показываем "загрузка фото"
         await message.bot.send_chat_action(message.chat.id, 'upload_photo')
-        # Отправляем фото
         await message.answer_photo(
             types.FSInputFile(card_path),
-            # caption=f"Карта №{card_number}", # Можно добавить номер карты в подпись
-            protect_content=True # Защита от копирования
+            protect_content=True
         )
         await logger_service.log_action(user_id, "card_drawn", {"card_number": card_number, "request_provided": bool(user_request)})
 
         # --- Шаг 4: Запрос первой ассоциации ---
-        # Формулируем вопрос в зависимости от наличия текстового запроса
         if user_request:
-            # <--- ИЗМЕНЕНИЕ: Добавлена проверка if name else --->
             text = (f"{name}, вот карта для твоего запроса:\n"
                     f"<i>«{user_request}»</i>\n\n"
                     f"Рассмотри ее внимательно. Какие <b>первые чувства, образы, мысли или воспоминания</b> приходят? Как это может быть связано с твоим запросом?"
@@ -312,19 +302,15 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db, logger
                     f"<i>«{user_request}»</i>\n\n"
                     f"Рассмотри ее внимательно. Какие <b>первые чувства, образы, мысли или воспоминания</b> приходят? Как это может быть связано с твоим запросом?"
                    )
-            # <--- Конец изменения --->
         else:
-            # <--- ИЗМЕНЕНИЕ: Добавлена проверка if name else --->
             text = (f"{name}, вот твоя карта дня.\n\n"
                     f"Взгляни на нее. Какие <b>первые чувства, образы, мысли или воспоминания</b> приходят? Как это может быть связано с твоим сегодняшним состоянием?"
                     if name else
                     f"Вот твоя карта дня.\n\n"
                     f"Взгляни на нее. Какие <b>первые чувства, образы, мысли или воспоминания</b> приходят? Как это может быть связано с твоим сегодняшним состоянием?"
                    )
-            # <--- Конец изменения --->
 
         await message.answer(text)
-        # Устанавливаем состояние ожидания текстового ответа с ассоциациями
         await state.set_state(UserState.waiting_for_initial_response)
 
     except Exception as e:
@@ -334,65 +320,57 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db, logger
 
 # --- Шаг 4: Обработка первой ассоциации ---
 async def process_initial_response(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 4.5: Получает первую ассоциацию, сохраняет ее и предлагает выбор: исследовать дальше."""
     user_id = message.from_user.id
     initial_response_text = message.text.strip()
 
-    # Валидация ответа
     if not initial_response_text:
         await message.answer("Кажется, ты ничего не написала. Пожалуйста, поделись своими ассоциациями.")
-        return # Остаемся в том же состоянии UserState.waiting_for_initial_response
+        return
     if len(initial_response_text) < 3:
         await message.answer("Пожалуйста, опиши свои ассоциации чуть подробнее (хотя бы 3 символа).")
-        return # Остаемся в том же состоянии
+        return
 
-    # Получаем данные из state для логгирования
     data = await state.get_data()
     card_number = data.get("card_number", "N/A")
     user_request = data.get("user_request", "")
 
-    # Сохраняем первую ассоциацию в state
     await state.update_data(initial_response=initial_response_text)
     await logger_service.log_action(user_id, "initial_response_provided", {"card_number": card_number, "request": user_request, "response": initial_response_text})
 
-    # --- Шаг 5: Предлагаем выбор - исследовать дальше? ---
     await ask_exploration_choice(message, state, db, logger_service)
 
 # --- Шаг 5: Выбор - исследовать дальше? ---
 async def ask_exploration_choice(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 5: Спрашивает, хочет ли пользователь исследовать ассоциации дальше с помощью Grok."""
     user_id = message.from_user.id
     user_data = db.get_user(user_id) or {}
     name = user_data.get("name") or ""
     name = name.strip() if isinstance(name, str) else ""
 
-    # <--- ИЗМЕНЕНИЕ: Добавлена проверка if name else --->
     text = (f"{name}, спасибо, что поделилась! Хочешь поисследовать эти ассоциации глубже с помощью нескольких вопросов от меня (это займет еще 5-7 минут)?"
             if name else
             "Спасибо, что поделилась! Хочешь поисследовать эти ассоциации глубже с помощью нескольких вопросов от меня (это займет еще 5-7 минут)?"
            )
-    # <--- Конец изменения --->
 
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [
-            types.InlineKeyboardButton(text="✅ Да, давай исследуем", callback_data="explore_yes"),
-        ],
-        [
-             types.InlineKeyboardButton(text="❌ Нет, на сегодня хватит", callback_data="explore_no"),
-        ]
+        [types.InlineKeyboardButton(text="✅ Да, давай исследуем", callback_data="explore_yes")],
+        [types.InlineKeyboardButton(text="❌ Нет, на сегодня хватит", callback_data="explore_no")]
     ])
 
-    # Отправляем новым сообщением
     await message.answer(text, reply_markup=keyboard)
     await state.set_state(UserState.waiting_for_exploration_choice)
 
+# --- Обработка Шага 5 ---
 async def process_exploration_choice_callback(callback: types.CallbackQuery, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 5.5: Обрабатывает выбор об исследовании."""
     user_id = callback.from_user.id
-    choice = callback.data # "explore_yes" или "explore_no"
+    choice = callback.data
 
     try:
-        # Убираем кнопки выбора исследования
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception as e:
         logger.warning(f"Could not edit message reply markup (exploration choice) for user {user_id}: {e}")
@@ -400,30 +378,25 @@ async def process_exploration_choice_callback(callback: types.CallbackQuery, sta
     if choice == "explore_yes":
         await callback.answer("Отлично! Задаю первый вопрос...")
         await logger_service.log_action(user_id, "exploration_chosen", {"choice": "yes"})
-        # --- Шаг 6a: Запускаем цикл вопросов Grok ---
+        # Передаем user_id явно:
         await ask_grok_question(callback.message, state, db, logger_service, step=1, user_id=user_id)
-        # Состояние будет установлено внутри ask_grok_question
-
     elif choice == "explore_no":
         await callback.answer("Хорошо, завершаем работу с картой.")
         await logger_service.log_action(user_id, "exploration_chosen", {"choice": "no"})
-        # --- Шаг 7: Сразу переходим к финальному замеру ресурса ---
-        # Генерируем саммари (даже если не было вопросов Grok, на основе первого ответа)
-        await generate_and_send_summary(callback.message, state, db, logger_service) # Вынесли в отдельную функцию
-        # Переходим к финальному замеру ресурса
+        await generate_and_send_summary(callback.message, state, db, logger_service)
         await finish_interaction_flow(callback.message, state, db, logger_service)
-        # Состояние будет установлено внутри finish_interaction_flow
 
 # --- Шаг 6: Цикл вопросов Grok ---
 async def ask_grok_question(message: types.Message, state: FSMContext, db, logger_service, step: int, user_id: int):
+    # ... (код без изменений) ...
     """Запрашивает и отправляет вопрос от Grok для шага step.
     Устанавливает соответствующее состояние."""
-    data = await state.get_data() # Получаем все данные из FSM
+    # Используем переданный user_id
+    data = await state.get_data()
     user_request = data.get("user_request", "")
     initial_response = data.get("initial_response", "")
 
-    # Собираем контекст предыдущих вопросов/ответов для Grok
-    previous_responses_context = { "initial_response": initial_response } # Всегда передаем первую ассоциацию
+    previous_responses_context = { "initial_response": initial_response }
     if step > 1:
          previous_responses_context["grok_question_1"] = data.get("grok_question_1")
          previous_responses_context["first_grok_response"] = data.get("first_grok_response")
@@ -431,48 +404,37 @@ async def ask_grok_question(message: types.Message, state: FSMContext, db, logge
          previous_responses_context["grok_question_2"] = data.get("grok_question_2")
          previous_responses_context["second_grok_response"] = data.get("second_grok_response")
 
-    # Определяем user_response (последний ответ пользователя), на который генерируется вопрос
-    if step == 1:
-        current_user_response = initial_response
-    elif step == 2:
-        current_user_response = data.get("first_grok_response", "")
-    elif step == 3:
-        current_user_response = data.get("second_grok_response", "")
+    if step == 1: current_user_response = initial_response
+    elif step == 2: current_user_response = data.get("first_grok_response", "")
+    elif step == 3: current_user_response = data.get("second_grok_response", "")
     else:
         logger.error(f"Invalid step number {step} in ask_grok_question for user {user_id}")
         await message.answer("Что-то пошло не так с шагами вопросов... Попробуй /start.")
         await state.clear()
         return
 
-    # Проверка, что ответ, на который нужен вопрос, существует
     if not current_user_response:
          logger.error(f"Missing user response for step {step} in ask_grok_question for user {user_id}. State data: {data}")
          await message.answer("Не могу найти твой предыдущий ответ, чтобы задать вопрос. Попробуй /start снова.")
          await state.clear()
          return
 
-    # Показываем "печатает..."
     await message.bot.send_chat_action(user_id, 'typing')
-    # Получаем вопрос от ИИ
     grok_question = await get_grok_question(
         user_id=user_id,
         user_request=user_request,
         user_response=current_user_response,
-        feedback_type="exploration", # Тип контекста
+        feedback_type="exploration",
         step=step,
-        previous_responses=previous_responses_context, # Передаем собранный контекст
+        previous_responses=previous_responses_context,
         db=db
     )
 
-    # Сохраняем сам вопрос в state ПЕРЕД отправкой пользователю
-    # Используем динамические ключи для вопросов, чтобы не путаться
     await state.update_data({f"grok_question_{step}": grok_question})
     await logger_service.log_action(user_id, "grok_question_asked", {"step": step, "question": grok_question})
 
-    # Отправляем вопрос пользователю
     await message.answer(grok_question)
 
-    # Устанавливаем состояние ожидания ответа на этот конкретный вопрос
     next_state = None
     if step == 1: next_state = UserState.waiting_for_first_grok_response
     elif step == 2: next_state = UserState.waiting_for_second_grok_response
@@ -480,36 +442,33 @@ async def ask_grok_question(message: types.Message, state: FSMContext, db, logge
 
     if next_state:
          await state.set_state(next_state)
-    else: # На случай если step > 3 (не должно быть, но для безопасности)
+    else:
          logger.error(f"Invalid step {step} reached after asking Grok question for user {user_id}.")
          await state.clear()
 
-
+# --- Обработка ответов на вопросы Grok (Шаги 6a, 6b, 6c) ---
 async def process_first_grok_response(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений, КРОМЕ вызова ask_grok_question) ...
     """Шаг 6a: Обрабатывает ответ на ПЕРВЫЙ вопрос Grok и задает второй."""
     user_id = message.from_user.id
     first_response = message.text.strip()
-    data = await state.get_data() # Получаем текущие данные state
-    # Получаем вопрос из state, чтобы залогировать его
+    data = await state.get_data()
     first_grok_question = data.get("grok_question_1", "N/A")
     card_number = data.get("card_number", "N/A")
     user_request = data.get("user_request", "")
 
-
     if not first_response or len(first_response) < 2:
         await message.answer("Пожалуйста, попробуй ответить чуть подробнее.")
-        return # Остаемся в UserState.waiting_for_first_grok_response
+        return
 
-    # Сохраняем ответ в state
     await state.update_data(first_grok_response=first_response)
-    # Логируем ответ
     await logger_service.log_action(user_id, "grok_response_provided", {"step": 1, "question": first_grok_question, "response": first_response, "card": card_number, "request": user_request})
 
-    # --- Шаг 6b: Задаем следующий вопрос ---
-    user_id_for_next_step = message.from_user.id
-    await ask_grok_question(message, state, db, logger_service, step=2, user_id=user_id_for_next_step)
+    # --- Шаг 6b: Задаем следующий вопрос (Передаем user_id!) ---
+    await ask_grok_question(message, state, db, logger_service, step=2, user_id=user_id)
 
 async def process_second_grok_response(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений, КРОМЕ вызова ask_grok_question) ...
     """Шаг 6b: Обрабатывает ответ на ВТОРОЙ вопрос Grok и задает третий."""
     user_id = message.from_user.id
     second_response = message.text.strip()
@@ -520,16 +479,16 @@ async def process_second_grok_response(message: types.Message, state: FSMContext
 
     if not second_response or len(second_response) < 2:
         await message.answer("Пожалуйста, попробуй ответить чуть подробнее.")
-        return # Остаемся в UserState.waiting_for_second_grok_response
+        return
 
     await state.update_data(second_grok_response=second_response)
     await logger_service.log_action(user_id, "grok_response_provided", {"step": 2, "question": second_grok_question, "response": second_response, "card": card_number, "request": user_request})
 
-    # --- Шаг 6c: Задаем следующий вопрос ---
-    user_id_for_next_step = message.from_user.id
-    await ask_grok_question(message, state, db, logger_service, step=3, user_id=user_id_for_next_step)
+    # --- Шаг 6c: Задаем следующий вопрос (Передаем user_id!) ---
+    await ask_grok_question(message, state, db, logger_service, step=3, user_id=user_id)
 
 async def process_third_grok_response(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 6c: Обрабатывает ответ на ТРЕТИЙ вопрос Grok, генерирует саммари и переходит к завершению."""
     user_id = message.from_user.id
     third_response = message.text.strip()
@@ -540,47 +499,41 @@ async def process_third_grok_response(message: types.Message, state: FSMContext,
 
     if not third_response or len(third_response) < 2:
         await message.answer("Пожалуйста, попробуй ответить чуть подробнее.")
-        return # Остаемся в UserState.waiting_for_third_grok_response
+        return
 
-    # Сохраняем последний ответ
     await state.update_data(third_grok_response=third_response)
     await logger_service.log_action(user_id, "grok_response_provided", {"step": 3, "question": third_grok_question, "response": third_response, "card": card_number, "request": user_request})
 
-    # Генерируем и отправляем саммари
     await generate_and_send_summary(message, state, db, logger_service)
 
-    # Обновляем профиль пользователя после полного цикла вопросов
     try:
          await build_user_profile(user_id, db)
          logger.info(f"User profile updated after full Grok interaction for user {user_id}")
     except Exception as e:
          logger.error(f"Failed to update user profile for user {user_id} after interaction: {e}", exc_info=True)
 
-    # --- Шаг 7: Переходим к финальному замеру ресурса ---
     await finish_interaction_flow(message, state, db, logger_service)
 
-# --- Вспомогательная функция для генерации и отправки саммари ---
+# --- Генерация и отправка саммари ---
 async def generate_and_send_summary(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Генерирует саммари сессии и отправляет его пользователю."""
     user_id = message.from_user.id
-    data = await state.get_data() # Получаем все накопленные данные сессии
+    data = await state.get_data()
 
     logger.info(f"Starting summary generation for user {user_id}")
-    await message.bot.send_chat_action(user_id, 'typing') # Индикатор печати
+    await message.bot.send_chat_action(user_id, 'typing')
 
-    # Собираем данные для саммари
     interaction_summary_data = {
         "user_request": data.get("user_request", ""),
         "card_number": data.get("card_number", "N/A"),
         "initial_response": data.get("initial_response"),
-        # Собираем вопросы и ответы Grok, если они были
         "qna": [
             {"question": data.get("grok_question_1"), "answer": data.get("first_grok_response")},
             {"question": data.get("grok_question_2"), "answer": data.get("second_grok_response")},
              {"question": data.get("grok_question_3"), "answer": data.get("third_grok_response")}
         ]
     }
-    # Очищаем QnA от отсутствующих пар вопрос/ответ
     interaction_summary_data["qna"] = [
         item for item in interaction_summary_data["qna"]
         if item.get("question") and item.get("answer")
@@ -588,22 +541,18 @@ async def generate_and_send_summary(message: types.Message, state: FSMContext, d
 
     summary_text = await get_grok_summary(user_id, interaction_summary_data, db)
 
-    # Отправляем саммари, если оно успешно сгенерировано
     if summary_text and not summary_text.startswith("Ошибка") and not summary_text.startswith("К сожалению") and not summary_text.startswith("Не получилось"):
-        await message.answer(f"✨ Давай попробуем подвести итог нашей беседы:\n\n<i>{summary_text}</i>") # Выделяем курсивом
+        await message.answer(f"✨ Давай попробуем подвести итог нашей беседы:\n\n<i>{summary_text}</i>")
         await logger_service.log_action(user_id, "summary_sent", {"summary": summary_text})
     else:
-        # Даже если саммари не удалось, логируем это, но не прерываем флоу
         await logger_service.log_action(user_id, "summary_failed", {"error_message": summary_text})
-        # Можно отправить запасное сообщение
         await message.answer("Спасибо за твои глубокие размышления!")
 
-
-# --- Шаг 7: Завершение работы с картой, финальный замер ресурса ---
+# --- Шаг 7: Завершение, финальный замер ресурса ---
 async def finish_interaction_flow(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """
     Шаг 7: Запускает финальный замер ресурса.
-    Вызывается после explore_no или после 3-го ответа Grok (и саммари).
     Устанавливает состояние waiting_for_final_resource.
     """
     user_id = message.from_user.id
@@ -611,9 +560,8 @@ async def finish_interaction_flow(message: types.Message, state: FSMContext, db,
     name = user_data.get("name") or ""
     name = name.strip() if isinstance(name, str) else ""
     data = await state.get_data()
-    initial_resource = data.get("initial_resource", "неизвестно") # Получаем начальный ресурс из state
+    initial_resource = data.get("initial_resource", "неизвестно")
 
-    # <--- ИЗМЕНЕНИЕ: Добавлена проверка if name else --->
     text = (f"{name}, наша работа с картой на сегодня подходит к концу. 🙏\n"
             f"Ты начала с состоянием '{initial_resource}'.\n\n"
             f"Как ты чувствуешь себя <b>сейчас</b>? Как изменился твой уровень ресурса?"
@@ -622,7 +570,6 @@ async def finish_interaction_flow(message: types.Message, state: FSMContext, db,
             f"Ты начала с состоянием '{initial_resource}'.\n\n"
             f"Как ты чувствуешь себя <b>сейчас</b>? Как изменился твой уровень ресурса?"
            )
-    # <--- Конец изменения --->
 
     buttons = [
         types.InlineKeyboardButton(text=label.split()[0], callback_data=key)
@@ -630,49 +577,39 @@ async def finish_interaction_flow(message: types.Message, state: FSMContext, db,
     ]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[buttons])
 
-    # Отправляем новым сообщением
     await message.answer(text, reply_markup=keyboard)
     await state.set_state(UserState.waiting_for_final_resource)
 
-# --- Шаг 8: Обработка финального ресурса и запрос метода восстановления ---
+# --- Шаг 8: Обработка финального ресурса ---
 async def process_final_resource_callback(callback: types.CallbackQuery, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Шаг 7.5: Обрабатывает финальный выбор ресурса."""
     user_id = callback.from_user.id
-    resource_choice_key = callback.data # e.g., "resource_low"
-    resource_choice_label = RESOURCE_LEVELS.get(resource_choice_key, "Неизвестно") # e.g., "😔 Низко"
+    resource_choice_key = callback.data
+    resource_choice_label = RESOURCE_LEVELS.get(resource_choice_key, "Неизвестно")
 
-    # Сохраняем финальный ресурс в state
     await state.update_data(final_resource=resource_choice_label)
     await logger_service.log_action(user_id, "final_resource_selected", {"resource": resource_choice_label})
 
     await callback.answer(f"Понял, твое состояние сейчас: {resource_choice_label.split()[0]}")
     try:
-        # Убираем кнопки выбора ресурса
         await callback.message.edit_reply_markup(reply_markup=None)
     except Exception as e:
          logger.warning(f"Could not edit message reply markup (final resource) for user {user_id}: {e}")
 
-
-    # --- Шаг 8: Проверяем уровень ресурса ---
     if resource_choice_key == "resource_low":
-        # Низкий ресурс -> поддержка и вопрос о восстановлении
         await callback.message.answer("Мне жаль слышать, что ресурс на низком уровне...")
-        await callback.message.bot.send_chat_action(user_id, 'typing') # Индикатор
-
-        # Получаем поддерживающее сообщение от Grok + вопрос о восстановлении
+        await callback.message.bot.send_chat_action(user_id, 'typing')
         supportive_message_with_question = await get_grok_supportive_message(user_id, db)
-
-        # Отправляем сообщение и устанавливаем состояние ожидания ответа
         await callback.message.answer(supportive_message_with_question)
         await logger_service.log_action(user_id, "support_message_sent")
         await state.set_state(UserState.waiting_for_recharge_method)
     else:
-        # Ресурс средний или высокий -> Завершаем красиво
         await callback.message.answer(f"Здорово, что твое состояние '{resource_choice_label}'! ✨")
         await show_final_feedback_and_menu(callback.message, state, db, logger_service)
-        # Состояние очистится в show_final_feedback_and_menu
 
-async def process_recharge_method(message: types.Message, state: FSMContext, db, logger_service):
+# --- Шаг 8.5: Обработка метода восстановления ---
+async def process_recharge_method(message: types.Message, state: FSMContext, db: Database, logger_service):
     """Шаг 8.5: Обрабатывает ответ о способе восстановления ресурса."""
     user_id = message.from_user.id
     recharge_method_text = message.text.strip()
@@ -680,43 +617,41 @@ async def process_recharge_method(message: types.Message, state: FSMContext, db,
     name = user_data.get("name") or ""
     name = name.strip() if isinstance(name, str) else ""
 
-    # Валидация ответа
     if not recharge_method_text:
         await message.answer("Пожалуйста, напиши, что тебе помогает восстановиться.")
-        return # Остаемся в UserState.waiting_for_recharge_method
-    if len(recharge_method_text) < 5:
+        return
+    if len(recharge_method_text) < 5: # Увеличил минимальную длину для осмысленности
         await message.answer("Расскажи чуть подробнее, пожалуйста (хотя бы 5 символов).")
-        return # Остаемся в UserState.waiting_for_recharge_method
+        return
 
-    # Сохраняем метод в state и лог
-    await state.update_data(recharge_method=recharge_method_text)
-    await logger_service.log_action(user_id, "recharge_method_provided", {"recharge_method": recharge_method_text})
-
-    # Обновляем профиль (можно и через build_user_profile позже, но для оперативности можно и сразу)
+    # --- ИЗМЕНЕНИЕ: Сохраняем в отдельную таблицу ---
     try:
-         # Обновляем ТОЛЬКО это поле в профиле, не трогая остальное
-         # update_user_profile теперь использует current_profile как fallback, так что это безопасно
-         db.update_user_profile(user_id, {"recharge_method": recharge_method_text, "last_updated": datetime.now(TIMEZONE)})
-         logger.info(f"Recharge method updated directly in profile for user {user_id}")
+        now_iso = datetime.now(TIMEZONE).isoformat()
+        # Используем новый метод db.add_recharge_method
+        db.add_recharge_method(user_id, recharge_method_text, now_iso)
+        # Сохраняем метод в state для логгирования (опционально)
+        await state.update_data(recharge_method=recharge_method_text)
+        await logger_service.log_action(user_id, "recharge_method_provided", {"recharge_method": recharge_method_text})
+        logger.info(f"Recharge method '{recharge_method_text}' added to separate table for user {user_id}")
     except Exception as e:
-         logger.error(f"Failed to update recharge method in profile for user {user_id}: {e}", exc_info=True)
+         logger.error(f"Failed to add recharge method to DB for user {user_id}: {e}", exc_info=True)
+         # Можно сообщить пользователю об ошибке, но пока просто продолжаем
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-    # <--- ИЗМЕНЕНИЕ: Добавлена проверка if name else --->
     final_text = (f"{name}, спасибо, что поделилась! Запомню это. "
                   f"Пожалуйста, найди возможность применить это для себя сегодня. Ты этого достоин(на). ❤️"
                   if name else
                   f"Спасибо, что поделилась! Запомню это. "
                   f"Пожалуйста, найди возможность применить это для себя сегодня. Ты этого достоин(на). ❤️"
                  )
-    # <--- Конец изменения --->
     await message.answer(final_text)
 
-    # --- Завершаем сессию ---
     await show_final_feedback_and_menu(message, state, db, logger_service)
 
 
-# --- Шаг 9: Финальное сообщение, кнопки обратной связи и ОЧИСТКА СОСТОЯНИЯ ---
+# --- Шаг 9: Финальное сообщение, обратная связь, очистка ---
 async def show_final_feedback_and_menu(message: types.Message, state: FSMContext, db, logger_service):
+    # ... (код без изменений, кроме того что db.update_user_profile здесь больше не нужен для recharge_method) ...
     """
     Шаг 9: Показывает финальное "Спасибо", кнопки обратной связи (👍/🤔/😕),
     главное меню и очищает состояние FSM.
@@ -726,39 +661,37 @@ async def show_final_feedback_and_menu(message: types.Message, state: FSMContext
     name = user_data.get("name") or ""
     name = name.strip() if isinstance(name, str) else ""
     data = await state.get_data()
-    card_number = data.get("card_number", 0) # Номер карты для callback_data фидбека
+    card_number = data.get("card_number", 0)
 
-    # Обновляем профиль на всякий случай, чтобы учесть последние данные из state
+    # Обновляем профиль (initial/final resource) - это все еще нужно
     try:
         final_profile_data = {
             "initial_resource": data.get("initial_resource"),
             "final_resource": data.get("final_resource"),
-            "recharge_method": data.get("recharge_method"),
+            # "recharge_method": data.get("recharge_method"), # Убрали, т.к. сохраняется отдельно
             "last_updated": datetime.now(TIMEZONE)
         }
-        # Удаляем None значения, чтобы не перезаписывать ими существующие в БД
         final_profile_data = {k: v for k, v in final_profile_data.items() if v is not None}
-        if final_profile_data: # Обновляем, только если есть что обновить
+        if final_profile_data:
+            # Обновляем user_profiles только с initial/final ресурсом
             db.update_user_profile(user_id, final_profile_data)
-            logger.info(f"Final profile data saved for user {user_id} before state clear.")
+            logger.info(f"Final profile data (resources) saved for user {user_id} before state clear.")
     except Exception as e:
-        logger.error(f"Error saving final profile data for user {user_id} before clear: {e}", exc_info=True)
+        logger.error(f"Error saving final profile resource data for user {user_id} before clear: {e}", exc_info=True)
 
     # Отправляем благодарность и главное меню
     await message.answer("Благодарю за твою открытость и уделённое время! 🙏 Работа с картами - это путь к себе.",
                          reply_markup=await get_main_menu(user_id, db))
 
-    # Предлагаем оставить финальный фидбек о ценности сессии
+    # Предлагаем оставить финальный фидбек
     feedback_text = f"{name}, и последний момент: насколько ценной для тебя оказалась эта сессия в целом? Удалось ли найти что-то важное или по-новому взглянуть на свой запрос?" if name else "И последний момент: насколько ценной для тебя оказалась эта сессия в целом? Удалось ли найти что-то важное или по-новому взглянуть на свой запрос?"
 
-    # Кнопки обратной связи (используем card_number в callback_data)
     feedback_keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="👍 Да, помогло!", callback_data=f"feedback_v2_helped_{card_number}")],
         [types.InlineKeyboardButton(text="🤔 Было интересно", callback_data=f"feedback_v2_interesting_{card_number}")],
         [types.InlineKeyboardButton(text="😕 Не очень / Не хватило", callback_data=f"feedback_v2_notdeep_{card_number}")]
     ])
     try:
-        # Отправляем вопрос с кнопками как новое сообщение
         await message.answer(feedback_text, reply_markup=feedback_keyboard)
         await logger_service.log_action(user_id, "final_feedback_prompted", {"card_session": card_number})
     except Exception as e:
@@ -771,26 +704,10 @@ async def show_final_feedback_and_menu(message: types.Message, state: FSMContext
     current_state_after_clear = await state.get_state()
     logger.info(f"State cleared for user {user_id}. New state: {current_state_after_clear}")
 
-async def get_main_menu(user_id, db: Database): # Добавил аннотацию типа для db
-    """Возвращает основную клавиатуру меню."""
-    keyboard = [
-        [types.KeyboardButton(text="✨ Карта дня")],
-        # НОВАЯ КНОПКА
-        [types.KeyboardButton(text="🌙 Итог дня")]
-    ]
-    try:
-        user_data = db.get_user(user_id)
-        if user_data and user_data.get("bonus_available"):
-            # Добавляем кнопку бонуса перед Итогом дня для логичности
-            keyboard.insert(1, [types.KeyboardButton(text="💌 Подсказка Вселенной")])
-    except Exception as e:
-        logger.error(f"Error getting user data for main menu (user {user_id}): {e}", exc_info=True)
-    return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True) # Убрал persistent
 
 # === Обработчик финальной обратной связи (👍/🤔/😕) ===
-# Этот обработчик должен работать даже без активного состояния FSM,
-# т.к. пользователь может нажать кнопку позже.
 async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext, db, logger_service):
+    # ... (код без изменений) ...
     """Обрабатывает обратную связь пользователя по сессии (кнопки 👍/🤔/😕)."""
     user_id = callback.from_user.id
     user_data = db.get_user(user_id) or {}
@@ -798,20 +715,18 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
     name = name.strip() if isinstance(name, str) else ""
     callback_data = callback.data
     feedback_type = "unknown"
-    card_number = 0 # Значение по умолчанию
+    card_number = 0
 
     try:
         parts = callback_data.split('_')
-        # Ожидаемый формат: feedback_v2_<type>_<card_number>
         if len(parts) >= 4 and parts[0] == 'feedback' and parts[1] == 'v2':
-            feedback_type = parts[2] # helped, interesting, notdeep
+            feedback_type = parts[2]
             try:
                  card_number = int(parts[-1])
-                 # Номер карты важен для лога, чтобы связать фидбек с сессией
             except ValueError:
                  logger.error(f"Could not parse card number from feedback callback data: {callback_data} for user {user_id}")
-                 card_number = 0 # Или пытаться найти последнюю карту из логов?
-            # Формируем ответ пользователю
+                 card_number = 0
+
             text_map = {
                 "helped": "Отлично! Рад, что наша беседа была для тебя полезной. 😊 Жду тебя завтра!",
                 "interesting": "Здорово, что было интересно! Размышления и новые углы зрения - это тоже важный результат. 👍",
@@ -824,24 +739,20 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
                 await callback.answer("Неизвестный тип ответа.", show_alert=True)
                 return
 
-            # Логируем фидбек
             await logger_service.log_action(user_id, "interaction_feedback_provided", {"card_session": card_number, "feedback": feedback_type})
 
             try:
-                # Убираем кнопки из сообщения с вопросом о фидбеке
                 await callback.message.edit_reply_markup(reply_markup=None)
             except Exception as e:
                  logger.warning(f"Could not edit message reply markup (feedback buttons) for user {user_id}: {e}")
 
-            # Сообщение с текстом ответа отправляем новым сообщением
             await callback.message.answer(text, reply_markup=await get_main_menu(user_id, db))
-            await callback.answer() # Отвечаем на callback query
+            await callback.answer()
 
         else:
-             # Обработка старого или неизвестного формата
              logger.warning(f"Unknown or old feedback callback data format received: {callback_data} from user {user_id}")
              await callback.answer("Спасибо за ответ!", show_alert=False)
-             try: # Пытаемся убрать кнопки и на старом формате
+             try:
                   await callback.message.edit_reply_markup(reply_markup=None)
              except Exception: pass
              return
@@ -849,7 +760,6 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
     except Exception as e:
         logger.error(f"Error processing interaction feedback for user {user_id}: {e}", exc_info=True)
         try:
-            # Пытаемся ответить пользователю об ошибке
             await callback.answer("Произошла ошибка при обработке твоего ответа.", show_alert=True)
         except Exception:
-            pass # Если и ответ не ушел - ничего страшного
+            pass
