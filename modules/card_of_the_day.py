@@ -506,7 +506,8 @@ async def process_first_grok_response(message: types.Message, state: FSMContext,
     await logger_service.log_action(user_id, "grok_response_provided", {"step": 1, "question": first_grok_question, "response": first_response, "card": card_number, "request": user_request})
 
     # --- Шаг 6b: Задаем следующий вопрос ---
-    await ask_grok_question(message, state, db, logger_service, step=2)
+    user_id_for_next_step = message.from_user.id
+    await ask_grok_question(message, state, db, logger_service, step=2, user_id=user_id_for_next_step)
 
 async def process_second_grok_response(message: types.Message, state: FSMContext, db, logger_service):
     """Шаг 6b: Обрабатывает ответ на ВТОРОЙ вопрос Grok и задает третий."""
@@ -525,7 +526,8 @@ async def process_second_grok_response(message: types.Message, state: FSMContext
     await logger_service.log_action(user_id, "grok_response_provided", {"step": 2, "question": second_grok_question, "response": second_response, "card": card_number, "request": user_request})
 
     # --- Шаг 6c: Задаем следующий вопрос ---
-    await ask_grok_question(message, state, db, logger_service, step=3)
+    user_id_for_next_step = message.from_user.id
+    await ask_grok_question(message, state, db, logger_service, step=3, user_id=user_id_for_next_step)
 
 async def process_third_grok_response(message: types.Message, state: FSMContext, db, logger_service):
     """Шаг 6c: Обрабатывает ответ на ТРЕТИЙ вопрос Grok, генерирует саммари и переходит к завершению."""
