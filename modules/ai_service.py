@@ -515,14 +515,28 @@ async def build_user_profile(user_id, db):
 
         # Временные метки
         try:
-            ts_str = action.get("timestamp")
-            if ts_str:
-                 # Используем .replace('Z', '+00:00') для совместимости с ISO 8601 'Z'
-                 ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00')).astimezone(TIMEZONE)
-                 timestamps.append(ts)
-        except (ValueError, TypeError):
-            logger.warning(f"Could not parse timestamp {action.get('timestamp')} for user {user_id}, action {action_type}")
-            continue
+            # <<< НАЧАЛО ИЗМЕНЕНИЯ >>>
+            raw_timestamp = action.get("timestamp") # Получаем значение
+            ts = None # Инициализируем ts
+
+            if isinstance(raw_timestamp, datetime):
+                # Если это уже datetime, используем его и добавляем таймзону, если она aware
+                ts = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo else TIMEZONE.localize(raw_timestamp) # Используем TIMEZONE
+            elif isinstance(raw_timestamp, str):
+                # Если это строка, парсим
+                ts = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE)
+            else:
+                logger.warning(f"Skipping action due to invalid timestamp type: {type(raw_timestamp)} in action: {action.get('action')}")
+                continue # Пропускаем это действие, если время некорректное
+
+            if ts: # Добавляем в список, только если успешно обработали
+                timestamps.append(ts)
+            # <<< КОНЕЦ ИЗМЕНЕНИЯ >>>
+
+        except (ValueError, TypeError) as e:
+             # Этот блок теперь будет ловить ошибки только при парсинге строки (fromisoformat)
+             logger.warning(f"Could not parse timestamp string {action.get('timestamp')} for user {user_id}, action {action.get('action')}, error: {e}")
+             continue
 
     # --- Расчет метрик ---
     if not actions and not base_profile_data.get("last_updated"): # Если нет ни действий, ни существующего профиля
