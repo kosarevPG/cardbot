@@ -129,32 +129,38 @@ def extract_themes(text):
 
 # --- Генерация вопросов Grok (оставляем без изменений) ---
 async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None, db: Database = None):
-    # ... (код функции get_grok_question без изменений) ...
     """
     Генерирует углубляющий вопрос от Grok.
     Учитывает профиль пользователя, включая начальный ресурс.
     """
     if db is None:
         logger.error("Database object 'db' is required for get_grok_question")
-        universal_questions = {1: "Какие самые сильные чувства или ощущения возникают, глядя на эту карту?", 2: "Если бы эта карта могла говорить, какой главный совет она бы дала тебе сейчас?", 3: "Какой один маленький шаг ты могла бы сделать сегодня, вдохновившись этими размышлениями?"}
+        # ... (запасные вопросы) ...
+        universal_questions = {
+            1: "Какие самые сильные чувства или ощущения возникают, глядя на эту карту?",
+            2: "Если бы эта карта могла говорить, какой главный совет она бы дала тебе сейчас?",
+            3: "Какой один маленький шаг ты могла бы сделать сегодня, вдохновившись этими размышлениями?"
+        }
         fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё приходит на ум?')}"
         return fallback_question
 
     headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
 
-    profile = await build_user_profile(user_id, db)
-    profile_themes = profile.get("themes", ["не определено"])
-    profile_mood_trend_list = profile.get("mood_trend", [])
-    # Фильтруем unknown перед формированием строки тренда
-    filtered_trend = [m for m in profile_mood_trend_list if m != "unknown"]
-    profile_mood_trend = " -> ".join(filtered_trend) or "нет данных"
+    # Получаем профиль и начальный ресурс
+    profile = await build_user_profile(user_id, db) # Должен вернуть словарь
 
-    avg_resp_len = profile.get("avg_response_length", 50) # Это поле уберем из расчета профиля, но пока оставим здесь для обратной совместимости промпта
-    initial_resource = profile.get("initial_resource", "неизвестно")
+    # --- НАЧАЛО ИЗМЕНЕНИЯ: Добавляем значения по умолчанию ---
+    profile_themes = profile.get("themes") if profile.get("themes") is not None else ["не определено"]
+    profile_mood_trend_list = profile.get("mood_trend") if profile.get("mood_trend") is not None else []
+    profile_mood_trend = " -> ".join(profile_mood_trend_list) if profile_mood_trend_list else "нет данных"
+    # **Ключевое исправление:** Задаем дефолтное значение для avg_resp_len если оно None
+    avg_resp_len = profile.get("avg_response_length") if profile.get("avg_response_length") is not None else 50.0 # Используем 50 как дефолт
+    initial_resource = profile.get("initial_resource") if profile.get("initial_resource") is not None else "неизвестно"
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-    # Используем новый AI анализ для текущего ответа
-    current_mood = await get_ai_mood(user_response) # <--- Используем AI
+    current_mood = analyze_mood(user_response)
 
+    # Теперь используем переменные с гарантированными значениями
     system_prompt = (
         "Ты — тёплый, мудрый и поддерживающий коуч, работающий с метафорическими ассоциативными картами (МАК). "
         "Твоя главная задача — помочь пользователю глубже понять себя через рефлексию над картой и своими ответами. "
@@ -166,6 +172,7 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         f"Основные темы из его прошлых запросов/ответов: {', '.join(profile_themes)}. "
         f"Тренд настроения (по последним ответам): {profile_mood_trend}. "
         "Если настроение пользователя 'negative', начни вопрос с эмпатичной фразы ('Понимаю, это может быть непросто...', 'Спасибо, что делишься...', 'Сочувствую, если это отзывается болью...'), затем задай бережный, поддерживающий вопрос, возможно, сфокусированный на ресурсах или маленьких шагах. "
+        # Используем avg_resp_len с дефолтным значением
         f"Если пользователь обычно отвечает кратко (средняя длина ответа ~{avg_resp_len:.0f} симв.), задай более конкретный вопрос ('Что именно вызывает это чувство?', 'Какой аспект карты связан с этим?'). "
         "Если отвечает развернуто - можно задать более открытый ('Как это перекликается с твоим опытом?', 'Что эта ассоциация говорит о твоих потребностях?'). "
         "Постарайся связать вопрос с основными темами пользователя или его начальным ресурсным состоянием, если это уместно и естественно вытекает из его ответа. "
@@ -176,10 +183,13 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         "Все пользователи - женского рода. Не используй к ним обращения в мужском роде."
     )
 
+    # ... (остальной код функции get_grok_question без изменений) ...
+
+    # Формируем пользовательский промпт с контекстом сессии
     session_context = []
     if user_request: session_context.append(f"Начальный запрос: '{user_request}'")
-    initial_response = previous_responses.get("initial_response") if previous_responses else None
-    if initial_response: session_context.append(f"Первая ассоциация на карту: '{initial_response}'")
+    initial_response_from_ctx = previous_responses.get("initial_response") if previous_responses else None # Переименовали для ясности
+    if initial_response_from_ctx: session_context.append(f"Первая ассоциация на карту: '{initial_response_from_ctx}'")
 
     if step > 1 and previous_responses:
         q1 = previous_responses.get('grok_question_1')
@@ -196,11 +206,15 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
     user_prompt = "Контекст текущей сессии:\n" + "\n".join(session_context)
 
     payload = {
-        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-        "model": "grok-3-latest", "max_tokens": 100, "stream": False, "temperature": 0.5
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "model": "grok-3-latest",
+        "max_tokens": 100,
+        "stream": False,
+        "temperature": 0.5
     }
-
-    universal_questions = {1: "Какие самые сильные чувства или ощущения возникают, глядя на эту карту?", 2: "Если бы эта карта могла говорить, какой главный совет она бы дала тебе сейчас?", 3: "Какой один маленький шаг ты могла бы сделать сегодня, вдохновившись этими размышлениями?"}
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
