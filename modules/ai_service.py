@@ -1,20 +1,22 @@
 # код/ai_service.py
 
-import httpx  # <--- ИЗМЕНЕНИЕ: Импортируем httpx
+import httpx
 import json
-import random # <--- ИЗМЕНЕНИЕ: Добавляем импорт random
+import random
 from config import GROK_API_KEY, GROK_API_URL, TIMEZONE
 from datetime import datetime, timedelta
 import re
 import logging
+# Импортируем Database для аннотации типов и доступа к методам
+from database.db import Database
 
 # Настройка базового логирования
-# Уровень INFO будет показывать запросы/ответы API, DEBUG - еще больше деталей
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- Анализ текста (расширенные ключевые слова из предоставленной версии) ---
+# --- Анализ текста (оставляем без изменений) ---
 def analyze_mood(text):
+    # ... (код функции analyze_mood) ...
     """Анализирует настроение в тексте по ключевым словам."""
     text = text.lower()
     # Расширенные списки ключевых слов для лучшего распознавания
@@ -41,6 +43,7 @@ def analyze_mood(text):
     return "unknown"
 
 def extract_themes(text):
+    # ... (код функции extract_themes) ...
     """Извлекает основные темы из текста по ключевым словам."""
     themes = {
         "отношения": [
@@ -94,8 +97,10 @@ def extract_themes(text):
 
     return list(found_themes) if found_themes else ["не определено"]
 
-# --- Генерация вопросов Grok ---
-async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None, db=None):
+
+# --- Генерация вопросов Grok (оставляем без изменений) ---
+async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None, db: Database = None):
+    # ... (код функции get_grok_question) ...
     """
     Генерирует углубляющий вопрос от Grok.
     Учитывает профиль пользователя, включая начальный ресурс.
@@ -186,16 +191,14 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
     }
 
     try:
-        # <--- ИЗМЕНЕНИЕ: Используем httpx ---
         async with httpx.AsyncClient(timeout=20.0) as client:
             logger.info(f"Sending Q{step} request to Grok API for user {user_id}.")
             # logger.debug(f"Payload Q{step} for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
-            response = await client.post(GROK_API_URL, headers=headers, json=payload) # Используем await client.post
-            response.raise_for_status() # Проверка HTTP ошибок
+            response = await client.post(GROK_API_URL, headers=headers, json=payload)
+            response.raise_for_status()
             data = response.json()
             logger.info(f"Received Q{step} response from Grok API for user {user_id}.")
             # logger.debug(f"Response data Q{step} for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
-        # --- Конец изменений httpx ---
 
         if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
              raise ValueError("Invalid response structure from Grok API (choices or content missing)")
@@ -221,7 +224,6 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         final_question = f"Вопрос ({step}/3): {question_text}"
         return final_question
 
-    # <--- ИЗМЕНЕНИЕ: Обработка ошибок httpx ---
     except httpx.TimeoutException:
         logger.error(f"Grok API request Q{step} timed out for user {user_id}.")
         fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё приходит на ум, когда ты смотришь на эту карту?')}"
@@ -230,19 +232,19 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         logger.error(f"Grok API request Q{step} failed for user {user_id}: {e}")
         fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Какие детали карты привлекают твоё внимание больше всего?')}"
         return fallback_question
-    # --- Конец изменений ошибок httpx ---
     except (ValueError, KeyError, IndexError) as e:
         logger.error(f"Failed to parse Grok API response Q{step} or invalid data for user {user_id}: {e}")
         fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Как твои ощущения изменились за время размышления над картой?')}"
         return fallback_question
     except Exception as e:
-        logger.exception(f"An unexpected error occurred in get_grok_question Q{step} for user {user_id}: {e}") # Используем exception для stacktrace
+        logger.exception(f"An unexpected error occurred in get_grok_question Q{step} for user {user_id}: {e}")
         fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Попробуй описать свои мысли одним словом. Что это за слово?')}"
         return fallback_question
 
 
-# --- Генерация саммари ---
-async def get_grok_summary(user_id, interaction_data, db=None):
+# --- Генерация саммари карты дня (оставляем без изменений) ---
+async def get_grok_summary(user_id, interaction_data, db: Database = None):
+    # ... (код функции get_grok_summary) ...
     """
     Генерирует краткое резюме сессии с картой.
     """
@@ -297,7 +299,6 @@ async def get_grok_summary(user_id, interaction_data, db=None):
     }
 
     try:
-        # <--- ИЗМЕНЕНИЕ: Используем httpx ---
         async with httpx.AsyncClient(timeout=25.0) as client:
             logger.info(f"Sending SUMMARY request to Grok API for user {user_id}.")
             # logger.debug(f"Payload SUMMARY for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
@@ -306,7 +307,6 @@ async def get_grok_summary(user_id, interaction_data, db=None):
             data = response.json()
             logger.info(f"Received SUMMARY response from Grok API for user {user_id}.")
             # logger.debug(f"Response data SUMMARY for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
-        # --- Конец изменений httpx ---
 
         if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
              raise ValueError("Invalid response structure for summary from Grok API")
@@ -320,14 +320,12 @@ async def get_grok_summary(user_id, interaction_data, db=None):
 
         return summary_text
 
-    # <--- ИЗМЕНЕНИЕ: Обработка ошибок httpx ---
     except httpx.TimeoutException:
         logger.error(f"Grok API summary request timed out for user {user_id}.")
         return "К сожалению, не удалось сгенерировать резюме сессии (таймаут). Но твои размышления очень ценны!"
     except httpx.RequestError as e:
         logger.error(f"Grok API summary request failed for user {user_id}: {e}")
         return "К сожалению, не удалось сгенерировать резюме сессии из-за технической проблемы. Но твои размышления очень ценны!"
-    # --- Конец изменений ошибок httpx ---
     except (ValueError, KeyError, IndexError) as e:
         logger.error(f"Failed to parse Grok API summary response or invalid data for user {user_id}: {e}")
         return "Не получилось сформулировать итог сессии. Главное — те мысли и чувства, которые возникли у тебя."
@@ -335,8 +333,10 @@ async def get_grok_summary(user_id, interaction_data, db=None):
         logger.exception(f"An unexpected error occurred in get_grok_summary for user {user_id}: {e}")
         return "Произошла неожиданная ошибка при подведении итогов. Пожалуйста, попробуй позже."
 
-# --- НОВАЯ ФУНКЦИЯ: Генерация поддерживающего сообщения при низком ресурсе ---
-async def get_grok_supportive_message(user_id, db=None):
+
+# --- Поддержка при низком ресурсе (оставляем без изменений) ---
+async def get_grok_supportive_message(user_id, db: Database = None):
+    # ... (код функции get_grok_supportive_message) ...
     """
     Генерирует поддерживающее сообщение и вопрос о способе восстановления
     для пользователя с низким уровнем ресурса после сессии.
@@ -351,7 +351,10 @@ async def get_grok_supportive_message(user_id, db=None):
 
     # Получаем профиль для контекста
     profile = await build_user_profile(user_id, db)
-    name = db.get_user(user_id).get("name", "Друг") # Имя пользователя
+    # Получаем имя пользователя из БД, так как profile может не содержать его
+    user_info = db.get_user(user_id)
+    name = user_info.get("name", "Друг") if user_info else "Друг"
+
     profile_themes = profile.get("themes", [])
     recharge_method = profile.get("recharge_method", "") # Известный способ подзарядки
 
@@ -398,7 +401,6 @@ async def get_grok_supportive_message(user_id, db=None):
     ]
 
     try:
-        # <--- ИЗМЕНЕНИЕ: Используем httpx ---
         async with httpx.AsyncClient(timeout=15.0) as client:
             logger.info(f"Sending SUPPORTIVE request to Grok API for user {user_id}.")
             # logger.debug(f"Payload SUPPORTIVE for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
@@ -407,7 +409,6 @@ async def get_grok_supportive_message(user_id, db=None):
             data = response.json()
             logger.info(f"Received SUPPORTIVE response from Grok API for user {user_id}.")
             # logger.debug(f"Response data SUPPORTIVE for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
-        # --- Конец изменений httpx ---
 
         if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
              raise ValueError("Invalid response structure for supportive message from Grok API")
@@ -423,14 +424,12 @@ async def get_grok_supportive_message(user_id, db=None):
         # Добавляем вопрос к сообщению от Grok
         return support_text + question_about_recharge
 
-    # <--- ИЗМЕНЕНИЕ: Обработка ошибок httpx ---
     except httpx.TimeoutException:
         logger.error(f"Grok API supportive message request timed out for user {user_id}.")
-        return random.choice(fallback_texts) # Возвращаем случайный запасной вариант
+        return random.choice(fallback_texts)
     except httpx.RequestError as e:
         logger.error(f"Grok API supportive message request failed for user {user_id}: {e}")
         return random.choice(fallback_texts)
-    # --- Конец изменений ошибок httpx ---
     except (ValueError, KeyError, IndexError) as e:
         logger.error(f"Failed to parse Grok API supportive message response for user {user_id}: {e}")
         return random.choice(fallback_texts)
@@ -439,8 +438,9 @@ async def get_grok_supportive_message(user_id, db=None):
         return random.choice(fallback_texts)
 
 
-# --- Построение профиля пользователя (ДОРАБОТАННОЕ) ---
-async def build_user_profile(user_id, db):
+# --- Построение профиля пользователя (оставляем без изменений) ---
+async def build_user_profile(user_id, db: Database):
+    # ... (код функции build_user_profile) ...
     """
     Строит или обновляет профиль пользователя.
     Теперь включает initial_resource, final_resource, recharge_method.
@@ -451,22 +451,35 @@ async def build_user_profile(user_id, db):
     # Проверка кэша (обновление раз в 30 минут)
     cache_ttl = 1800 # 30 минут
     if profile_data and isinstance(profile_data.get("last_updated"), datetime):
-        last_updated_dt = profile_data["last_updated"].astimezone(TIMEZONE)
-        if (now - last_updated_dt).total_seconds() < cache_ttl:
-            logger.info(f"Using cached profile for user {user_id}, updated at {last_updated_dt}")
-            # Гарантируем наличие всех ключей при возврате кэша
-            profile_data.setdefault("mood", "unknown")
-            profile_data.setdefault("mood_trend", [])
-            profile_data.setdefault("themes", ["не определено"])
-            profile_data.setdefault("response_count", 0)
-            profile_data.setdefault("request_count", 0)
-            profile_data.setdefault("avg_response_length", 0)
-            profile_data.setdefault("days_active", 0)
-            profile_data.setdefault("interactions_per_day", 0)
-            profile_data.setdefault("initial_resource", None) # << НОВОЕ
-            profile_data.setdefault("final_resource", None)   # << НОВОЕ
-            profile_data.setdefault("recharge_method", None) # << НОВОЕ
-            return profile_data # Возвращаем кэш
+        # Убедимся, что last_updated - aware datetime
+        last_updated_dt = profile_data["last_updated"]
+        if last_updated_dt.tzinfo is None:
+             # Если naive, локализуем с TIMEZONE
+             try:
+                 last_updated_dt = TIMEZONE.localize(last_updated_dt)
+             except Exception as tz_err:
+                 logger.error(f"Could not localize naive last_updated timestamp for user {user_id}: {tz_err}. Using naive comparison.")
+
+        # Сравниваем с aware now
+        if isinstance(last_updated_dt, datetime) and last_updated_dt.tzinfo is not None:
+            if (now - last_updated_dt).total_seconds() < cache_ttl:
+                logger.info(f"Using cached profile for user {user_id}, updated at {last_updated_dt}")
+                # Гарантируем наличие всех ключей при возврате кэша
+                profile_data.setdefault("mood", "unknown")
+                profile_data.setdefault("mood_trend", [])
+                profile_data.setdefault("themes", ["не определено"])
+                profile_data.setdefault("response_count", 0)
+                profile_data.setdefault("request_count", 0)
+                profile_data.setdefault("avg_response_length", 0)
+                profile_data.setdefault("days_active", 0)
+                profile_data.setdefault("interactions_per_day", 0)
+                profile_data.setdefault("initial_resource", None)
+                profile_data.setdefault("final_resource", None)
+                profile_data.setdefault("recharge_method", None)
+                return profile_data # Возвращаем кэш
+        else:
+            logger.warning(f"Cached profile for user {user_id} has naive timestamp or invalid type, rebuilding.")
+
 
     # Если кэш устарел или профиля нет, перестраиваем
     logger.info(f"Rebuilding profile for user {user_id} (Cache expired or profile missing/invalid)")
@@ -479,7 +492,7 @@ async def build_user_profile(user_id, db):
     responses = []
     mood_trend_responses = []
     timestamps = []
-    # << НОВОЕ: Инициализируем значениями из существующего профиля или None
+    # Инициализируем значениями из существующего профиля или None
     last_initial_resource = base_profile_data.get("initial_resource")
     last_final_resource = base_profile_data.get("final_resource")
     last_recharge_method = base_profile_data.get("recharge_method")
@@ -491,23 +504,24 @@ async def build_user_profile(user_id, db):
         # Запросы
         if action_type == "request_text_provided" and "request" in details:
              requests_texts.append(details["request"])
-        # Старый формат (на всякий случай)
         elif action_type == "card_drawn_with_request" and "request" in details:
              requests_texts.append(details["request"])
 
-        # Ответы (из нового флоу и старого)
+        # Ответы
         relevant_response_actions = [
-            "initial_response_provided", "grok_response_provided", # Новый флоу
-            "initial_response", "first_grok_response", # Старый флоу (если есть)
+            "initial_response_provided", "grok_response_provided",
+            "initial_response", "first_grok_response",
             "second_grok_response", "third_grok_response"
         ]
         if action_type in relevant_response_actions and "response" in details:
-            responses.append(details["response"])
-            mood_trend_responses.append(details["response"]) # Для тренда настроения
+            response_text = details["response"]
+            if isinstance(response_text, str): # Добавим проверку типа
+                responses.append(response_text)
+                mood_trend_responses.append(response_text)
 
-        # << НОВОЕ: Извлечение ресурсов и метода восстановления из логов
+        # Ресурсы и метод восстановления
         if action_type == "initial_resource_selected" and "resource" in details:
-             last_initial_resource = details["resource"] # Обновляем последним значением
+             last_initial_resource = details["resource"]
         if action_type == "final_resource_selected" and "resource" in details:
              last_final_resource = details["resource"]
         if action_type == "recharge_method_provided" and "recharge_method" in details:
@@ -515,31 +529,29 @@ async def build_user_profile(user_id, db):
 
         # Временные метки
         try:
-            # <<< НАЧАЛО ИЗМЕНЕНИЯ >>>
-            raw_timestamp = action.get("timestamp") # Получаем значение
-            ts = None # Инициализируем ts
+            raw_timestamp = action.get("timestamp")
+            ts = None
 
             if isinstance(raw_timestamp, datetime):
-                # Если это уже datetime, используем его и добавляем таймзону, если она aware
-                ts = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo else TIMEZONE.localize(raw_timestamp) # Используем TIMEZONE
+                # Если aware, конвертируем в TIMEZONE, если naive - локализуем
+                ts = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo else TIMEZONE.localize(raw_timestamp)
             elif isinstance(raw_timestamp, str):
-                # Если это строка, парсим
+                # Парсим строку ISO, предполагая UTC если 'Z' или нет смещения, конвертируем в TIMEZONE
                 ts = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE)
             else:
                 logger.warning(f"Skipping action due to invalid timestamp type: {type(raw_timestamp)} in action: {action.get('action')}")
-                continue # Пропускаем это действие, если время некорректное
+                continue
 
-            if ts: # Добавляем в список, только если успешно обработали
+            if ts:
                 timestamps.append(ts)
-            # <<< КОНЕЦ ИЗМЕНЕНИЯ >>>
 
-        except (ValueError, TypeError) as e:
-             # Этот блок теперь будет ловить ошибки только при парсинге строки (fromisoformat)
-             logger.warning(f"Could not parse timestamp string {action.get('timestamp')} for user {user_id}, action {action.get('action')}, error: {e}")
+        except (ValueError, TypeError, pytz.exceptions.NonExistentTimeError, pytz.exceptions.AmbiguousTimeError) as e:
+             logger.warning(f"Could not parse or convert timestamp {action.get('timestamp')} for user {user_id}, action {action.get('action')}, error: {e}")
              continue
 
+
     # --- Расчет метрик ---
-    if not actions and not base_profile_data.get("last_updated"): # Если нет ни действий, ни существующего профиля
+    if not actions and not base_profile_data.get("last_updated"):
         logger.info(f"No actions or existing profile data for user {user_id}. Creating empty profile.")
         empty_profile = {
             "user_id": user_id, "mood": "unknown", "mood_trend": [], "themes": ["не определено"],
@@ -556,37 +568,37 @@ async def build_user_profile(user_id, db):
     all_requests_text = " ".join(requests_texts)
     full_text = all_requests_text + " " + all_responses_text
 
-    # Настроение (по последним 5 ответам или последнему ответу)
-    mood_source_texts = mood_trend_responses[-5:] # Берем до 5 последних ответов
+    # Настроение
+    mood_source_texts = mood_trend_responses[-5:]
     mood = "unknown"
     if mood_source_texts:
-        # Анализируем самый последний ответ для текущего настроения
         mood = analyze_mood(mood_source_texts[-1])
-    elif base_profile_data: # Если ответов нет, берем старое значение
+    elif base_profile_data:
         mood = base_profile_data.get("mood", "unknown")
 
-    # Темы (по всему тексту или старые)
+    # Темы
     themes = extract_themes(full_text) if full_text.strip() else base_profile_data.get("themes", ["не определено"])
 
     response_count = len(responses)
-    request_count = len(requests_texts) # Считаем только запросы, введенные текстом
+    request_count = len(requests_texts)
     avg_response_length = sum(len(r) for r in responses) / response_count if response_count > 0 else 0
 
     # Активность
     days_active = 0
     interactions_per_day = 0
     if timestamps:
-        first_interaction = min(timestamps)
-        last_interaction = max(timestamps)
-        days_active = (last_interaction.date() - first_interaction.date()).days + 1
-        # Считаем все действия для общего показателя активности
-        interactions_per_day = len(actions) / days_active if days_active > 0 else len(actions)
-    elif base_profile_data: # Если нет временных меток, берем старые значения
+        unique_dates = {ts.date() for ts in timestamps}
+        if unique_dates:
+             first_interaction_date = min(unique_dates)
+             last_interaction_date = max(unique_dates)
+             days_active = (last_interaction_date - first_interaction_date).days + 1
+             interactions_per_day = len(actions) / days_active if days_active > 0 else len(actions)
+    elif base_profile_data:
         days_active = base_profile_data.get("days_active", 0)
         interactions_per_day = base_profile_data.get("interactions_per_day", 0)
 
 
-    # Тренд настроения по последним 5 ответам
+    # Тренд настроения
     mood_trend = [analyze_mood(resp) for resp in mood_source_texts]
 
     # --- Собираем и сохраняем обновленный профиль ---
@@ -600,10 +612,10 @@ async def build_user_profile(user_id, db):
         "avg_response_length": round(avg_response_length, 2),
         "days_active": days_active,
         "interactions_per_day": round(interactions_per_day, 2),
-        "initial_resource": last_initial_resource,   # << НОВОЕ
-        "final_resource": last_final_resource,       # << НОВОЕ
-        "recharge_method": last_recharge_method,     # << НОВОЕ
-        "last_updated": now # Новое время обновления
+        "initial_resource": last_initial_resource,
+        "final_resource": last_final_resource,
+        "recharge_method": last_recharge_method,
+        "last_updated": now
     }
 
     db.update_user_profile(user_id, updated_profile) # Сохраняем обновленный профиль в БД
@@ -611,3 +623,106 @@ async def build_user_profile(user_id, db):
     # logger.debug(f"Updated profile data for {user_id}: {updated_profile}")
 
     return updated_profile
+
+
+# --- НОВАЯ ФУНКЦИЯ: РЕЗЮМЕ ДЛЯ ВЕЧЕРНЕЙ РЕФЛЕКСИИ ---
+async def get_reflection_summary(user_id: int, reflection_data: dict, db: Database) -> str | None:
+    """
+    Генерирует AI-резюме для вечерней рефлексии.
+
+    Args:
+        user_id: ID пользователя.
+        reflection_data: Словарь с ответами пользователя ('good_moments', 'gratitude', 'hard_moments').
+        db: Экземпляр класса Database.
+
+    Returns:
+        Строка с резюме или None в случае ошибки.
+    """
+    logger.info(f"Starting evening reflection summary generation for user {user_id}")
+    headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
+
+    # Получаем данные для промпта
+    good_moments = reflection_data.get("good_moments", "не указано")
+    gratitude = reflection_data.get("gratitude", "не указано")
+    hard_moments = reflection_data.get("hard_moments", "не указано")
+
+    # Получаем профиль и имя для контекста
+    profile = await build_user_profile(user_id, db)
+    user_info = db.get_user(user_id)
+    name = user_info.get("name", "Друг") if user_info else "Друг"
+    profile_themes_str = ", ".join(profile.get("themes", ["не определено"]))
+
+    # Формируем промпты
+    system_prompt = (
+        f"Ты — тёплый, мудрый и эмпатичный ИИ-помощник. Твоя задача — проанализировать ответы пользователя ({name}) на вопросы вечерней рефлексии. "
+        "Напиши короткое (2-4 предложения) ОБОБЩАЮЩЕЕ И ПОДДЕРЖИВАЮЩЕЕ резюме его дня. "
+        "Обязательно мягко упомяни и хорошие моменты/благодарности, и трудности, признавая важность всего опыта. "
+        "Подчеркни ценность того, что пользователь уделил время рефлексии. "
+        "Не давай советов, не делай глубоких интерпретаций, не фокусируйся только на негативе или позитиве. "
+        "Тон — спокойный, принимающий, завершающий день. "
+        f"Основные темы пользователя (для твоего сведения, необязательно упоминать): {profile_themes_str}. "
+        "Всегда обращайся на 'ты'. Не используй префиксы типа 'Резюме:', 'Итог:'. Начни прямо с сути."
+    )
+
+    user_prompt = (
+        "Пожалуйста, напиши краткое (2-4 предложения) резюме дня на основе этих ответов:\n\n"
+        f"1. Что было хорошего? Ответ: \"{good_moments}\"\n\n"
+        f"2. За что благодарность? Ответ: \"{gratitude}\"\n\n"
+        f"3. Какие были трудности? Ответ: \"{hard_moments}\""
+    )
+
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "model": "grok-3-latest", # Или другая подходящая модель
+        "max_tokens": 150, # Ограничиваем длину резюме
+        "stream": False,
+        "temperature": 0.5 # Средняя температура для баланса
+    }
+
+    fallback_summary = "Спасибо, что поделилась своими мыслями и чувствами. Важно замечать разное в своем дне."
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            logger.info(f"Sending REFLECTION SUMMARY request to Grok API for user {user_id}.")
+            # logger.debug(f"Payload REFLECTION SUMMARY for user {user_id}: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+            response = await client.post(GROK_API_URL, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f"Received REFLECTION SUMMARY response from Grok API for user {user_id}.")
+            # logger.debug(f"Response data REFLECTION SUMMARY for user {user_id}: {json.dumps(data, ensure_ascii=False, indent=2)}")
+
+        if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
+             raise ValueError("Invalid response structure for reflection summary from Grok API")
+
+        summary_text = data["choices"][0]["message"]["content"].strip()
+        # Очистка
+        summary_text = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итог|Итак)[,.:]?\s*', '', summary_text, flags=re.IGNORECASE).strip()
+        summary_text = re.sub(r'^"|"$', '', summary_text).strip()
+
+        if not summary_text or len(summary_text) < 10:
+             raise ValueError("Empty or too short reflection summary content after cleaning")
+
+        return summary_text
+
+    except httpx.TimeoutException:
+        logger.error(f"Grok API reflection summary request timed out for user {user_id}.")
+        return fallback_summary # Возвращаем запасной вариант
+    except httpx.RequestError as e:
+        logger.error(f"Grok API reflection summary request failed for user {user_id}: {e}")
+        return fallback_summary
+    except (ValueError, KeyError, IndexError) as e:
+        logger.error(f"Failed to parse Grok API reflection summary response for user {user_id}: {e}")
+        return fallback_summary
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred in get_reflection_summary for user {user_id}: {e}")
+        return None # Возвращаем None при совсем неожиданной ошибке
+
+# Импорт pytz нужен для build_user_profile
+try:
+    import pytz
+except ImportError:
+    pytz = None
+    logger.warning("pytz library not found. Timezone conversions might be affected.")
