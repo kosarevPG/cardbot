@@ -408,131 +408,202 @@ def make_admin_user_profile_handler(db, logger_service):
      return wrapped_handler
 
 def make_users_handler(db, logger_service):
-    # ... (код users без изменений) ...
-     async def wrapped_handler(message: types.Message):
-         user_id = message.from_user.id
-         if user_id != ADMIN_ID:
-             await message.answer("Эта команда доступна только администратору.")
-             return
-         users = db.get_all_users()
-         if not users:
-             await message.answer("Пользователей пока нет.")
-             return
-         excluded_users = set(NO_LOGS_USERS)
-         filtered_users = [uid for uid in users if uid not in excluded_users]
-         if not filtered_users:
-             await message.answer("Нет пользователей для отображения (кроме исключённых).")
-             return
-         user_list = []
-         for uid in filtered_users:
-             user_data = db.get_user(uid)
-             name = user_data.get("name", "Без имени")
-             username = user_data.get("username", "Нет никнейма")
-             last_action_time = "Нет действий"
-             last_action_timestamp_iso = "1970-01-01T00:00:00+00:00"
-             user_actions = db.get_actions(uid)
-             if user_actions:
-                 last_action = user_actions[-1]
-                 last_action_timestamp_iso = last_action["timestamp"]
-                 try:
-                     last_action_dt = datetime.fromisoformat(last_action_timestamp_iso.replace('Z', '+00:00')).astimezone(pytz.timezone("Europe/Moscow")) # Use TIMEZONE
-                     last_action_time = last_action_dt.strftime("%Y-%m-%d %H:%M")
-                 except ValueError:
-                     last_action_time = last_action_timestamp_iso
-             user_list.append({
-                 "uid": uid, "username": username, "name": name,
-                 "last_action_time": last_action_time,
-                 "last_action_timestamp_iso": last_action_timestamp_iso
-             })
-         user_list.sort(key=lambda x: x["last_action_timestamp_iso"], reverse=True)
-         formatted_list = [
-             f"ID: <code>{user['uid']}</code> | @{user['username']} | {user['name']} | Посл. действие: {user['last_action_time']}"
-             for user in user_list
-         ]
-         header = f"👥 <b>Список пользователей ({len(formatted_list)}):</b>\n(Отсортировано по последней активности)\n\n"
-         full_text = header + "\n".join(formatted_list)
-         max_len = 4000
-         if len(full_text) > max_len:
-             current_chunk = header
-             for line in formatted_list:
-                 if len(current_chunk) + len(line) + 1 > max_len:
-                     await message.answer(current_chunk)
-                     current_chunk = ""
-                 current_chunk += line + "\n"
-             if current_chunk:
-                 await message.answer(current_chunk)
-         else:
-             await message.answer(full_text)
-         await logger_service.log_action(user_id, "users_command")
-     return wrapped_handler
+    async def wrapped_handler(message: types.Message):
+        user_id = message.from_user.id
+        if user_id != ADMIN_ID:
+            await message.answer("Эта команда доступна только администратору.")
+            return
+
+        users = db.get_all_users()
+        if not users:
+            await message.answer("Пользователей пока нет.")
+            return
+
+        excluded_users = set(NO_LOGS_USERS)
+        filtered_users = [uid for uid in users if uid not in excluded_users]
+        if not filtered_users:
+            await message.answer("Нет пользователей для отображения (кроме исключённых).")
+            return
+
+        user_list = []
+        for uid in filtered_users:
+            user_data = db.get_user(uid)
+            name = user_data.get("name", "Без имени")
+            username = user_data.get("username", "Нет никнейма")
+            last_action_time = "Нет действий"
+            last_action_timestamp_iso_or_dt = "1970-01-01T00:00:00+00:00" # Для сортировки
+
+            user_actions = db.get_actions(uid)
+            if user_actions:
+                last_action = user_actions[-1]
+                raw_timestamp = last_action.get("timestamp") # Может быть datetime или str
+
+                try:
+                    # <<< НАЧАЛО ИЗМЕНЕНИЯ (Парсинг/проверка типа timestamp) >>>
+                    last_action_dt = None
+                    if isinstance(raw_timestamp, datetime):
+                         # Если datetime, используем напрямую
+                         last_action_dt = raw_timestamp.astimezone(TIMEZONE)
+                         last_action_timestamp_iso_or_dt = raw_timestamp # Сохраняем datetime для сортировки
+                    elif isinstance(raw_timestamp, str):
+                         # Если строка, парсим
+                         last_action_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE)
+                         last_action_timestamp_iso_or_dt = raw_timestamp # Сохраняем строку для сортировки
+                    else:
+                        logger.warning(f"Invalid timestamp type for last action of user {uid}: {type(raw_timestamp)}")
+
+                    if last_action_dt:
+                         last_action_time = last_action_dt.strftime("%Y-%m-%d %H:%M")
+                    else:
+                         last_action_time = "Ошибка времени"
+                    # <<< КОНЕЦ ИЗМЕНЕНИЯ >>>
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Error parsing last action timestamp for user {uid}: {raw_timestamp}, error: {e}")
+                    last_action_time = f"Ошибка ({raw_timestamp})" # Показываем проблемное время
+                    last_action_timestamp_iso_or_dt = raw_timestamp if isinstance(raw_timestamp, str) else "1970-01-01T00:00:00+00:00" # Для сортировки
+
+            user_list.append({
+                "uid": uid, "username": username, "name": name,
+                "last_action_time": last_action_time,
+                "last_action_timestamp_iso_or_dt": last_action_timestamp_iso_or_dt # Для сортировки
+            })
+
+        # Сортировка (требует осторожности, если смешаны типы)
+        try:
+            user_list.sort(
+                key=lambda x: x["last_action_timestamp_iso_or_dt"] if isinstance(x["last_action_timestamp_iso_or_dt"], datetime)
+                             else datetime.fromisoformat(str(x["last_action_timestamp_iso_or_dt"]).replace('Z', '+00:00')) if isinstance(x["last_action_timestamp_iso_or_dt"], str)
+                             else datetime.min.replace(tzinfo=TIMEZONE), # Fallback для некорректных типов
+                reverse=True
+            )
+        except (ValueError, TypeError) as sort_err:
+             logger.error(f"Error sorting user list by timestamp: {sort_err}. List may be unsorted.")
+
+
+        formatted_list = [
+            f"ID: <code>{user['uid']}</code> | @{user['username']} | {user['name']} | Посл. действие: {user['last_action_time']}"
+            for user in user_list
+        ]
+        header = f"👥 <b>Список пользователей ({len(formatted_list)}):</b>\n(Отсортировано по последней активности)\n\n"
+        full_text = header + "\n".join(formatted_list)
+        max_len = 4000 # Макс. длина сообщения Telegram
+
+        # Отправка списка частями
+        if len(full_text) > max_len:
+            current_chunk = header
+            for line in formatted_list:
+                if len(current_chunk) + len(line) + 1 > max_len:
+                    await message.answer(current_chunk)
+                    current_chunk = ""
+                current_chunk += line + "\n"
+            if current_chunk:
+                await message.answer(current_chunk)
+        else:
+            await message.answer(full_text)
+
+        await logger_service.log_action(user_id, "users_command")
+    return wrapped_handler
 
 
 def make_logs_handler(db, logger_service):
-    # ... (код logs без изменений) ...
-     async def wrapped_handler(message: types.Message):
-         user_id = message.from_user.id
-         if user_id != ADMIN_ID:
-             await message.answer("Эта команда доступна только администратору.")
-             return
-         args = message.text.split()
-         target_date_str = None
-         if len(args) > 1:
-             target_date_str = args[1]
-             try:
-                 target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
-             except ValueError:
-                 await message.answer("Укажите дату в формате ГГГГ-ММ-ДД, например: `/logs 2024-04-16`", parse_mode="MarkdownV2")
-                 return
-         else:
-             target_date = datetime.now(pytz.timezone("Europe/Moscow")).date() # Use TIMEZONE
-             target_date_str = target_date.strftime("%Y-%m-%d")
-         await logger_service.log_action(user_id, "logs_command", {"date": target_date_str})
-         logs = db.get_actions()
-         filtered_logs = []
-         excluded_users = set(NO_LOGS_USERS)
-         for log in logs:
-             try:
-                 log_timestamp_dt = datetime.fromisoformat(log["timestamp"].replace('Z', '+00:00')).astimezone(pytz.timezone("Europe/Moscow")) # Use TIMEZONE
-                 if log_timestamp_dt.date() == target_date and log.get("user_id") not in excluded_users:
-                     filtered_logs.append(log)
-             except (ValueError, TypeError, KeyError) as e:
-                 logger.warning(f"Could not parse timestamp or missing data in log for admin view: {log}, error: {e}")
-                 continue
-         if not filtered_logs:
-             await message.answer(f"Логов за {target_date_str} нет (кроме исключенных пользователей).")
-             return
-         log_lines = []
-         for log in filtered_logs:
-             ts_str = datetime.fromisoformat(log['timestamp'].replace('Z', '+00:00')).astimezone(pytz.timezone("Europe/Moscow")).strftime('%H:%M:%S') # Use TIMEZONE
-             uid = log.get('user_id', 'N/A')
-             action = log.get('action', 'N/A')
-             details = log.get('details', {})
-             details_str = ""
-             # Проверяем, что details это словарь перед итерацией
-             if isinstance(details, dict) and details:
-                 details_str = ", ".join([f"{k}={v}" for k, v in details.items()])
-                 details_str = f" ({details_str[:100]}{'...' if len(details_str) > 100 else ''})"
-             # Если details не словарь (например, строка после ошибки JSON), просто выводим его
-             elif isinstance(details, str):
+    async def wrapped_handler(message: types.Message):
+        user_id = message.from_user.id
+        if user_id != ADMIN_ID:
+            await message.answer("Эта команда доступна только администратору.")
+            return
+
+        args = message.text.split()
+        target_date_str = None
+        target_date = None # Инициализируем target_date
+
+        if len(args) > 1:
+            target_date_str = args[1]
+            try:
+                target_date = datetime.strptime(target_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                await message.answer("Укажите дату в формате ГГГГ-ММ-ДД, например: `/logs 2024-04-16`", parse_mode="MarkdownV2")
+                return
+        else:
+            # Используем TIMEZONE из config
+            target_date = datetime.now(TIMEZONE).date()
+            target_date_str = target_date.strftime("%Y-%m-%d")
+
+        await logger_service.log_action(user_id, "logs_command", {"date": target_date_str})
+        logs = db.get_actions() # Получаем логи, timestamp может быть datetime
+        filtered_logs = []
+        excluded_users = set(NO_LOGS_USERS)
+
+        for log in logs:
+            log_timestamp_dt = None # Инициализируем
+            try:
+                # <<< НАЧАЛО ИЗМЕНЕНИЯ 1 (Парсинг/проверка типа timestamp) >>>
+                raw_timestamp = log.get("timestamp") # Получаем значение
+                if isinstance(raw_timestamp, datetime):
+                    # Если это уже datetime, просто используем его
+                    log_timestamp_dt = raw_timestamp.astimezone(TIMEZONE)
+                elif isinstance(raw_timestamp, str):
+                    # Если это строка, парсим
+                    log_timestamp_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE)
+                else:
+                    # Если тип неизвестен или None, пропускаем лог
+                    logger.warning(f"Skipping log due to invalid timestamp type: {type(raw_timestamp)} in log: {log}")
+                    continue
+                # <<< КОНЕЦ ИЗМЕНЕНИЯ 1 >>>
+
+                if log_timestamp_dt.date() == target_date and log.get("user_id") not in excluded_users:
+                    # Добавляем log_timestamp_dt в сам словарь лога для удобства форматирования позже
+                    log["parsed_datetime"] = log_timestamp_dt
+                    filtered_logs.append(log)
+
+            except (ValueError, TypeError, KeyError) as e:
+                # Оставляем warning на случай других ошибок, но ошибка типа уже обработана выше
+                logger.warning(f"Could not parse timestamp or missing data in log for admin view: {log}, error: {e}")
+                continue
+
+        if not filtered_logs:
+            await message.answer(f"Логов за {target_date_str} нет (кроме исключенных пользователей).")
+            return
+
+        log_lines = []
+        for log in filtered_logs:
+            # <<< НАЧАЛО ИЗМЕНЕНИЯ 2 (Форматирование времени) >>>
+            # Используем уже распарсенное время из log["parsed_datetime"]
+            ts_str = log["parsed_datetime"].strftime('%H:%M:%S')
+            # <<< КОНЕЦ ИЗМЕНЕНИЯ 2 >>>
+
+            uid = log.get('user_id', 'N/A')
+            action = log.get('action', 'N/A')
+            details = log.get('details', {})
+            details_str = ""
+            # Проверяем, что details это словарь перед итерацией
+            if isinstance(details, dict) and details:
+                # Безопасное преобразование значений в строки
+                safe_details = {k: str(v) for k, v in details.items()}
+                details_str = ", ".join([f"{k}={v}" for k, v in safe_details.items()])
+                details_str = f" ({details_str[:100]}{'...' if len(details_str) > 100 else ''})"
+            # Если details не словарь (например, строка после ошибки JSON), просто выводим его
+            elif isinstance(details, str):
                  details_str = f" (Details: {details[:100]}{'...' if len(details) > 100 else ''})"
 
-             log_lines.append(f"{ts_str} U:{uid} A:{action}{details_str}")
+            log_lines.append(f"{ts_str} U:{uid} A:{action}{details_str}")
 
-         header = f"📜 <b>Логи за {target_date_str} ({len(log_lines)} записей):</b>\n\n"
-         full_text = header + "\n".join(log_lines)
-         max_len = 4000
-         if len(full_text) > max_len:
-             current_chunk = header
-             for line in log_lines:
-                 if len(current_chunk) + len(line) + 1 > max_len:
-                     await message.answer(current_chunk)
-                     current_chunk = ""
-                 current_chunk += line + "\n"
-             if current_chunk:
-                 await message.answer(current_chunk)
-         else:
-             await message.answer(full_text)
-     return wrapped_handler
+        header = f"📜 <b>Логи за {target_date_str} ({len(log_lines)} записей):</b>\n\n"
+        full_text = header + "\n".join(log_lines)
+        max_len = 4000 # Макс. длина сообщения Telegram
+
+        # Отправка логов частями, если они слишком длинные
+        if len(full_text) > max_len:
+            current_chunk = header
+            for line in log_lines:
+                if len(current_chunk) + len(line) + 1 > max_len:
+                    await message.answer(current_chunk)
+                    current_chunk = "" # Начинаем новый чанк
+                current_chunk += line + "\n"
+            if current_chunk: # Отправляем остаток
+                await message.answer(current_chunk)
+        else:
+            await message.answer(full_text)
+    return wrapped_handler
 
 # --- Обработчики ввода имени (без изменений) ---
 def make_process_name_handler(db, logger_service, user_manager):
