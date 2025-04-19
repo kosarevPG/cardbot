@@ -3,6 +3,7 @@
 import httpx
 import json
 import random
+import asyncio
 from config import GROK_API_KEY, GROK_API_URL, TIMEZONE
 from datetime import datetime, date # Убедимся что date импортирован
 import re
