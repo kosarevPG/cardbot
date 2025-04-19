@@ -139,7 +139,7 @@ class Database:
                         recharge_method TEXT,       -- (Определено здесь!)
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
-                # Таблица для вечерней рефлексии
+                # Таблица для вечерней рефлексии (с полем ai_summary)
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS evening_reflections (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -149,6 +149,7 @@ class Database:
                         gratitude TEXT,                 -- Ответ на вопрос 2
                         hard_moments TEXT,              -- Ответ на вопрос 3
                         created_at TEXT NOT NULL,       -- Время сохранения ISO (с таймзоной)
+                        ai_summary TEXT,                -- <--- НОВОЕ ПОЛЕ: Резюме от AI
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
 
@@ -171,16 +172,22 @@ class Database:
 
             # Миграция для users
             users_columns = {
-                'reminder_time_evening': 'TEXT' # Этот столбец добавится, только если таблица была создана старой версией кода
+                'reminder_time_evening': 'TEXT'
             }
             self._add_columns_if_not_exist('users', users_columns)
+
+            # --- НОВАЯ МИГРАЦИЯ ---
+            # Миграция для evening_reflections
+            reflection_columns = {
+                'ai_summary': 'TEXT' # Добавляем новое поле
+            }
+            self._add_columns_if_not_exist('evening_reflections', reflection_columns)
+            # --- КОНЕЦ НОВОЙ МИГРАЦИИ ---
 
             logger.info("Database migrations finished successfully.")
         except Exception as e:
             logger.error(f"Error during database migration process: {e}", exc_info=True)
-            # Решаем, критична ли ошибка миграции для запуска
-            # Можно пробросить ошибку: raise e
-            # Или просто залогировать и продолжить
+
 
     def _add_columns_if_not_exist(self, table_name, columns_to_add):
         """Вспомогательная функция для добавления столбцов через ALTER TABLE."""
@@ -199,8 +206,8 @@ class Database:
                     cursor.execute(alter_sql)
                     logger.info(f"Successfully added column '{col_name}' to {table_name}")
                     added_count += 1
-                # else: # Отладка
-                #     logger.debug(f"Column '{col_name}' already exists in {table_name}.")
+                else: # Отладка
+                    logger.debug(f"Column '{col_name}' already exists in {table_name}.")
 
             if added_count > 0:
                 self.conn.commit()
@@ -222,16 +229,13 @@ class Database:
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_actions_user_timestamp ON actions (user_id, timestamp)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_user_cards_user ON user_cards (user_id)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_users_reminder_time ON users (reminder_time)")
-                # Теперь эта команда должна выполняться без ошибок
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_users_reminder_time_evening ON users (reminder_time_evening)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_reflections_user_date ON evening_reflections (user_id, date)")
 
             logger.info("Indexes checked/created successfully.")
         except sqlite3.Error as e:
-            # Не критично для запуска, но важно для производительности
             logger.error(f"Error creating database indexes: {e}", exc_info=True)
-            # Не пробрасываем ошибку по умолчанию, чтобы бот мог запуститься
-            # raise # Раскомментируйте, если индексы абсолютно критичны
+
 
     def get_user(self, user_id):
         """Получает данные пользователя. Если не найден, создает запись."""
@@ -253,7 +257,7 @@ class Database:
                 elif not isinstance(last_request_val, datetime):
                     user_dict["last_request"] = None
 
-                # Гарантируем наличие полей (хотя схема и миграции должны это делать)
+                # Гарантируем наличие полей
                 user_dict.setdefault("bonus_available", False)
                 user_dict.setdefault("reminder_time_evening", None)
                 # Конвертируем BOOLEAN из БД (0/1) в Python bool
@@ -265,7 +269,7 @@ class Database:
             default_user_data = {
                 "user_id": user_id, "name": "", "username": "",
                 "last_request": None, "reminder_time": None,
-                "reminder_time_evening": None, # НОВОЕ поле
+                "reminder_time_evening": None,
                 "bonus_available": False
             }
             with self.conn:
@@ -276,8 +280,8 @@ class Database:
                        ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (user_id, default_user_data["name"], default_user_data["username"],
                      None, default_user_data["reminder_time"],
-                     default_user_data["reminder_time_evening"], # НОВОЕ
-                     int(default_user_data["bonus_available"])) # Сохраняем как 0/1
+                     default_user_data["reminder_time_evening"],
+                     int(default_user_data["bonus_available"]))
                 )
             logger.info(f"Default user entry created for {user_id}")
             return default_user_data
@@ -289,7 +293,7 @@ class Database:
 
     def update_user(self, user_id, data):
         """Обновляет данные пользователя (INSERT OR REPLACE)."""
-        current_user_data = self.get_user(user_id) # Получит или создаст
+        current_user_data = self.get_user(user_id)
 
         # Подготовка данных для сохранения
         name_to_save = data.get("name", current_user_data.get("name", ""))
@@ -298,20 +302,18 @@ class Database:
         reminder_evening_to_save = data.get("reminder_time_evening", current_user_data.get("reminder_time_evening"))
         bonus_to_save = data.get("bonus_available", current_user_data.get("bonus_available", False))
 
-        # Обработка last_request (сохраняем как строку ISO)
+        # Обработка last_request
         last_request_to_save = None
         last_request_input = data.get("last_request", current_user_data.get("last_request"))
         if isinstance(last_request_input, datetime):
             last_request_to_save = last_request_input.isoformat()
         elif isinstance(last_request_input, str):
             try:
-                # Проверяем валидность строки ISO перед сохранением
                 datetime.fromisoformat(last_request_input.replace('Z', '+00:00'))
                 last_request_to_save = last_request_input
             except (ValueError, TypeError):
                 logger.warning(f"Invalid ISO string provided for last_request '{last_request_input}' for user {user_id}. Saving as None.")
                 last_request_to_save = None
-        # else: last_request_to_save остается None
 
         try:
             with self.conn:
@@ -324,9 +326,8 @@ class Database:
                     user_id, name_to_save, username_to_save,
                     last_request_to_save, reminder_to_save,
                     reminder_evening_to_save,
-                    int(bonus_to_save) # SQLite BOOLEAN лучше хранить как 0/1
+                    int(bonus_to_save)
                 ))
-            # logger.debug(f"User {user_id} updated successfully.") # Опционально для отладки
         except sqlite3.Error as e:
             logger.error(f"Failed to update user {user_id}: {e}", exc_info=True)
 
@@ -368,7 +369,7 @@ class Database:
                 timestamp_str = timestamp
             except (ValueError, TypeError):
                  logger.warning(f"Invalid timestamp string '{timestamp}' for action '{action}', user {user_id}. Using current time.")
-        if timestamp_str is None: # Если timestamp не был datetime или валидной строкой
+        if timestamp_str is None:
             timestamp_str = datetime.now(TIMEZONE).isoformat()
 
         details_json = None
@@ -398,7 +399,7 @@ class Database:
             if user_id:
                 sql += " WHERE user_id = ?"
                 params.append(user_id)
-            sql += " ORDER BY timestamp ASC" # Сортируем по возрастанию
+            sql += " ORDER BY timestamp ASC"
 
             cursor = self.conn.execute(sql, params)
 
@@ -412,7 +413,6 @@ class Database:
                         logger.warning(f"Failed to decode details JSON for action ID {row_dict.get('id')}, user {row_dict.get('user_id')}: {e}. Raw details: {row_dict['details']}")
                         details_dict = {"error": "invalid_json", "raw_details": row_dict["details"]}
 
-                # Timestamp должен быть строкой ISO из БД
                 timestamp_str = row_dict.get("timestamp", datetime.min.isoformat())
 
                 actions.append({
@@ -422,7 +422,7 @@ class Database:
                     "name": row_dict.get("name"),
                     "action": row_dict.get("action"),
                     "details": details_dict,
-                    "timestamp": timestamp_str # Возвращаем строку ISO
+                    "timestamp": timestamp_str
                 })
         except sqlite3.Error as e:
             logger.error(f"Failed to get actions (user_id: {user_id}): {e}", exc_info=True)
@@ -459,33 +459,22 @@ class Database:
 
     def is_card_available(self, user_id, today_date: datetime.date):
         """Проверяет, доступна ли карта дня для пользователя сегодня."""
-        user_data = self.get_user(user_id) # Получит datetime объект или None для last_request
+        user_data = self.get_user(user_id)
         if not user_data:
-            return True # Пользователя нет - карта доступна
+            return True
 
-        last_request_dt = user_data.get("last_request") # Это уже datetime или None
+        last_request_dt = user_data.get("last_request")
 
         if isinstance(last_request_dt, datetime):
-            # Убедимся, что last_request_dt имеет таймзону для корректного сравнения
-            # Конвертеры должны возвращать aware datetime, если возможно
-            if last_request_dt.tzinfo is None:
-                 # Если таймзоны нет (маловероятно с конвертером), предполагаем UTC
-                 # и конвертируем в нужную таймзону для сравнения дат
-                 try:
-                    last_request_date = last_request_dt.replace(tzinfo=pytz.utc).astimezone(TIMEZONE).date()
-                 except NameError: # Если pytz не импортирован
-                    logger.warning("pytz not available for timezone conversion in is_card_available. Comparing dates naively.")
-                    last_request_date = last_request_dt.date()
-            else:
-                 # Если таймзона есть, просто конвертируем в нужную
-                 try:
-                    last_request_date = last_request_dt.astimezone(TIMEZONE).date()
-                 except NameError:
-                    logger.warning("pytz not available for timezone conversion in is_card_available. Comparing dates naively.")
-                    last_request_date = last_request_dt.date()
-
+            try:
+                # Используем TIMEZONE из config
+                last_request_date = last_request_dt.astimezone(TIMEZONE).date()
+            except Exception as e: # Обработка ошибок таймзоны
+                logger.warning(f"Timezone conversion error for user {user_id} in is_card_available: {e}. Comparing naively.")
+                last_request_date = last_request_dt.date()
             return last_request_date < today_date
-        return True # Если время не установлено или ошибка парсинга
+        return True
+
 
     # --- Методы для Рефералов ---
     def add_referral(self, referrer_id, referred_id):
@@ -541,46 +530,42 @@ class Database:
                             profile_dict[field] = json.loads(json_val)
                         except (json.JSONDecodeError, TypeError):
                             logger.warning(f"Failed to decode JSON for field '{field}' for user {user_id}. Value: {json_val}")
-                            profile_dict[field] = [] # Возвращаем пустой список при ошибке
-                    elif profile_dict.get(field) is None: # Инициализация пустым списком, если None
+                            profile_dict[field] = []
+                    elif profile_dict.get(field) is None:
                         profile_dict[field] = []
 
-                # Гарантируем наличие новых полей (хотя миграция/схема должны это делать)
+                # Гарантируем наличие новых полей
                 profile_dict.setdefault("initial_resource", None)
                 profile_dict.setdefault("final_resource", None)
                 profile_dict.setdefault("recharge_method", None)
 
                 return profile_dict
-            return None # Профиль не найден
+            return None
         except sqlite3.Error as e:
             logger.error(f"Failed to get user profile for {user_id}: {e}", exc_info=True)
-            return None # Возвращаем None в случае ошибки БД
+            return None
 
 
     def update_user_profile(self, user_id, profile_update_data):
         """Обновляет профиль пользователя (INSERT OR REPLACE)."""
-        current_profile = self.get_user_profile(user_id) or {} # Получаем текущий или пустой словарь
+        current_profile = self.get_user_profile(user_id) or {}
 
-        # Обрабатываем время обновления (если не передано, используем текущее)
+        # Обрабатываем время обновления
         last_updated_dt = profile_update_data.get("last_updated", datetime.now(TIMEZONE))
         last_updated_iso = last_updated_dt.isoformat() if isinstance(last_updated_dt, datetime) else datetime.now(TIMEZONE).isoformat()
 
-        # Подготавливаем данные для сохранения, используя текущие значения как fallback
+        # Подготавливаем данные для сохранения
         profile_to_save = {
             "user_id": user_id,
             "mood": profile_update_data.get("mood", current_profile.get("mood")),
-            # Обрабатываем JSON поля
             "mood_trend": json.dumps(profile_update_data.get("mood_trend", current_profile.get("mood_trend", []))),
             "themes": json.dumps(profile_update_data.get("themes", current_profile.get("themes", []))),
-            # Числовые поля
             "response_count": profile_update_data.get("response_count", current_profile.get("response_count", 0)),
             "request_count": profile_update_data.get("request_count", current_profile.get("request_count", 0)),
             "avg_response_length": profile_update_data.get("avg_response_length", current_profile.get("avg_response_length", 0)),
             "days_active": profile_update_data.get("days_active", current_profile.get("days_active", 0)),
             "interactions_per_day": profile_update_data.get("interactions_per_day", current_profile.get("interactions_per_day", 0)),
-            # Время обновления
             "last_updated": last_updated_iso,
-            # Новые поля
             "initial_resource": profile_update_data.get("initial_resource", current_profile.get("initial_resource")),
             "final_resource": profile_update_data.get("final_resource", current_profile.get("final_resource")),
             "recharge_method": profile_update_data.get("recharge_method", current_profile.get("recharge_method")),
@@ -602,19 +587,18 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Failed to update user profile for {user_id}: {e}", exc_info=True)
 
-    # --- Метод для Вечерней Рефлексии ---
-    async def save_evening_reflection(self, user_id, date, good_moments, gratitude, hard_moments, created_at):
-        """Сохраняет данные вечерней рефлексии в БД."""
+    # --- Метод для Вечерней Рефлексии (ОБНОВЛЕН) ---
+    def save_evening_reflection(self, user_id, date, good_moments, gratitude, hard_moments, created_at, ai_summary=None): # Добавлен ai_summary
+        """Сохраняет данные вечерней рефлексии в БД, включая AI резюме."""
         sql = """
             INSERT INTO evening_reflections
-            (user_id, date, good_moments, gratitude, hard_moments, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (user_id, date, good_moments, gratitude, hard_moments, created_at, ai_summary) -- Добавлено поле
+            VALUES (?, ?, ?, ?, ?, ?, ?) -- Добавлен плейсхолдер
         """
         created_at_str = None
         if isinstance(created_at, datetime):
             created_at_str = created_at.isoformat()
         elif isinstance(created_at, str):
-            # Проверяем формат строки ISO
             try:
                 datetime.fromisoformat(created_at.replace('Z', '+00:00'))
                 created_at_str = created_at
@@ -622,15 +606,21 @@ class Database:
                 logger.error(f"Invalid ISO string format for created_at: {created_at}")
         if created_at_str is None:
             logger.error(f"Invalid type or format for created_at in save_evening_reflection: {type(created_at)}. Using current time.")
-            created_at_str = datetime.now(TIMEZONE).isoformat() # Fallback
+            created_at_str = datetime.now(TIMEZONE).isoformat()
 
         try:
             with self.conn:
-                self.conn.execute(sql, (user_id, date, good_moments, gratitude, hard_moments, created_at_str))
-            logger.info(f"Saved evening reflection for user {user_id} for date {date}")
+                # Передаем ai_summary (может быть None) как последний параметр
+                self.conn.execute(sql, (user_id, date, good_moments, gratitude, hard_moments, created_at_str, ai_summary))
+            log_msg = f"Saved evening reflection for user {user_id} for date {date}"
+            if ai_summary:
+                log_msg += " with AI summary."
+            else:
+                log_msg += " without AI summary."
+            logger.info(log_msg)
         except sqlite3.Error as e:
             logger.error(f"Failed to save evening reflection for user {user_id}: {e}", exc_info=True)
-            raise # Пробрасываем ошибку, чтобы ее можно было обработать выше
+            raise
 
     def close(self):
         """Закрывает соединение с базой данных."""
@@ -642,7 +632,6 @@ class Database:
                 logger.error(f"Error closing database connection: {e}", exc_info=True)
 
 # Импорт pytz нужен здесь для is_card_available и потенциально для других мест
-# Делаем его безопасным, если библиотека не установлена
 try:
     import pytz
 except ImportError:
