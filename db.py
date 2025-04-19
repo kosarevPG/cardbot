@@ -3,10 +3,7 @@ import sqlite3
 import json
 from datetime import datetime
 import os
-# Убедись, что TIMEZONE импортирован правильно из твоего config файла
-# Пример: from config import TIMEZONE
-# Оставляем, т.к. используется в save_action и др. косвенно через now()
-from config import TIMEZONE # Убедитесь, что этот импорт работает
+from config import TIMEZONE
 import logging
 
 # Настраиваем логгер для этого модуля
@@ -20,7 +17,7 @@ class Database:
         Порядок:
         1. Соединение.
         2. Создание базовых таблиц (если не существуют).
-        3. Запуск миграций (добавление столбцов в существующие таблицы).
+        3. Запуск миграций (добавление столбцов/таблиц).
         4. Создание индексов.
         """
         db_dir = os.path.dirname(path)
@@ -37,152 +34,130 @@ class Database:
             self.conn = sqlite3.connect(path, check_same_thread=False, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
             logger.info(f"Database connection initialized at path: {path}")
 
-            # Включаем поддержку типов данных datetime для SQLite
             sqlite3.register_adapter(datetime, lambda val: val.isoformat())
 
-            # Декодер для timestamp с обработкой None и 'Z'
             def decode_timestamp(val):
-                if val is None:
-                    return None
+                if val is None: return None
                 try:
                     val_str = val.decode('utf-8')
-                    if val_str.endswith('Z'):
-                        val_str = val_str[:-1] + '+00:00'
+                    if val_str.endswith('Z'): val_str = val_str[:-1] + '+00:00'
                     dt_obj = datetime.fromisoformat(val_str)
                     return dt_obj
                 except (ValueError, TypeError, AttributeError) as e:
                     logger.error(f"Error decoding timestamp '{val}': {e}")
                     return None
-
             sqlite3.register_converter("timestamp", decode_timestamp)
 
             self.conn.row_factory = sqlite3.Row
-            self.bot = None # Устанавливается в main.py
+            self.bot = None
 
             # --- Порядок инициализации ---
-            self.create_tables()      # Шаг 1: Создать таблицы с полным текущим набором столбцов
-            self._run_migrations()    # Шаг 2: Добавить столбцы в таблицы, если они были созданы старой версией кода
-            self.create_indexes()     # Шаг 3: Создать индексы для всех столбцов
+            self.create_tables()
+            self._run_migrations()
+            self.create_indexes()
 
         except sqlite3.Error as e:
-            logger.critical(f"Database initialization failed: Could not connect or setup tables/migrations/indexes at {path}. Error: {e}", exc_info=True)
-            raise # Критическая ошибка, бот не может работать без БД
+            logger.critical(f"Database initialization failed: {e}", exc_info=True)
+            raise
 
     def create_tables(self):
         """Создает все необходимые таблицы с ПОЛНОЙ АКТУАЛЬНОЙ СХЕМОЙ, если они не существуют."""
         logger.info("Ensuring base table structures exist...")
         try:
             with self.conn:
-                # Таблица users (с полем reminder_time_evening)
+                # --- Users ---
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS users (
-                        user_id INTEGER PRIMARY KEY,
-                        name TEXT,
-                        username TEXT,
-                        last_request TEXT,          -- ISO строка времени последнего вытягивания карты
-                        reminder_time TEXT,         -- Время утреннего напоминания HH:MM
-                        reminder_time_evening TEXT, -- Время вечернего напоминания HH:MM (Определено здесь!)
+                        user_id INTEGER PRIMARY KEY, name TEXT, username TEXT,
+                        last_request TEXT, reminder_time TEXT, reminder_time_evening TEXT,
                         bonus_available BOOLEAN DEFAULT FALSE
                     )""")
-                # Таблица использованных карт
+                # --- User Cards ---
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS user_cards (
-                        user_id INTEGER,
-                        card_number INTEGER,
+                        user_id INTEGER, card_number INTEGER,
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
-                # Таблица логов действий
+                # --- Actions ---
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS actions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER,
-                        username TEXT,
-                        name TEXT,
-                        action TEXT NOT NULL,       -- Тип действия
-                        details TEXT,               -- Детали в формате JSON
-                        timestamp TEXT NOT NULL,    -- Время действия в ISO формате
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, username TEXT, name TEXT,
+                        action TEXT NOT NULL, details TEXT, timestamp TEXT NOT NULL,
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
-                # Таблица рефералов
+                # --- Referrals ---
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS referrals (
-                        referrer_id INTEGER,
-                        referred_id INTEGER UNIQUE, -- Один пользователь может быть приглашен только один раз
+                        referrer_id INTEGER, referred_id INTEGER UNIQUE,
                         FOREIGN KEY (referrer_id) REFERENCES users(user_id) ON DELETE CASCADE,
                         FOREIGN KEY (referred_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
-                # Таблица для общего фидбека
+                # --- Feedback ---
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS feedback (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT,
+                        feedback TEXT NOT NULL, timestamp TEXT NOT NULL,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )""")
+                # --- User Profiles ---
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS user_profiles (
+                        user_id INTEGER PRIMARY KEY, mood TEXT, mood_trend TEXT, themes TEXT,
+                        response_count INTEGER DEFAULT 0, request_count INTEGER DEFAULT 0,
+                        avg_response_length REAL DEFAULT 0, days_active INTEGER DEFAULT 0,
+                        interactions_per_day REAL DEFAULT 0, last_updated TEXT,
+                        initial_resource TEXT, final_resource TEXT, recharge_method TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )""")
+                # --- Evening Reflections ---
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS evening_reflections (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, date TEXT NOT NULL,
+                        good_moments TEXT, gratitude TEXT, hard_moments TEXT,
+                        created_at TEXT NOT NULL, ai_summary TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )""")
+                # --- <<< НОВАЯ ТАБЛИЦА >>> ---
+                # --- User Recharge Methods ---
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS user_recharge_methods (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER,
-                        name TEXT,
-                        feedback TEXT NOT NULL,
+                        user_id INTEGER NOT NULL,
+                        method TEXT NOT NULL,
                         timestamp TEXT NOT NULL,
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
-                # Таблица профилей пользователей (с новыми полями)
-                self.conn.execute("""
-                    CREATE TABLE IF NOT EXISTS user_profiles (
-                        user_id INTEGER PRIMARY KEY,
-                        mood TEXT,
-                        mood_trend TEXT,            -- JSON список последних настроений
-                        themes TEXT,                -- JSON список тем
-                        response_count INTEGER DEFAULT 0,
-                        request_count INTEGER DEFAULT 0,
-                        avg_response_length REAL DEFAULT 0,
-                        days_active INTEGER DEFAULT 0,
-                        interactions_per_day REAL DEFAULT 0,
-                        last_updated TEXT,          -- ISO строка времени последнего обновления профиля
-                        initial_resource TEXT,      -- (Определено здесь!)
-                        final_resource TEXT,        -- (Определено здесь!)
-                        recharge_method TEXT,       -- (Определено здесь!)
-                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-                    )""")
-                # Таблица для вечерней рефлексии (с полем ai_summary)
-                self.conn.execute("""
-                    CREATE TABLE IF NOT EXISTS evening_reflections (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER NOT NULL,
-                        date TEXT NOT NULL,             -- Дата в формате YYYY-MM-DD
-                        good_moments TEXT,              -- Ответ на вопрос 1
-                        gratitude TEXT,                 -- Ответ на вопрос 2
-                        hard_moments TEXT,              -- Ответ на вопрос 3
-                        created_at TEXT NOT NULL,       -- Время сохранения ISO (с таймзоной)
-                        ai_summary TEXT,                -- <--- НОВОЕ ПОЛЕ: Резюме от AI
-                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
-                    )""")
+                # --- <<< КОНЕЦ НОВОЙ ТАБЛИЦЫ >>> ---
 
             logger.info("Base table structures checked/created successfully.")
         except sqlite3.Error as e:
             logger.error(f"Error creating base database tables: {e}", exc_info=True)
-            raise # Пробрасываем ошибку, если таблицы создать не удалось
+            raise
 
     def _run_migrations(self):
-        """Добавляет новые столбцы в СУЩЕСТВУЮЩИЕ таблицы (ALTER TABLE), если их нет."""
-        logger.info("Running database migrations (checking for missing columns)...")
+        """Добавляет новые столбцы/таблицы в СУЩЕСТВУЮЩИЕ БД."""
+        logger.info("Running database migrations...")
         try:
-            # Миграция для user_profiles
-            profile_columns = {
-                'initial_resource': 'TEXT',
-                'final_resource': 'TEXT',
-                'recharge_method': 'TEXT'
-            }
+            # --- Добавление столбцов ---
+            profile_columns = {'initial_resource': 'TEXT', 'final_resource': 'TEXT', 'recharge_method': 'TEXT'}
             self._add_columns_if_not_exist('user_profiles', profile_columns)
-
-            # Миграция для users
-            users_columns = {
-                'reminder_time_evening': 'TEXT'
-            }
+            users_columns = {'reminder_time_evening': 'TEXT'}
             self._add_columns_if_not_exist('users', users_columns)
-
-            # --- НОВАЯ МИГРАЦИЯ ---
-            # Миграция для evening_reflections
-            reflection_columns = {
-                'ai_summary': 'TEXT' # Добавляем новое поле
-            }
+            reflection_columns = {'ai_summary': 'TEXT'}
             self._add_columns_if_not_exist('evening_reflections', reflection_columns)
-            # --- КОНЕЦ НОВОЙ МИГРАЦИИ ---
+
+            # --- Создание новых таблиц (если их нет в существующей БД) ---
+            with self.conn:
+                 # Создаем таблицу методов восстановления, если ее еще нет
+                 self.conn.execute("""
+                     CREATE TABLE IF NOT EXISTS user_recharge_methods (
+                         id INTEGER PRIMARY KEY AUTOINCREMENT,
+                         user_id INTEGER NOT NULL,
+                         method TEXT NOT NULL,
+                         timestamp TEXT NOT NULL,
+                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                     )""")
+                 logger.info("Checked/Created 'user_recharge_methods' table during migration.")
 
             logger.info("Database migrations finished successfully.")
         except Exception as e:
@@ -201,43 +176,52 @@ class Database:
             added_count = 0
             for col_name, col_type in columns_to_add.items():
                 if col_name not in existing_columns:
-                    alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"
-                    logger.info(f"Executing migration: {alter_sql}")
-                    cursor.execute(alter_sql)
-                    logger.info(f"Successfully added column '{col_name}' to {table_name}")
-                    added_count += 1
-                else: # Отладка
+                    try:
+                        alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"
+                        logger.info(f"Executing migration: {alter_sql}")
+                        cursor.execute(alter_sql)
+                        logger.info(f"Successfully added column '{col_name}' to {table_name}")
+                        added_count += 1
+                    except sqlite3.OperationalError as oe:
+                        # Игнорируем ошибку "duplicate column name", если миграция запускается повторно
+                        if "duplicate column name" in str(oe).lower():
+                            logger.warning(f"Column '{col_name}' likely already exists in {table_name} despite PRAGMA result. Ignoring error: {oe}")
+                        else:
+                            raise oe # Поднимаем другие OperationalError
+                else:
                     logger.debug(f"Column '{col_name}' already exists in {table_name}.")
 
             if added_count > 0:
                 self.conn.commit()
                 logger.info(f"Committed {added_count} column additions for {table_name}.")
-            # else: # Отладка
-            #     logger.debug(f"No new columns needed for {table_name}.")
 
         except sqlite3.Error as e:
             logger.error(f"Database migration error for {table_name} adding columns: {e}", exc_info=True)
-            self.conn.rollback() # Откатываем изменения в рамках этой таблицы при ошибке
-            raise e # Пробрасываем ошибку миграции выше
+            self.conn.rollback()
+            raise e
 
     def create_indexes(self):
         """Создает все необходимые индексы, ЕСЛИ ОНИ НЕ СУЩЕСТВУЮТ."""
         logger.info("Creating database indexes if they don't exist...")
         try:
             with self.conn:
-                # Индексы для ускорения запросов
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_actions_user_timestamp ON actions (user_id, timestamp)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_user_cards_user ON user_cards (user_id)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_users_reminder_time ON users (reminder_time)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_users_reminder_time_evening ON users (reminder_time_evening)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_reflections_user_date ON evening_reflections (user_id, date)")
+                # --- <<< НОВЫЙ ИНДЕКС >>> ---
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_recharge_user_timestamp ON user_recharge_methods (user_id, timestamp)")
+                # --- <<< КОНЕЦ НОВОГО ИНДЕКСА >>> ---
 
             logger.info("Indexes checked/created successfully.")
         except sqlite3.Error as e:
             logger.error(f"Error creating database indexes: {e}", exc_info=True)
 
-
+    # --- Методы get_user, update_user, get_user_cards, add_user_card, reset_user_cards ---
+    # --- ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ ---
     def get_user(self, user_id):
+        # ... (код без изменений) ...
         """Получает данные пользователя. Если не найден, создает запись."""
         try:
             cursor = self.conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
@@ -290,8 +274,8 @@ class Database:
             # Возвращаем дефолтную структуру в памяти в случае ошибки БД
             return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "reminder_time_evening": None, "bonus_available": False}
 
-
     def update_user(self, user_id, data):
+        # ... (код без изменений) ...
         """Обновляет данные пользователя (INSERT OR REPLACE)."""
         current_user_data = self.get_user(user_id)
 
@@ -332,6 +316,7 @@ class Database:
             logger.error(f"Failed to update user {user_id}: {e}", exc_info=True)
 
     def get_user_cards(self, user_id):
+        # ... (код без изменений) ...
         """Возвращает список номеров карт, использованных пользователем."""
         try:
             cursor = self.conn.execute("SELECT card_number FROM user_cards WHERE user_id = ?", (user_id,))
@@ -341,6 +326,7 @@ class Database:
             return []
 
     def add_user_card(self, user_id, card_number):
+        # ... (код без изменений) ...
         """Добавляет запись об использованной карте."""
         try:
             with self.conn:
@@ -349,6 +335,7 @@ class Database:
             logger.error(f"Failed to add user card {card_number} for {user_id}: {e}", exc_info=True)
 
     def reset_user_cards(self, user_id):
+        # ... (код без изменений) ...
         """Удаляет все записи об использованных картах для пользователя."""
         try:
             with self.conn:
@@ -357,8 +344,10 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Failed to reset user cards for {user_id}: {e}", exc_info=True)
 
-
+    # --- Методы save_action, get_actions, get_reminder_times, get_all_users, is_card_available ---
+    # --- ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ ---
     def save_action(self, user_id, username, name, action, details, timestamp):
+        # ... (код без изменений) ...
         """Сохраняет запись о действии пользователя."""
         timestamp_str = None
         if isinstance(timestamp, datetime):
@@ -375,10 +364,22 @@ class Database:
         details_json = None
         if details is not None:
             try:
-                details_json = json.dumps(details, ensure_ascii=False, indent=2)
+                # Улучшенная сериализация для datetime внутри details
+                def default_serializer(o):
+                    if isinstance(o, datetime):
+                        return o.isoformat()
+                    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
+                details_json = json.dumps(details, ensure_ascii=False, indent=2, default=default_serializer)
             except TypeError as e:
                 logger.error(f"Failed to serialize details for action '{action}', user {user_id}: {e}. Details: {details}")
-                details_json = json.dumps({"error": "serialization_failed", "original_details_type": str(type(details))})
+                try:
+                     # Попытка сериализовать без datetime
+                     safe_details = {k: v for k, v in details.items() if not isinstance(v, datetime)}
+                     details_json = json.dumps(safe_details, ensure_ascii=False, indent=2)
+                     logger.warning("Serialized details excluding datetime objects.")
+                except Exception as final_e:
+                     logger.error(f"Final attempt to serialize details failed: {final_e}")
+                     details_json = json.dumps({"error": "serialization_failed", "original_details_repr": repr(details)})
 
         try:
             with self.conn:
@@ -389,8 +390,8 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Failed to save action '{action}' for user {user_id}: {e}. Details JSON: {details_json}", exc_info=True)
 
-
     def get_actions(self, user_id=None):
+        # ... (код без изменений) ...
         """Получает список действий пользователя (или всех), отсортированных по времени."""
         actions = []
         try:
@@ -428,8 +429,8 @@ class Database:
             logger.error(f"Failed to get actions (user_id: {user_id}): {e}", exc_info=True)
         return actions
 
-
     def get_reminder_times(self):
+        # ... (код без изменений) ...
         """Возвращает словарь {user_id: {'morning': time, 'evening': time}} для пользователей с установленными напоминаниями."""
         reminders = {}
         try:
@@ -449,6 +450,7 @@ class Database:
             return {}
 
     def get_all_users(self):
+        # ... (код без изменений) ...
         """Возвращает список всех user_id."""
         try:
             cursor = self.conn.execute("SELECT user_id FROM users")
@@ -458,6 +460,7 @@ class Database:
             return []
 
     def is_card_available(self, user_id, today_date: datetime.date):
+        # ... (код без изменений) ...
         """Проверяет, доступна ли карта дня для пользователя сегодня."""
         user_data = self.get_user(user_id)
         if not user_data:
@@ -476,8 +479,9 @@ class Database:
         return True
 
 
-    # --- Методы для Рефералов ---
+    # --- Методы для Рефералов (без изменений) ---
     def add_referral(self, referrer_id, referred_id):
+        # ... (код без изменений) ...
         """Добавляет запись о реферале (если такой еще не существует)."""
         try:
             with self.conn:
@@ -493,6 +497,7 @@ class Database:
             return False
 
     def get_referrals(self, referrer_id):
+        # ... (код без изменений) ...
         """Возвращает список ID пользователей, приглашенных данным пользователем."""
         try:
             cursor = self.conn.execute("SELECT referred_id FROM referrals WHERE referrer_id = ?", (referrer_id,))
@@ -501,26 +506,43 @@ class Database:
             logger.error(f"Failed to get referrals for {referrer_id}: {e}", exc_info=True)
             return []
 
-    # --- Методы для Профиля Пользователя ---
+    # --- Методы для Профиля Пользователя (get_user_profile, update_user_profile) ---
+    # --- ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ (update будет вызываться из ai_service с новыми данными) ---
     def get_user_profile(self, user_id):
+        # ... (код без изменений) ...
         """Получает профиль пользователя из таблицы user_profiles."""
         try:
             cursor = self.conn.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,))
             row = cursor.fetchone()
             if row:
                 profile_dict = dict(row)
-                # Преобразуем last_updated в datetime (если строка)
+                # Преобразуем last_updated в datetime
                 last_updated_val = profile_dict.get("last_updated")
                 if last_updated_val and isinstance(last_updated_val, str):
                     try:
                         if last_updated_val.endswith('Z'):
                             last_updated_val = last_updated_val[:-1] + '+00:00'
-                        profile_dict["last_updated"] = datetime.fromisoformat(last_updated_val)
+                        # Делаем aware datetime
+                        dt_obj = datetime.fromisoformat(last_updated_val)
+                        if dt_obj.tzinfo is None:
+                             # Если таймзона отсутствует после парсинга ISO (маловероятно, но возможно)
+                             # Лучше считать UTC и конвертировать, чем делать localize
+                             profile_dict["last_updated"] = dt_obj.replace(tzinfo=pytz.utc).astimezone(TIMEZONE)
+                             logger.warning(f"Parsed naive ISO timestamp for last_updated user {user_id}. Assuming UTC.")
+                        else:
+                             profile_dict["last_updated"] = dt_obj.astimezone(TIMEZONE) # Конвертируем в TIMEZONE
                     except (ValueError, TypeError) as e:
                         logger.error(f"Error parsing last_updated '{last_updated_val}' for profile user {user_id}: {e}")
                         profile_dict["last_updated"] = None
                 elif not isinstance(last_updated_val, datetime):
                     profile_dict["last_updated"] = None
+                elif isinstance(last_updated_val, datetime) and last_updated_val.tzinfo is None:
+                     # Если в БД сохранился naive datetime (старые данные), локализуем его
+                     try:
+                         profile_dict["last_updated"] = TIMEZONE.localize(last_updated_val)
+                     except Exception as tz_err:
+                          logger.error(f"Could not localize naive last_updated from DB for user {user_id}: {tz_err}")
+                          # Оставляем naive, build_user_profile должен это учесть
 
                 # Декодируем JSON поля
                 for field in ["mood_trend", "themes"]:
@@ -534,10 +556,10 @@ class Database:
                     elif profile_dict.get(field) is None:
                         profile_dict[field] = []
 
-                # Гарантируем наличие новых полей
+                # Гарантируем наличие полей
                 profile_dict.setdefault("initial_resource", None)
                 profile_dict.setdefault("final_resource", None)
-                profile_dict.setdefault("recharge_method", None)
+                profile_dict.setdefault("recharge_method", None) # Это поле теперь кэш/старое значение
 
                 return profile_dict
             return None
@@ -545,50 +567,52 @@ class Database:
             logger.error(f"Failed to get user profile for {user_id}: {e}", exc_info=True)
             return None
 
-
     def update_user_profile(self, user_id, profile_update_data):
+        # ... (код без изменений, но теперь обновляет меньше полей напрямую) ...
         """Обновляет профиль пользователя (INSERT OR REPLACE)."""
         current_profile = self.get_user_profile(user_id) or {}
 
-        # Обрабатываем время обновления
         last_updated_dt = profile_update_data.get("last_updated", datetime.now(TIMEZONE))
         last_updated_iso = last_updated_dt.isoformat() if isinstance(last_updated_dt, datetime) else datetime.now(TIMEZONE).isoformat()
 
-        # Подготавливаем данные для сохранения
         profile_to_save = {
             "user_id": user_id,
             "mood": profile_update_data.get("mood", current_profile.get("mood")),
             "mood_trend": json.dumps(profile_update_data.get("mood_trend", current_profile.get("mood_trend", []))),
             "themes": json.dumps(profile_update_data.get("themes", current_profile.get("themes", []))),
             "response_count": profile_update_data.get("response_count", current_profile.get("response_count", 0)),
-            "request_count": profile_update_data.get("request_count", current_profile.get("request_count", 0)),
-            "avg_response_length": profile_update_data.get("avg_response_length", current_profile.get("avg_response_length", 0)),
+            # request_count, avg_response_length, interactions_per_day УБРАНЫ из этого обновления
+            # они будут расчитаны в build_user_profile и сохранены там же, если нужно будет их кэшировать
             "days_active": profile_update_data.get("days_active", current_profile.get("days_active", 0)),
-            "interactions_per_day": profile_update_data.get("interactions_per_day", current_profile.get("interactions_per_day", 0)),
             "last_updated": last_updated_iso,
             "initial_resource": profile_update_data.get("initial_resource", current_profile.get("initial_resource")),
             "final_resource": profile_update_data.get("final_resource", current_profile.get("final_resource")),
+            # Обновляем поле recharge_method последним известным значением из build_user_profile
             "recharge_method": profile_update_data.get("recharge_method", current_profile.get("recharge_method")),
         }
 
+        # --- УДАЛЕНИЕ НЕНУЖНЫХ КЛЮЧЕЙ ПЕРЕД ЗАПИСЬЮ ---
+        # Убираем поля, которые больше не хранятся или не обновляются напрямую
+        keys_to_remove_from_save = ['request_count', 'avg_response_length', 'interactions_per_day']
+        for key in keys_to_remove_from_save:
+            profile_to_save.pop(key, None) # Удаляем ключ, если он есть
+
+        # --- ФОРМИРОВАНИЕ SQL ---
+        columns = ', '.join(profile_to_save.keys())
+        placeholders = ', '.join(f':{key}' for key in profile_to_save.keys())
+        sql = f"INSERT OR REPLACE INTO user_profiles ({columns}) VALUES ({placeholders})"
+
+
         try:
             with self.conn:
-                self.conn.execute("""
-                    INSERT OR REPLACE INTO user_profiles (
-                        user_id, mood, mood_trend, themes, response_count, request_count,
-                        avg_response_length, days_active, interactions_per_day, last_updated,
-                        initial_resource, final_resource, recharge_method
-                    ) VALUES (
-                        :user_id, :mood, :mood_trend, :themes, :response_count, :request_count,
-                        :avg_response_length, :days_active, :interactions_per_day, :last_updated,
-                        :initial_resource, :final_resource, :recharge_method
-                    )
-                """, profile_to_save)
+                self.conn.execute(sql, profile_to_save)
         except sqlite3.Error as e:
-            logger.error(f"Failed to update user profile for {user_id}: {e}", exc_info=True)
+            logger.error(f"Failed to update user profile for {user_id}: {e}. SQL: {sql} Data: {profile_to_save}", exc_info=True)
 
-    # --- Метод для Вечерней Рефлексии (ОБНОВЛЕН) ---
-    def save_evening_reflection(self, user_id, date, good_moments, gratitude, hard_moments, created_at, ai_summary=None): # Добавлен ai_summary
+
+    # --- Метод для Вечерней Рефлексии (без изменений) ---
+    def save_evening_reflection(self, user_id, date, good_moments, gratitude, hard_moments, created_at, ai_summary=None):
+        # ... (код без изменений) ...
         """Сохраняет данные вечерней рефлексии в БД, включая AI резюме."""
         sql = """
             INSERT INTO evening_reflections
@@ -622,7 +646,94 @@ class Database:
             logger.error(f"Failed to save evening reflection for user {user_id}: {e}", exc_info=True)
             raise
 
+    # --- <<< НОВЫЕ МЕТОДЫ ДЛЯ СПОСОБОВ ВОССТАНОВЛЕНИЯ >>> ---
+    def add_recharge_method(self, user_id: int, method: str, timestamp: str):
+        """Добавляет новый способ восстановления ресурса для пользователя."""
+        sql = "INSERT INTO user_recharge_methods (user_id, method, timestamp) VALUES (?, ?, ?)"
+        try:
+            # Проверяем timestamp на валидность ISO формата
+            try:
+                 datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            except (ValueError, TypeError):
+                 logger.error(f"Invalid timestamp format '{timestamp}' provided to add_recharge_method for user {user_id}. Using current time.")
+                 timestamp = datetime.now(TIMEZONE).isoformat()
+
+            with self.conn:
+                self.conn.execute(sql, (user_id, method, timestamp))
+            logger.info(f"Added recharge method for user {user_id}: '{method}'")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to add recharge method for user {user_id}: {e}", exc_info=True)
+
+    def get_last_recharge_method(self, user_id: int) -> dict | None:
+        """Возвращает последний добавленный способ восстановления для пользователя."""
+        sql = "SELECT method, timestamp FROM user_recharge_methods WHERE user_id = ? ORDER BY timestamp DESC LIMIT 1"
+        try:
+            cursor = self.conn.execute(sql, (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get last recharge method for user {user_id}: {e}", exc_info=True)
+            return None
+
+    def get_all_recharge_methods(self, user_id: int) -> list[dict]:
+         """Возвращает все способы восстановления для пользователя, отсортированные по времени."""
+         sql = "SELECT method, timestamp FROM user_recharge_methods WHERE user_id = ? ORDER BY timestamp DESC"
+         methods = []
+         try:
+             cursor = self.conn.execute(sql, (user_id,))
+             for row in cursor.fetchall():
+                 methods.append(dict(row))
+         except sqlite3.Error as e:
+             logger.error(f"Failed to get all recharge methods for user {user_id}: {e}", exc_info=True)
+         return methods
+    # --- <<< КОНЕЦ НОВЫХ МЕТОДОВ >>> ---
+
+
+    # --- <<< НОВЫЕ МЕТОДЫ ДЛЯ СТАТИСТИКИ РЕФЛЕКСИЙ >>> ---
+    def get_last_reflection_date(self, user_id: int) -> str | None:
+         """Возвращает дату ('YYYY-MM-DD') последней рефлексии пользователя."""
+         sql = "SELECT date FROM evening_reflections WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT 1"
+         try:
+              cursor = self.conn.execute(sql, (user_id,))
+              row = cursor.fetchone()
+              return row['date'] if row else None
+         except sqlite3.Error as e:
+              logger.error(f"Failed to get last reflection date for user {user_id}: {e}", exc_info=True)
+              return None
+
+    def count_reflections(self, user_id: int) -> int:
+         """Возвращает общее количество рефлексий пользователя."""
+         sql = "SELECT COUNT(id) as count FROM evening_reflections WHERE user_id = ?"
+         try:
+              cursor = self.conn.execute(sql, (user_id,))
+              row = cursor.fetchone()
+              return row['count'] if row else 0
+         except sqlite3.Error as e:
+              logger.error(f"Failed to count reflections for user {user_id}: {e}", exc_info=True)
+              return 0
+
+    def get_all_reflection_texts(self, user_id: int, limit: int = 10) -> list[dict]:
+         """Возвращает тексты последних N рефлексий для анализа."""
+         sql = """
+             SELECT good_moments, gratitude, hard_moments
+             FROM evening_reflections
+             WHERE user_id = ?
+             ORDER BY date DESC, id DESC
+             LIMIT ?
+         """
+         texts = []
+         try:
+             cursor = self.conn.execute(sql, (user_id, limit))
+             for row in cursor.fetchall():
+                 texts.append(dict(row))
+         except sqlite3.Error as e:
+             logger.error(f"Failed to get reflection texts for user {user_id}: {e}", exc_info=True)
+         return texts
+    # --- <<< КОНЕЦ НОВЫХ МЕТОДОВ >>> ---
+
+
     def close(self):
+        # ... (код без изменений) ...
         """Закрывает соединение с базой данных."""
         if self.conn:
             try:
@@ -631,9 +742,9 @@ class Database:
             except sqlite3.Error as e:
                 logger.error(f"Error closing database connection: {e}", exc_info=True)
 
-# Импорт pytz нужен здесь для is_card_available и потенциально для других мест
+# Импорт pytz (без изменений)
 try:
     import pytz
 except ImportError:
     pytz = None
-    logger.warning("pytz library not found. Timezone conversions might be affected if database stores naive datetimes or if TIMEZONE config is used.")
+    logger.warning("pytz library not found. Timezone conversions might be affected.")
