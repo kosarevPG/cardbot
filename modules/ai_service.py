@@ -4,7 +4,7 @@ import httpx
 import json
 import random
 from config import GROK_API_KEY, GROK_API_URL, TIMEZONE
-from datetime import datetime, timedelta
+from datetime import datetime, date # Убедимся что date импортирован
 import re
 import logging
 # Импортируем Database для аннотации типов и доступа к методам
@@ -430,6 +430,7 @@ async def get_grok_supportive_message(user_id, db: Database = None):
 
 # --- Построение профиля пользователя (ОБНОВЛЕНО) ---
 async def build_user_profile(user_id, db: Database):
+    # ... (начало функции, проверка кэша) ...
     """
     Строит или обновляет профиль пользователя.
     Включает данные рефлексии, статистику карт, хранит все методы восстановления (но получает последний).
@@ -443,7 +444,6 @@ async def build_user_profile(user_id, db: Database):
     if profile_data and isinstance(profile_data.get("last_updated"), datetime):
         last_updated_dt = profile_data["last_updated"]
         is_aware = last_updated_dt.tzinfo is not None and last_updated_dt.tzinfo.utcoffset(last_updated_dt) is not None
-        # Используем pytz для локализации, если он доступен
         if not is_aware and pytz:
              try:
                  last_updated_dt = TIMEZONE.localize(last_updated_dt)
@@ -467,7 +467,6 @@ async def build_user_profile(user_id, db: Database):
             profile_data.setdefault("total_cards_drawn", 0) # Новая метрика
             profile_data.setdefault("last_reflection_date", None) # Новая метрика
             profile_data.setdefault("reflection_count", 0) # Новая метрика
-            # Добавляем убранные ключи со значением None, чтобы не было KeyError при доступе
             profile_data.setdefault("request_count", None)
             profile_data.setdefault("avg_response_length", None)
             profile_data.setdefault("interactions_per_day", None)
@@ -478,14 +477,13 @@ async def build_user_profile(user_id, db: Database):
 
     # --- Получаем данные из БД ---
     actions = db.get_actions(user_id)
-    # Новые вызовы для рефлексии и метода восстановления
-    reflection_texts_list = db.get_all_reflection_texts(user_id) # Получаем список словарей текстов рефлексий
-    last_recharge_method = db.get_last_recharge_method(user_id) # Получаем последний метод
-    last_reflection_date_obj = db.get_last_reflection_date(user_id) # Получаем дату последней рефлексии
-    reflection_count = db.count_reflections(user_id) # Получаем кол-во рефлексий
-    total_cards_drawn = db.count_user_cards(user_id) # Получаем кол-во карт
+    reflection_texts_list = db.get_all_reflection_texts(user_id)
+    last_recharge_method = db.get_last_recharge_method(user_id)
+    last_reflection_date_obj = db.get_last_reflection_date(user_id) # Теперь должен быть date или None
+    reflection_count = db.count_reflections(user_id)
+    total_cards_drawn = db.count_user_cards(user_id)
 
-    # --- Извлечение данных из логов действий (для того, что не берем напрямую из БД) ---
+    # --- Извлечение данных из логов действий ---
     responses = []
     mood_trend_responses = []
     timestamps = []
@@ -496,7 +494,7 @@ async def build_user_profile(user_id, db: Database):
         details = action.get("details", {})
         action_type = action.get("action", "")
 
-        # Ответы (для анализа настроения и тем)
+        # Ответы
         relevant_response_actions = [
             "initial_response_provided", "grok_response_provided",
             "initial_response", "first_grok_response",
@@ -508,18 +506,17 @@ async def build_user_profile(user_id, db: Database):
                 responses.append(response_text)
                 mood_trend_responses.append(response_text)
 
-        # Ресурсы (из логов, т.к. они связаны с конкретной сессией карты)
+        # Ресурсы
         if action_type == "initial_resource_selected" and "resource" in details:
              last_initial_resource = details["resource"]
         if action_type == "final_resource_selected" and "resource" in details:
              last_final_resource = details["resource"]
 
-        # Временные метки (для расчета дней активности)
+        # Временные метки
         raw_timestamp = action.get("timestamp")
         if isinstance(raw_timestamp, str):
             try:
                 dt_aware = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00'))
-                # Используем pytz для конвертации, если он доступен
                 ts = dt_aware.astimezone(TIMEZONE) if pytz else dt_aware
                 timestamps.append(ts)
             except ValueError as e:
@@ -550,22 +547,21 @@ async def build_user_profile(user_id, db: Database):
 
     # Собираем весь текст для анализа тем
     all_responses_text = " ".join(responses)
-    # Собираем тексты из списка словарей рефлексий
     reflection_full_text = " ".join(
         filter(None, [item.get(key) for item in reflection_texts_list for key in ['good_moments', 'gratitude', 'hard_moments']])
     )
     full_text = all_responses_text + " " + reflection_full_text
 
-    # Настроение (по последним 5 ответам карт дня)
+    # Настроение
     mood_source_texts = mood_trend_responses[-5:]
     mood = "unknown"
     if mood_source_texts:
-        mood = analyze_mood(mood_source_texts[-1]) # Используем функцию, определенную выше
+        mood = analyze_mood(mood_source_texts[-1])
     elif base_profile_data:
         mood = base_profile_data.get("mood", "unknown")
 
-    # Темы (по всему тексту)
-    themes = extract_themes(full_text) if full_text.strip() else base_profile_data.get("themes", ["не определено"]) # Используем функцию, определенную выше
+    # Темы
+    themes = extract_themes(full_text) if full_text.strip() else base_profile_data.get("themes", ["не определено"])
 
     response_count = len(responses)
 
@@ -579,11 +575,22 @@ async def build_user_profile(user_id, db: Database):
     elif base_profile_data:
         days_active = base_profile_data.get("days_active", 0)
 
-    # Тренд настроения (по последним 5 ответам карт дня)
-    mood_trend = [analyze_mood(resp) for resp in mood_source_texts] # Используем функцию, определенную выше
+    # Тренд настроения
+    mood_trend = [analyze_mood(resp) for resp in mood_source_texts]
 
-    # Форматируем дату рефлексии
-    last_reflection_date_str = last_reflection_date_obj.strftime('%Y-%m-%d') if last_reflection_date_obj else None
+    # --- ИЗМЕНЕНИЕ: Форматируем дату рефлексии (проверяем тип) ---
+    last_reflection_date_str = None
+    if isinstance(last_reflection_date_obj, date): # Проверяем, что это объект date
+        try:
+            last_reflection_date_str = last_reflection_date_obj.strftime('%Y-%m-%d')
+        except ValueError: # На случай очень старых дат, которые strftime не поддерживает
+            logger.warning(f"Could not format last_reflection_date_obj {last_reflection_date_obj} for user {user_id}")
+            last_reflection_date_str = str(last_reflection_date_obj) # Возвращаем как строку по умолчанию
+    elif last_reflection_date_obj: # Если вернулся не date, но не None (маловероятно)
+        logger.warning(f"last_reflection_date_obj is not a date object: {type(last_reflection_date_obj)} for user {user_id}")
+        last_reflection_date_str = str(last_reflection_date_obj) # Преобразуем в строку как есть
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
 
     # --- Собираем и сохраняем обновленный профиль ---
     updated_profile = {
@@ -595,9 +602,9 @@ async def build_user_profile(user_id, db: Database):
         "days_active": days_active,
         "initial_resource": last_initial_resource,
         "final_resource": last_final_resource,
-        "recharge_method": last_recharge_method, # Последний метод из БД
+        "recharge_method": last_recharge_method,
         "total_cards_drawn": total_cards_drawn,
-        "last_reflection_date": last_reflection_date_str,
+        "last_reflection_date": last_reflection_date_str, # Сохраняем строку
         "reflection_count": reflection_count,
         "last_updated": now
     }
@@ -606,6 +613,7 @@ async def build_user_profile(user_id, db: Database):
     logger.info(f"Profile rebuilt and updated for user {user_id}.")
 
     return updated_profile
+
 
 # --- Резюме для Вечерней Рефлексии ---
 async def get_reflection_summary(user_id: int, reflection_data: dict, db: Database) -> str | None:
@@ -656,37 +664,62 @@ async def get_reflection_summary(user_id: int, reflection_data: dict, db: Databa
 
     fallback_summary = "Спасибо, что поделилась своими мыслями и чувствами. Важно замечать разное в своем дне."
 
-    try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            logger.info(f"Sending REFLECTION SUMMARY request to Grok API for user {user_id}.")
-            response = await client.post(GROK_API_URL, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"Received REFLECTION SUMMARY response from Grok API for user {user_id}.")
+    # --- Используем блок с повторными попытками ---
+    max_retries = 3
+    base_delay = 1.0 # Секунды
+    summary_text = None
 
-        if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
-             raise ValueError("Invalid response structure for reflection summary from Grok API")
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                logger.info(f"Sending REFLECTION SUMMARY request to Grok API for user {user_id} (Attempt {attempt + 1})")
+                response = await client.post(GROK_API_URL, headers=headers, json=payload)
+                response.raise_for_status() # Проверяем ошибки 4xx/5xx
+                data = response.json()
+                logger.info(f"Received REFLECTION SUMMARY response from Grok API for user {user_id}.")
 
-        summary_text = data["choices"][0]["message"]["content"].strip()
-        summary_text = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итог|Итак)[,.:]?\s*', '', summary_text, flags=re.IGNORECASE).strip()
-        summary_text = re.sub(r'^"|"$', '', summary_text).strip()
+            if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
+                 raise ValueError("Invalid response structure for reflection summary from Grok API")
 
-        if not summary_text or len(summary_text) < 10:
-             raise ValueError("Empty or too short reflection summary content after cleaning")
+            summary_text_raw = data["choices"][0]["message"]["content"].strip()
+            summary_text_raw = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итог|Итак)[,.:]?\s*', '', summary_text_raw, flags=re.IGNORECASE).strip()
+            summary_text_raw = re.sub(r'^"|"$', '', summary_text_raw).strip()
 
-        return summary_text
+            if not summary_text_raw or len(summary_text_raw) < 10:
+                 raise ValueError("Empty or too short reflection summary content after cleaning")
 
-    except httpx.TimeoutException:
-        logger.error(f"Grok API reflection summary request timed out for user {user_id}.")
-        return fallback_summary
-    except httpx.RequestError as e:
-        logger.error(f"Grok API reflection summary request failed for user {user_id}: {e}")
-        return fallback_summary
-    except (ValueError, KeyError, IndexError) as e:
-        logger.error(f"Failed to parse Grok API reflection summary response for user {user_id}: {e}")
-        return fallback_summary
-    except Exception as e:
-        logger.exception(f"An unexpected error occurred in get_reflection_summary for user {user_id}: {e}")
-        return None
+            summary_text = summary_text_raw # Сохраняем успешный результат
+            break # Выходим из цикла, если успешно
+
+        except httpx.TimeoutException:
+            logger.warning(f"Grok API reflection summary request timed out for user {user_id} (Attempt {attempt + 1})")
+        except httpx.HTTPStatusError as e:
+             # Повторяем только при 403 (Forbidden) или 429 (Too Many Requests)
+             if e.response.status_code in [403, 429]:
+                 logger.warning(f"Grok API returned {e.response.status_code} for reflection summary (User: {user_id}, Attempt: {attempt + 1}). Retrying...")
+             else: # Другие ошибки 4xx/5xx не повторяем
+                 logger.error(f"Grok API reflection summary request failed with status {e.response.status_code} for user {user_id}: {e}")
+                 summary_text = fallback_summary # Используем запасной текст
+                 break # Выходим из цикла
+        except (ValueError, KeyError, IndexError) as e:
+            logger.error(f"Failed to parse Grok API reflection summary response for user {user_id}: {e}")
+            summary_text = fallback_summary
+            break
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred in get_reflection_summary for user {user_id}: {e}")
+            summary_text = None # Возвращаем None при совсем неожиданной ошибке
+            break # Выходим из цикла
+
+        # Если не вышли из цикла (т.е. была ошибка 403/429 или таймаут), ждем перед следующей попыткой
+        if attempt < max_retries - 1:
+            delay = base_delay * (2 ** attempt) # Экспоненциальная задержка
+            logger.info(f"Waiting {delay:.1f}s before retrying Grok request...")
+            await asyncio.sleep(delay)
+        else: # Если это была последняя попытка
+             logger.error(f"Grok API reflection summary request failed after {max_retries} attempts for user {user_id}.")
+             if summary_text is None: # Если не установили fallback при других ошибках
+                 summary_text = fallback_summary
+
+    return summary_text
 
 # --- КОНЕЦ ФАЙЛА ---
