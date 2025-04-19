@@ -401,7 +401,7 @@ async def process_exploration_choice_callback(callback: types.CallbackQuery, sta
         await callback.answer("Отлично! Задаю первый вопрос...")
         await logger_service.log_action(user_id, "exploration_chosen", {"choice": "yes"})
         # --- Шаг 6a: Запускаем цикл вопросов Grok ---
-        await ask_grok_question(callback.message, state, db, logger_service, step=1)
+        await ask_grok_question(callback.message, state, db, logger_service, step=1, user_id=user_id)
         # Состояние будет установлено внутри ask_grok_question
 
     elif choice == "explore_no":
@@ -415,10 +415,9 @@ async def process_exploration_choice_callback(callback: types.CallbackQuery, sta
         # Состояние будет установлено внутри finish_interaction_flow
 
 # --- Шаг 6: Цикл вопросов Grok ---
-async def ask_grok_question(message: types.Message, state: FSMContext, db, logger_service, step: int):
+async def ask_grok_question(message: types.Message, state: FSMContext, db, logger_service, step: int, user_id: int):
     """Запрашивает и отправляет вопрос от Grok для шага step.
     Устанавливает соответствующее состояние."""
-    user_id = message.from_user.id
     data = await state.get_data() # Получаем все данные из FSM
     user_request = data.get("user_request", "")
     initial_response = data.get("initial_response", "")
@@ -695,7 +694,7 @@ async def process_recharge_method(message: types.Message, state: FSMContext, db,
     try:
          # Обновляем ТОЛЬКО это поле в профиле, не трогая остальное
          # update_user_profile теперь использует current_profile как fallback, так что это безопасно
-         await db.update_user_profile(user_id, {"recharge_method": recharge_method_text, "last_updated": datetime.now(TIMEZONE)})
+         db.update_user_profile(user_id, {"recharge_method": recharge_method_text, "last_updated": datetime.now(TIMEZONE)})
          logger.info(f"Recharge method updated directly in profile for user {user_id}")
     except Exception as e:
          logger.error(f"Failed to update recharge method in profile for user {user_id}: {e}", exc_info=True)
@@ -738,7 +737,7 @@ async def show_final_feedback_and_menu(message: types.Message, state: FSMContext
         # Удаляем None значения, чтобы не перезаписывать ими существующие в БД
         final_profile_data = {k: v for k, v in final_profile_data.items() if v is not None}
         if final_profile_data: # Обновляем, только если есть что обновить
-            await db.update_user_profile(user_id, final_profile_data)
+            db.update_user_profile(user_id, final_profile_data)
             logger.info(f"Final profile data saved for user {user_id} before state clear.")
     except Exception as e:
         logger.error(f"Error saving final profile data for user {user_id} before clear: {e}", exc_info=True)
@@ -784,7 +783,7 @@ async def get_main_menu(user_id, db: Database): # Добавил аннотац�
             keyboard.insert(1, [types.KeyboardButton(text="💌 Подсказка Вселенной")])
     except Exception as e:
         logger.error(f"Error getting user data for main menu (user {user_id}): {e}", exc_info=True)
-    return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, one_time_keyboard=False) # Убрал persistent
+    return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True) # Убрал persistent
 
 # === Обработчик финальной обратной связи (👍/🤔/😕) ===
 # Этот обработчик должен работать даже без активного состояния FSM,
