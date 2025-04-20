@@ -6,21 +6,27 @@ from aiogram.filters import Command, StateFilter, CommandObject
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.context import FSMContext
+# --- ДОБАВЛЯЕМ ИМПОРТ State ---
 from aiogram.fsm.state import State, StatesGroup
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from aiogram.fsm.storage.memory import MemoryStorage
 from functools import partial
-import pytz
+import pytz # Убедимся, что pytz импортирован
 
 # --- Импорты из проекта ---
 from config import (
     TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK,
     TIMEZONE, NO_LOGS_USERS, DATA_DIR
 )
+# База данных и Сервисы
 from database.db import Database
 from modules.logging_service import LoggingService
 from modules.notification_service import NotificationService
-from modules.user_management import UserState, UserManager # Импортируем обновленный UserState
+# Убираем импорт State отсюда, т.к. он теперь выше
+from modules.user_management import UserState, UserManager
 from modules.ai_service import build_user_profile
+
+# Модуль Карты Дня
 from modules.card_of_the_day import (
     get_main_menu, handle_card_request, process_initial_resource_callback,
     process_request_type_callback, process_request_text, process_initial_response,
@@ -28,6 +34,8 @@ from modules.card_of_the_day import (
     process_second_grok_response, process_third_grok_response,
     process_final_resource_callback, process_recharge_method, process_card_feedback
 )
+
+# Модуль Вечерней Рефлексии
 from modules.evening_reflection import (
     reflection_router, start_evening_reflection, process_good_moments,
     process_gratitude, process_hard_moments
@@ -35,7 +43,7 @@ from modules.evening_reflection import (
 
 # --- Стандартные импорты ---
 import random
-from datetime import datetime, timedelta, time # Добавляем time
+from datetime import datetime, timedelta, time, date # Добавляем time, date
 import os
 import json
 import logging
@@ -46,6 +54,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # --- Инициализация ---
+# ... (инициализация bot, storage, db, сервисов как раньше) ...
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
@@ -64,9 +73,10 @@ logging_service = LoggingService(db)
 notifier = NotificationService(bot, db)
 user_manager = UserManager(db)
 
+
 # --- Middleware ---
+# ... (SubscriptionMiddleware без изменений) ...
 class SubscriptionMiddleware:
-    # ... (код middleware без изменений) ...
     async def __call__(self, handler, event, data):
         if isinstance(event, (types.Message, types.CallbackQuery)):
             user = event.from_user; user_id = user.id
@@ -93,13 +103,16 @@ dp.callback_query.middleware(SubscriptionMiddleware())
 logger.info("SubscriptionMiddleware registered.")
 
 
-# --- Общая функция для запроса времени (остается) ---
+# --- Общая функция для запроса времени ---
+# Теперь импорт State сработает
 async def ask_for_time(message: types.Message, state: FSMContext, prompt_text: str, next_state: State):
     """Отправляет сообщение с запросом времени и устанавливает следующее состояние."""
     await message.answer(prompt_text)
     await state.set_state(next_state)
 
 # --- Обработчики стандартных команд ---
+# ... (все обработчики make_... и register_handlers как в предыдущем ответе) ...
+# ... (включая новые обработчики для напоминаний) ...
 # --- /start ---
 def make_start_handler(db, logger_service, user_manager):
     # ... (код start без изменений) ...
@@ -126,118 +139,53 @@ def make_start_handler(db, logger_service, user_manager):
         else: await message.answer(f"{user_name}, снова рад тебя видеть! 👋 Готова поработать с картой дня или подвести итог?", reply_markup=await get_main_menu(user_id, db))
     return wrapped_handler
 
-# --- Команда /remind (ПЕРЕПИСАНА) ---
+# --- Команда /remind ---
 def make_remind_handler(db, logger_service, user_manager):
+    # ... (код make_remind_handler как в предыдущем ответе) ...
     async def wrapped_handler(message: types.Message, state: FSMContext):
-        user_id = message.from_user.id
-        user_data = db.get_user(user_id)
-        name = user_data.get("name", "Друг")
-        morning_reminder = user_data.get("reminder_time")
-        evening_reminder = user_data.get("reminder_time_evening")
-
-        morning_text = f"Напоминание 'Карта дня' ✨: <b>{morning_reminder}</b> МСК" if morning_reminder else "Напоминание 'Карта дня' ✨: <b>отключено</b>"
-        evening_text = f"Напоминание 'Итог дня' 🌙: <b>{evening_reminder}</b> МСК" if evening_reminder else "Напоминание 'Итог дня' 🌙: <b>отключено</b>"
-
-        purpose_text = "⏰ Настроим ежедневные напоминания?"
-        instruction_text = (
-            "Сначала введи удобное время для <b>утреннего</b> напоминания 'Карта дня' в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>).\n"
-            "Или напиши <code>выкл</code>, чтобы отключить это напоминание.\n\n"
-            f"<u>Текущие настройки:</u>\n- {morning_text}\n- {evening_text}"
-        )
-        text = f"{name}, привет!\n\n{purpose_text}\n\n{instruction_text}"
-
-        # Запрашиваем утреннее время
-        await message.answer(text, reply_markup=await get_main_menu(user_id, db)) # Показываем основное меню на всякий случай
-        await state.set_state(UserState.waiting_for_morning_reminder_time) # Новое состояние
-        await logger_service.log_action(user_id, "remind_command_invoked")
+        user_id = message.from_user.id; user_data = db.get_user(user_id); name = user_data.get("name", "Друг"); morning_reminder = user_data.get("reminder_time"); evening_reminder = user_data.get("reminder_time_evening")
+        morning_text = f"Напоминание 'Карта дня' ✨: <b>{morning_reminder}</b> МСК" if morning_reminder else "Напоминание 'Карта дня' ✨: <b>отключено</b>"; evening_text = f"Напоминание 'Итог дня' 🌙: <b>{evening_reminder}</b> МСК" if evening_reminder else "Напоминание 'Итог дня' 🌙: <b>отключено</b>"
+        purpose_text = "⏰ Настроим ежедневные напоминания?"; instruction_text = ("Сначала введи удобное время для <b>утреннего</b> напоминания 'Карта дня' в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>).\nИли напиши <code>выкл</code>, чтобы отключить это напоминание.\n\n" + f"<u>Текущие настройки:</u>\n- {morning_text}\n- {evening_text}")
+        text = f"{name}, привет!\n\n{purpose_text}\n\n{instruction_text}"; await message.answer(text, reply_markup=await get_main_menu(user_id, db)); await state.set_state(UserState.waiting_for_morning_reminder_time); await logger_service.log_action(user_id, "remind_command_invoked")
     return wrapped_handler
 
-# --- НОВЫЙ Обработчик ввода УТРЕННЕГО времени ---
+# --- Обработчик ввода УТРЕННЕГО времени ---
 def make_process_morning_reminder_time_handler(db, logger_service, user_manager):
+    # ... (код make_process_morning_reminder_time_handler как в предыдущем ответе) ...
      async def wrapped_handler(message: types.Message, state: FSMContext):
-        user_id = message.from_user.id
-        name = db.get_user(user_id).get("name", "Друг")
-        input_text = message.text.strip().lower()
-        morning_time_to_save = None
-
-        if input_text == "выкл":
-            morning_time_to_save = None
-            await logger_service.log_action(user_id, "reminder_set_morning", {"time": "disabled"})
-            await message.reply("Хорошо, утреннее напоминание 'Карта дня' отключено.")
+        user_id = message.from_user.id; name = db.get_user(user_id).get("name", "Друг"); input_text = message.text.strip().lower(); morning_time_to_save = None
+        if input_text == "выкл": morning_time_to_save = None; await logger_service.log_action(user_id, "reminder_set_morning", {"time": "disabled"}); await message.reply("Хорошо, утреннее напоминание 'Карта дня' отключено.")
         else:
-            try:
-                reminder_dt = datetime.strptime(input_text, "%H:%M")
-                morning_time_to_save = reminder_dt.strftime("%H:%M")
-                await logger_service.log_action(user_id, "reminder_set_morning", {"time": morning_time_to_save})
-                await message.reply(f"Утреннее время <code>{morning_time_to_save}</code> принято.")
-            except ValueError:
-                await message.reply(f"{name}, не совсем понял время. 🕰️ Пожалуйста, введи время для <b>утреннего</b> напоминания в формате ЧЧ:ММ (например, <code>08:30</code>) или напиши <code>выкл</code>.")
-                return # Остаемся в том же состоянии
-
-        # Сохраняем утреннее время в FSM и запрашиваем вечернее
-        await state.update_data(morning_time=morning_time_to_save)
-        evening_prompt = "Теперь введи время для <b>вечернего</b> напоминания 'Итог дня' 🌙 (ЧЧ:ММ) или напиши <code>выкл</code>."
-        # Используем ask_for_time для единообразия
+            try: reminder_dt = datetime.strptime(input_text, "%H:%M"); morning_time_to_save = reminder_dt.strftime("%H:%M"); await logger_service.log_action(user_id, "reminder_set_morning", {"time": morning_time_to_save}); await message.reply(f"Утреннее время <code>{morning_time_to_save}</code> принято.")
+            except ValueError: await message.reply(f"{name}, не совсем понял время. 🕰️ Пожалуйста, введи время для <b>утреннего</b> напоминания в формате ЧЧ:ММ (например, <code>08:30</code>) или напиши <code>выкл</code>."); return
+        await state.update_data(morning_time=morning_time_to_save); evening_prompt = "Теперь введи время для <b>вечернего</b> напоминания 'Итог дня' 🌙 (ЧЧ:ММ) или напиши <code>выкл</code>."
         await ask_for_time(message, state, evening_prompt, UserState.waiting_for_evening_reminder_time)
-
      return wrapped_handler
 
-# --- НОВЫЙ Обработчик ввода ВЕЧЕРНЕГО времени ---
+# --- Обработчик ввода ВЕЧЕРНЕГО времени ---
 def make_process_evening_reminder_time_handler(db, logger_service, user_manager):
+    # ... (код make_process_evening_reminder_time_handler как в предыдущем ответе) ...
      async def wrapped_handler(message: types.Message, state: FSMContext):
-        user_id = message.from_user.id
-        name = db.get_user(user_id).get("name", "Друг")
-        input_text = message.text.strip().lower()
-        evening_time_to_save = None
-        state_data = await state.get_data()
-        morning_time = state_data.get("morning_time") # Получаем сохраненное утреннее время
-
-        if input_text == "выкл":
-            evening_time_to_save = None
-            await logger_service.log_action(user_id, "reminder_set_evening", {"time": "disabled"})
+        user_id = message.from_user.id; name = db.get_user(user_id).get("name", "Друг"); input_text = message.text.strip().lower(); evening_time_to_save = None; state_data = await state.get_data(); morning_time = state_data.get("morning_time")
+        if input_text == "выкл": evening_time_to_save = None; await logger_service.log_action(user_id, "reminder_set_evening", {"time": "disabled"})
         else:
-            try:
-                reminder_dt = datetime.strptime(input_text, "%H:%M")
-                evening_time_to_save = reminder_dt.strftime("%H:%M")
-                await logger_service.log_action(user_id, "reminder_set_evening", {"time": evening_time_to_save})
-            except ValueError:
-                await message.reply(f"{name}, не понял время. 🕰️ Пожалуйста, введи время для <b>вечернего</b> напоминания (ЧЧ:ММ) или напиши <code>выкл</code>.")
-                return # Остаемся в том же состоянии
-
-        # Сохраняем оба времени в БД через UserManager
+            try: reminder_dt = datetime.strptime(input_text, "%H:%M"); evening_time_to_save = reminder_dt.strftime("%H:%M"); await logger_service.log_action(user_id, "reminder_set_evening", {"time": evening_time_to_save})
+            except ValueError: await message.reply(f"{name}, не понял время. 🕰️ Пожалуйста, введи время для <b>вечернего</b> напоминания (ЧЧ:ММ) или напиши <code>выкл</code>."); return
         try:
-            await user_manager.set_reminder(user_id, morning_time, evening_time_to_save)
-            await logger_service.log_action(user_id, "reminders_saved_total", {
-                "morning_time": morning_time,
-                "evening_time": evening_time_to_save
-            })
-
-            # Формируем текст подтверждения
-            morning_confirm = f"'Карта дня' ✨: <b>{morning_time}</b> МСК" if morning_time else "'Карта дня' ✨: <b>отключено</b>"
-            evening_confirm = f"'Итог дня' 🌙: <b>{evening_time_to_save}</b> МСК" if evening_time_to_save else "'Итог дня' 🌙: <b>отключено</b>"
-            text = f"{name}, готово! ✅\nНапоминания установлены:\n- {morning_confirm}\n- {evening_confirm}"
-
-            await message.answer(text, reply_markup=await get_main_menu(user_id, db))
-            await state.clear() # Завершаем настройку
-        except Exception as e:
-            logger.error(f"Failed to save reminders for user {user_id}: {e}", exc_info=True)
-            await message.answer("Ой, произошла ошибка при сохранении настроек. Попробуй /remind еще раз.")
-            await state.clear()
-
+            await user_manager.set_reminder(user_id, morning_time, evening_time_to_save); await logger_service.log_action(user_id, "reminders_saved_total", {"morning_time": morning_time, "evening_time": evening_time_to_save})
+            morning_confirm = f"'Карта дня' ✨: <b>{morning_time}</b> МСК" if morning_time else "'Карта дня' ✨: <b>отключено</b>"; evening_confirm = f"'Итог дня' 🌙: <b>{evening_time_to_save}</b> МСК" if evening_time_to_save else "'Итог дня' 🌙: <b>отключено</b>"
+            text = f"{name}, готово! ✅\nНапоминания установлены:\n- {morning_confirm}\n- {evening_confirm}"; await message.answer(text, reply_markup=await get_main_menu(user_id, db)); await state.clear()
+        except Exception as e: logger.error(f"Failed to save reminders for user {user_id}: {e}", exc_info=True); await message.answer("Ой, произошла ошибка при сохранении настроек..."); await state.clear()
      return wrapped_handler
 
-
-# --- Команда /remind_off (Добавлена очистка новых состояний) ---
+# --- Команда /remind_off ---
 def make_remind_off_handler(db, logger_service, user_manager):
+    # ... (код remind_off как в предыдущем ответе) ...
      async def wrapped_handler(message: types.Message, state: FSMContext):
-         user_id = message.from_user.id
-         # Сбрасываем состояния FSM, если пользователь был в процессе настройки
-         current_state = await state.get_state()
-         if current_state in [UserState.waiting_for_morning_reminder_time, UserState.waiting_for_evening_reminder_time]:
-             await state.clear()
+         user_id = message.from_user.id; current_state = await state.get_state()
+         if current_state in [UserState.waiting_for_morning_reminder_time, UserState.waiting_for_evening_reminder_time]: await state.clear()
          try:
-             await user_manager.clear_reminders(user_id); await logger_service.log_action(user_id, "reminders_cleared")
-             name = db.get_user(user_id).get("name", "Друг")
+             await user_manager.clear_reminders(user_id); await logger_service.log_action(user_id, "reminders_cleared"); name = db.get_user(user_id).get("name", "Друг")
              text = f"{name}, я отключил <b>все</b> напоминания для тебя (утреннее и вечернее). Если захочешь включить снова, используй /remind."
              await message.answer(text, reply_markup=await get_main_menu(user_id, db))
          except Exception as e: logger.error(f"Failed to disable reminders for user {user_id}: {e}", exc_info=True); await message.answer("Ой, не получилось отключить напоминания...")
@@ -362,7 +310,7 @@ def make_users_handler(db, logger_service):
     return wrapped_handler
 
 def make_logs_handler(db, logger_service):
-    # ... (код logs без изменений) ...
+    # ... (код logs) ...
     async def wrapped_handler(message: types.Message):
         user_id = message.from_user.id;
         if user_id != ADMIN_ID: await message.answer("..."); return
@@ -427,7 +375,7 @@ def make_process_feedback_handler(db, logger_service):
       async def wrapped_handler(message: types.Message, state: FSMContext):
           user_id = message.from_user.id; feedback_text = message.text.strip()
           if not feedback_text: await message.answer("Кажется, ты ничего не написала..."); return
-          user_data = db.get_user(user_id); name = user_data.get("name", "Аноним"); username = user_data.get("username", "N/A"); timestamp_iso = datetime.now(TIMEZONE).isoformat() # Use TIMEZONE
+          user_data = db.get_user(user_id); name = user_data.get("name", "Аноним"); username = user_data.get("username", "N/A"); timestamp_iso = datetime.now(TIMEZONE).isoformat()
           try:
               with db.conn: db.conn.execute("INSERT INTO feedback (user_id, name, feedback, timestamp) VALUES (?, ?, ?, ?)", (user_id, name, feedback_text, timestamp_iso))
               await logger_service.log_action(user_id, "feedback_submitted", {"feedback_length": len(feedback_text)})
@@ -449,14 +397,14 @@ def make_bonus_request_handler(db, logger_service, user_manager):
          await user_manager.set_bonus_available(user_id, False); await logger_service.log_action(user_id, "bonus_disabled_after_use")
      return wrapped_handler
 
-# --- Регистрация всех обработчиков ---
+# --- Регистрация всех обработчиков (ОБНОВЛЕНО) ---
 def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingService, user_manager: UserManager):
     logger.info("Registering handlers...")
     # Создаем частичные функции
     start_handler = make_start_handler(db, logger_service, user_manager)
     share_handler = make_share_handler(db, logger_service)
-    remind_handler = make_remind_handler(db, logger_service, user_manager) # <-- Измененный
-    remind_off_handler = make_remind_off_handler(db, logger_service, user_manager) # <-- Измененный
+    remind_handler = make_remind_handler(db, logger_service, user_manager) # <-- Используем новый
+    remind_off_handler = make_remind_off_handler(db, logger_service, user_manager) # <-- Используем новый
     process_morning_reminder_time_handler = make_process_morning_reminder_time_handler(db, logger_service, user_manager) # <-- Новый
     process_evening_reminder_time_handler = make_process_evening_reminder_time_handler(db, logger_service, user_manager) # <-- Новый
     name_handler = make_name_handler(db, logger_service, user_manager)
@@ -512,14 +460,11 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.callback_query.register(partial(process_card_feedback, db=db, logger_service=logging_service), F.data.startswith("feedback_v2_"), StateFilter("*"))
 
     # --- Флоу "Итог дня" ---
-    # Регистрируем хендлеры из evening_reflection.py напрямую (если не используется роутер)
     dp.message.register(partial(process_good_moments, db=db, logger_service=logger_service), UserState.waiting_for_good_moments)
     dp.message.register(partial(process_gratitude, db=db, logger_service=logger_service), UserState.waiting_for_gratitude)
     dp.message.register(partial(process_hard_moments, db=db, logger_service=logger_service), UserState.waiting_for_hard_moments)
-    # Если используется роутер: dp.include_router(reflection_router)
 
     # --- Обработчики некорректных вводов ---
-    # ... (код handle_text_when_waiting_callback, handle_callback_when_waiting_text) ...
     async def handle_text_when_waiting_callback(message: types.Message, state: FSMContext): current_state = await state.get_state(); logger.warning(f"User {message.from_user.id} sent text '{message.text}' while in state {current_state}, expected callback."); await message.reply("Пожалуйста, используй кнопки...")
     async def handle_callback_when_waiting_text(callback: types.CallbackQuery, state: FSMContext): current_state = await state.get_state(); logger.warning(f"User {callback.from_user.id} sent callback '{callback.data}' while in state {current_state}, expected text."); await callback.answer("Пожалуйста, отправь ответ текстом...", show_alert=True)
     # Регистрация
@@ -552,6 +497,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     async def handle_unknown_callback_no_state(callback: types.CallbackQuery): logger.warning(f"Unknown callback '{callback.data}' from user {callback.from_user.id} with no state."); await callback.answer("Неизвестное действие.", show_alert=True)
 
     logger.info("Handlers registered successfully.")
+
 
 # --- Запуск бота ---
 async def main():
