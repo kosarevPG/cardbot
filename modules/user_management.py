@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 class UserState(StatesGroup):
     # Стандартные состояния
     waiting_for_name = State()
-    # waiting_for_reminder_time = State() # Старое состояние - можно удалить или не использовать
+    # waiting_for_reminder_time = State() # Старое состояние - больше не используем
     waiting_for_feedback = State()
 
     # --- Новые состояния для напоминаний ---
@@ -34,7 +34,7 @@ class UserState(StatesGroup):
 
 
 class UserManager:
-    # ... (код UserManager без изменений) ...
+    # --- Код UserManager остается БЕЗ ИЗМЕНЕНИЙ ---
     def __init__(self, db):
         self.db = db
 
