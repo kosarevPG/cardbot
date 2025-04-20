@@ -7,8 +7,13 @@ logger = logging.getLogger(__name__)
 class UserState(StatesGroup):
     # Стандартные состояния
     waiting_for_name = State()
-    waiting_for_reminder_time = State()
+    # waiting_for_reminder_time = State() # Старое состояние - можно удалить или не использовать
     waiting_for_feedback = State()
+
+    # --- Новые состояния для напоминаний ---
+    waiting_for_morning_reminder_time = State()
+    waiting_for_evening_reminder_time = State()
+    # ------------------------------------
 
     # --- Флоу Карты Дня ---
     waiting_for_initial_resource = State()
@@ -22,48 +27,38 @@ class UserState(StatesGroup):
     waiting_for_final_resource = State()
     waiting_for_recharge_method = State()
 
-    # --- НОВЫЕ состояния для Итога Дня ---
+    # --- Состояния для Итога Дня ---
     waiting_for_good_moments = State()
     waiting_for_gratitude = State()
     waiting_for_hard_moments = State()
 
 
 class UserManager:
+    # ... (код UserManager без изменений) ...
     def __init__(self, db):
         self.db = db
 
     async def set_name(self, user_id, name):
-        # ... (существующий код)
         user_data = self.db.get_user(user_id)
-        if not user_data:
-             logger.warning(f"UserManager: User {user_id} not found when trying to set name...")
+        if not user_data: logger.warning(f"UserManager: User {user_id} not found when trying to set name...")
         self.db.update_user(user_id, {"name": name})
 
-
-    async def set_reminder(self, user_id, morning_time, evening_time): # Изменен для приема двух времен
+    async def set_reminder(self, user_id, morning_time, evening_time): # Уже принимает оба времени
         """Устанавливает утреннее и вечернее время напоминания."""
         user_data = self.db.get_user(user_id)
-        if not user_data:
-             logger.warning(f"UserManager: User {user_id} not found when trying to set reminder.")
+        if not user_data: logger.warning(f"UserManager: User {user_id} not found when trying to set reminder.")
         self.db.update_user(user_id, {
-            "reminder_time": morning_time,
-            "reminder_time_evening": evening_time
+            "reminder_time": morning_time, # Может быть None
+            "reminder_time_evening": evening_time # Может быть None
         })
 
     async def clear_reminders(self, user_id):
         """Сбрасывает оба времени напоминания."""
         user_data = self.db.get_user(user_id)
-        if not user_data:
-            logger.warning(f"UserManager: User {user_id} not found when trying to clear reminders.")
-        self.db.update_user(user_id, {
-            "reminder_time": None,
-            "reminder_time_evening": None
-        })
-
+        if not user_data: logger.warning(f"UserManager: User {user_id} not found when trying to clear reminders.")
+        self.db.update_user(user_id, {"reminder_time": None, "reminder_time_evening": None})
 
     async def set_bonus_available(self, user_id, value):
-        # ... (существующий код)
         user_data = self.db.get_user(user_id)
-        if not user_data:
-             logger.warning(f"UserManager: User {user_id} not found when trying to set bonus.")
+        if not user_data: logger.warning(f"UserManager: User {user_id} not found when trying to set bonus.")
         self.db.update_user(user_id, {"bonus_available": value})
