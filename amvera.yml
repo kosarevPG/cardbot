@@ -4,10 +4,18 @@ meta:
   environment: python
   toolchain:
     name: pip
-    version: 3.11
+    version: "3.11"
 build:
   requirementsPath: requirements.txt
+
+# Убираем run.scriptName, чтобы Procfile остался единственным источником команд запуска
 run:
-  scriptName: main.py
   persistenceMount: /data
   containerPort: 80
+
+# Добавляем секцию routes, которая привяжет домен к порту 80
+routes:
+  - path: /
+    port: 80
+    domains:
+      - cardbot-kosarevpg.amvera.io
