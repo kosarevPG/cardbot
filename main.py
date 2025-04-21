@@ -9,7 +9,7 @@ def run_sqlite_web():
     db_path = "/data/bot.db"
     port = os.environ.get("PORT", "80")
     host = "0.0.0.0"
-    command = f"sqlite_web {shlex.quote(db_path)} --host {shlex.quote(host)} --port {shlex.quote(port)} --read-only --no-browser"
+    command = f"sqlite_web {shlex.quote(db_path)} --host {shlex.quote(host)} --port {shlex.quote(port)} --no-browser --password"
 
     print(f"Starting sqlite_web process with command: {command}", flush=True)
     try:
