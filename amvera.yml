@@ -11,6 +11,7 @@ build:
 # Если у вас есть Procfile — Amvera запустит именно его,
 # поэтому секцию run можно оставить как есть или даже убрать.
 run:
+  scriptName: main.py
   persistenceMount: /data
   containerPort: 80
 
