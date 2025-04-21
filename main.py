@@ -6,44 +6,34 @@ import threading
 import os
 
 def run_sqlite_web():
-    # Путь к БД на Amvera — /data/bot.db если вы монтируете /data
     db_path = "/data/bot.db"
     port = os.environ.get("PORT", "80")
     host = "0.0.0.0"
-
-    # Формируем команду так, как она бы выглядела в терминале
-    # Используем 'sqlite_web' как команду, т.к. она должна быть доступна в PATH окружения venv
     command = f"sqlite_web {shlex.quote(db_path)} --host {shlex.quote(host)} --port {shlex.quote(port)} --read-only --no-browser"
 
-    print(f"Starting sqlite_web process with command: {command}")
+    print(f"Starting sqlite_web process with command: {command}", flush=True)
     try:
-        # Запускаем процесс в фоновом режиме
-        # stdout=subprocess.PIPE и stderr=subprocess.PIPE перенаправят вывод процесса,
-        # чтобы он не смешивался с логами бота (можно будет посмотреть при необходимости)
-        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        print(f"sqlite_web process started with PID: {process.pid}")
+        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True)
+        print(f"sqlite_web process started with PID: {process.pid}", flush=True)
 
-        # Можно добавить код для чтения вывода процесса в реальном времени, если нужна отладка
-        # Например:
-        # for line in iter(process.stdout.readline, ''):
-        #     print(f"[sqlite_web stdout]: {line.strip()}")
-        # for line in iter(process.stderr.readline, ''):
-        #     print(f"[sqlite_web stderr]: {line.strip()}")
+        # Читаем stdout в реальном времени
+        for line in iter(process.stdout.readline, ''):
+            print(f"[sqlite_web stdout]: {line.strip()}", flush=True)
 
-        # Ожидаем завершения процесса (поток будет жить, пока жив процесс)
-        stdout, stderr = process.communicate()
-        print(f"sqlite_web process exited with code: {process.returncode}")
-        if stdout:
-            print(f"[sqlite_web final stdout]:\n{stdout.strip()}")
-        if stderr:
-            print(f"[sqlite_web final stderr]:\n{stderr.strip()}")
+        # Читаем stderr в реальном времени (после завершения stdout)
+        for line in iter(process.stderr.readline, ''):
+            print(f"[sqlite_web stderr]: {line.strip()}", flush=True)
+
+        # Ждем завершения процесса (если он вдруг завершится)
+        process.wait()
+        print(f"sqlite_web process exited with code: {process.returncode}", flush=True)
 
     except FileNotFoundError:
-         print(f"CRITICAL error: 'sqlite_web' command not found. Is it installed and in PATH?")
+         print(f"CRITICAL error: 'sqlite_web' command not found. Is it installed and in PATH?", flush=True)
     except Exception as e:
-        print(f"CRITICAL error starting/running sqlite_web process: {e}")
+        print(f"CRITICAL error starting/running sqlite_web process: {e}", flush=True)
 
-# Запускаем в фоне (этот код остается без изменений)
+# Запуск потока остается тем же
 t = threading.Thread(target=run_sqlite_web, daemon=True)
 t.start()
 
