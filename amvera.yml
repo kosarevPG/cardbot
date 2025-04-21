@@ -8,12 +8,14 @@ meta:
 build:
   requirementsPath: requirements.txt
 
-# Убираем run.scriptName, чтобы Procfile остался единственным источником команд запуска
+# Если у вас есть Procfile — Amvera запустит именно его,
+# поэтому секцию run можно оставить как есть или даже убрать.
 run:
+  scriptName: main.py
   persistenceMount: /data
   containerPort: 80
 
-# Добавляем секцию routes, которая привяжет домен к порту 80
+# Добавляем routes — все запросы на домен пойдут на порт 80
 routes:
   - path: /
     port: 80
