@@ -1,5 +1,21 @@
 # код/main.py
 
+import threading
+import os
+from sqlite_web import app as sqlite_app
+
+def run_sqlite_web():
+    # Путь к БД на Amvera — /data/bot.db если вы монтируете /data
+    sqlite_app.run(
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 80)),
+        read_only=True
+    )
+
+# Запускаем в фоне
+t = threading.Thread(target=run_sqlite_web, daemon=True)
+t.start()
+
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, StateFilter, CommandObject
