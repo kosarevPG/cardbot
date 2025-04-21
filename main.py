@@ -1,16 +1,29 @@
 # код/main.py
 
 import threading
-import os
-from sqlite_web import app as sqlite_app
+from sqlite_web import cli
+import os # Убедитесь, что os импортирован
 
 def run_sqlite_web():
     # Путь к БД на Amvera — /data/bot.db если вы монтируете /data
-    sqlite_app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 80)),
-        read_only=True
-    )
+    db_path = "/data/bot.db"
+    port = os.environ.get("PORT", "80")
+    host = "0.0.0.0"
+    args = [
+        db_path,
+        '--host', host,
+        '--port', port,
+        '--read-only' # Добавляем флаг read-only
+        # Можно добавить другие нужные флаги по аналогии
+        # '--no-browser', # Может быть полезно, чтобы он не пытался открыть браузер
+    ]
+    print(f"Starting sqlite_web with args: {args}") # Добавим лог для отладки
+    try:
+        cli.main(args)
+        print("sqlite_web exited cleanly.") # Лог на случай нормального завершения
+    except Exception as e:
+        print(f"CRITICAL error in sqlite_web thread: {e}", flush=True) # Лог критической ошибки
+        # Можно добавить logging.exception(e) если настроено логирование в потоках
 
 # Запускаем в фоне
 t = threading.Thread(target=run_sqlite_web, daemon=True)
