@@ -4,7 +4,7 @@ import random
 import os
 from aiogram import types
 from aiogram.fsm.context import FSMContext
-from config import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR
+from config import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR, pytz # Убедимся, что pytz импортирован
 # Импортируем функции из ai_service
 from .ai_service import (
     get_grok_question, get_grok_summary, build_user_profile,
@@ -30,17 +30,20 @@ if not CARDS_DIR.startswith("/data") and not os.path.exists(CARDS_DIR):
      logger.warning(f"Cards directory '{CARDS_DIR}' did not exist and was created. Make sure card images are present.")
 
 
-# --- Основная клавиатура ---
+# --- Основная клавиатура (ИЗМЕНЕНО) ---
 async def get_main_menu(user_id, db: Database):
-    """Возвращает основную клавиатуру меню."""
+    """Возвращает основную клавиатуру меню. (ИЗМЕНЕНО)"""
     keyboard = [
         [types.KeyboardButton(text="✨ Карта дня")],
         [types.KeyboardButton(text="🌙 Итог дня")]
     ]
     try:
         user_data = db.get_user(user_id)
+        # --- ИЗМЕНЕНИЕ: Добавляем кнопку в конец, если бонус доступен ---
         if user_data and user_data.get("bonus_available"):
-            keyboard.insert(1, [types.KeyboardButton(text="💌 Подсказка Вселенной")])
+            # Используем append вместо insert(1, ...)
+            keyboard.append([types.KeyboardButton(text="💌 Подсказка Вселенной")])
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
     except Exception as e:
         logger.error(f"Error getting user data for main menu (user {user_id}): {e}", exc_info=True)
     # Используем persistent=True для постоянного отображения
@@ -516,7 +519,9 @@ async def finish_interaction_flow(user_id: int, message: types.Message, state: F
         logger.error("Invalid user_id passed to finish_interaction_flow")
         # Попытка безопасного завершения без вопроса
         try:
-            await message.answer("Завершаю сессию...", reply_markup=await get_main_menu(user_id, db)) # Пытаемся показать меню
+            # Пытаемся показать меню, если ID известен из message (маловероятно, но вдруг)
+            menu_user_id = message.from_user.id if message and message.from_user else user_id
+            await message.answer("Завершаю сессию...", reply_markup=await get_main_menu(menu_user_id, db))
             await state.clear()
             logger.warning(f"Cleared state for INVALID user_id reference after failing to send final resource question.")
         except Exception as clear_err:
