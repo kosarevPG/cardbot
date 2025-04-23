@@ -3,7 +3,7 @@
 import httpx
 import json
 import random
-import asyncio
+import asyncio # <-- Добавлен импорт asyncio
 from config import GROK_API_KEY, GROK_API_URL, TIMEZONE
 from datetime import datetime, date # Убедимся что date импортирован
 import re
@@ -116,7 +116,7 @@ def extract_themes(text):
 # --- Генерация вопросов Grok ---
 async def get_grok_question(user_id, user_request, user_response, feedback_type, step=1, previous_responses=None, db: Database = None):
     """
-    Генерирует углубляющий вопрос от Grok.
+    Генерирует углубляющий вопрос от Grok с механизмом повторных попыток.
     Учитывает профиль пользователя, включая начальный ресурс.
     """
     if db is None:
@@ -134,14 +134,14 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
     profile = await build_user_profile(user_id, db)
 
     # --- Добавляем значения по умолчанию ---
-    profile_themes = profile.get("themes") if profile.get("themes") is not None else ["не определено"]
-    profile_mood_trend_list = profile.get("mood_trend") if profile.get("mood_trend") is not None else []
+    profile_themes = profile.get("themes", []) if profile.get("themes") is not None else ["не определено"] # Исправлено: проверяем не None
+    profile_mood_trend_list = profile.get("mood_trend", []) if profile.get("mood_trend") is not None else [] # Исправлено: проверяем не None
     profile_mood_trend = " -> ".join(profile_mood_trend_list) if profile_mood_trend_list else "нет данных"
-    avg_resp_len = profile.get("avg_response_length") if profile.get("avg_response_length") is not None else 50.0
-    initial_resource = profile.get("initial_resource") if profile.get("initial_resource") is not None else "неизвестно"
+    avg_resp_len = profile.get("avg_response_length", 50.0) if profile.get("avg_response_length") is not None else 50.0 # Исправлено: проверяем не None
+    initial_resource = profile.get("initial_resource", "неизвестно") if profile.get("initial_resource") is not None else "неизвестно" # Исправлено: проверяем не None
     # --- КОНЕЦ Добавления значений по умолчанию ---
 
-    # Вызываем analyze_mood, которая теперь определена ВЫШЕ
+
     current_mood = analyze_mood(user_response)
 
     system_prompt = (
@@ -165,7 +165,6 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         "Все пользователи - женского рода. Не используй к ним обращения в мужском роде."
     )
 
-    # ... (остальной код функции get_grok_question без изменений) ...
     session_context = []
     if user_request: session_context.append(f"Начальный запрос: '{user_request}'")
     initial_response_from_ctx = previous_responses.get("initial_response") if previous_responses else None
@@ -202,59 +201,93 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         3: "Какой один маленький шаг ты могла бы сделать сегодня, вдохновившись этими размышлениями?"
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            logger.info(f"Sending Q{step} request to Grok API for user {user_id}.")
-            response = await client.post(GROK_API_URL, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"Received Q{step} response from Grok API for user {user_id}.")
+    # --- НАЧАЛО БЛОКА ПОВТОРНЫХ ПОПЫТОК ---
+    max_retries = 3
+    base_delay = 1.0 # Секунды для первой задержки
+    final_question = None # Переменная для хранения результата
 
-        if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
-             raise ValueError("Invalid response structure from Grok API (choices or content missing)")
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                logger.info(f"Sending Q{step} request to Grok API for user {user_id} (Attempt {attempt + 1})")
+                response = await client.post(GROK_API_URL, headers=headers, json=payload)
+                response.raise_for_status() # Проверяем ошибки 4xx/5xx
+                data = response.json()
+                logger.info(f"Received Q{step} response from Grok API for user {user_id}.")
 
-        question_text = data["choices"][0]["message"]["content"].strip()
-        question_text = re.sub(r'^(Хорошо|Вот ваш вопрос|Конечно|Отлично|Понятно)[,.:]?\s*', '', question_text, flags=re.IGNORECASE).strip()
-        question_text = re.sub(r'^"|"$', '', question_text).strip()
-        question_text = re.sub(r'^Вопрос\s*\d/\d[:.]?\s*', '', question_text).strip()
+            if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
+                 raise ValueError("Invalid response structure from Grok API (choices or content missing)")
 
-        if not question_text or len(question_text) < 5:
-             raise ValueError("Empty or too short question content after cleaning")
+            question_text = data["choices"][0]["message"]["content"].strip()
+            # Очистка question_text от префиксов и кавычек
+            question_text = re.sub(r'^(Хорошо|Вот ваш вопрос|Конечно|Отлично|Понятно)[,.:]?\s*', '', question_text, flags=re.IGNORECASE).strip()
+            question_text = re.sub(r'^"|"$', '', question_text).strip()
+            question_text = re.sub(r'^Вопрос\s*\d/\d[:.]?\s*', '', question_text).strip()
 
-        if previous_responses:
-            prev_q_texts = []
-            if previous_responses.get('grok_question_1'): prev_q_texts.append(previous_responses['grok_question_1'].split(':')[-1].strip().lower())
-            if previous_responses.get('grok_question_2'): prev_q_texts.append(previous_responses['grok_question_2'].split(':')[-1].strip().lower())
-            if question_text.lower() in prev_q_texts:
-                logger.warning(f"Grok generated a repeated question for step {step}, user {user_id}. Question: '{question_text}'. Using fallback.")
-                raise ValueError("Repeated question generated")
+            if not question_text or len(question_text) < 5:
+                 raise ValueError("Empty or too short question content after cleaning")
 
-        final_question = f"Вопрос ({step}/3): {question_text}"
-        return final_question
+            # Проверка на повторение вопроса
+            if previous_responses:
+                prev_q_texts = []
+                if previous_responses.get('grok_question_1'): prev_q_texts.append(previous_responses['grok_question_1'].split(':')[-1].strip().lower())
+                if previous_responses.get('grok_question_2'): prev_q_texts.append(previous_responses['grok_question_2'].split(':')[-1].strip().lower())
+                if question_text.lower() in prev_q_texts:
+                    logger.warning(f"Grok generated a repeated question for step {step}, user {user_id}. Question: '{question_text}'. Using fallback.")
+                    raise ValueError("Repeated question generated")
 
-    except httpx.TimeoutException:
-        logger.error(f"Grok API request Q{step} timed out for user {user_id}.")
-        fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё приходит на ум, когда ты смотришь на эту карту?')}"
-        return fallback_question
-    except httpx.RequestError as e:
-        logger.error(f"Grok API request Q{step} failed for user {user_id}: {e}")
-        fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Какие детали карты привлекают твоё внимание больше всего?')}"
-        return fallback_question
-    except (ValueError, KeyError, IndexError) as e:
-        logger.error(f"Failed to parse Grok API response Q{step} or invalid data for user {user_id}: {e}")
-        fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Как твои ощущения изменились за время размышления над картой?')}"
-        return fallback_question
-    except Exception as e:
-        logger.exception(f"An unexpected error occurred in get_grok_question Q{step} for user {user_id}: {e}")
-        fallback_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Попробуй описать свои мысли одним словом. Что это за слово?')}"
-        return fallback_question
+            final_question = f"Вопрос ({step}/3): {question_text}"
+            break # <-- Успешно, выходим из цикла повторов
+
+        except httpx.TimeoutException:
+            logger.warning(f"Grok API request Q{step} timed out for user {user_id} (Attempt {attempt + 1})")
+            if attempt == max_retries - 1: # Если последняя попытка
+                final_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё приходит на ум, когда ты смотришь на эту карту?')}"
+        except httpx.HTTPStatusError as e:
+             # Повторяем при 403, 429 (Too Many Requests) или 5xx (Server Error)
+             if e.response.status_code in [403, 429] or e.response.status_code >= 500:
+                 logger.warning(f"Grok API returned {e.response.status_code} for Q{step} (User: {user_id}, Attempt: {attempt + 1}). Retrying...")
+                 if attempt == max_retries - 1: # Если последняя попытка
+                     final_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Какие детали карты привлекают твоё внимание больше всего?')}"
+             else: # Другие ошибки 4xx не повторяем
+                 logger.error(f"Grok API request Q{step} failed with unrecoverable status {e.response.status_code} for user {user_id}: {e}")
+                 final_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Как твои ощущения изменились за время размышления над картой?')}"
+                 break # Выходим из цикла при невосстановимой ошибке
+        except (ValueError, KeyError, IndexError) as e: # Добавлена обработка ValueError на случай генерации повторного вопроса
+            logger.error(f"Failed to parse Grok API response Q{step} or invalid data/repeat for user {user_id}: {e}")
+            final_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Как твои ощущения изменились за время размышления над картой?')}"
+            break # Выходим из цикла
+        except Exception as e:
+            # Логируем ЛЮБУЮ другую неожиданную ошибку
+            logger.exception(f"An unexpected error occurred in get_grok_question Q{step} for user {user_id} during attempt {attempt + 1}: {e}")
+            if attempt == max_retries - 1: # Если последняя попытка
+                final_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Попробуй описать свои мысли одним словом. Что это за слово?')}"
+            # Не выходим из цикла здесь, даем сработать задержке и следующей попытке
+
+        # Если нужно повторить, ждем перед следующей попыткой
+        if attempt < max_retries - 1 and final_question is None: # Убедимся что не вышли из цикла и результат еще не установлен
+            delay = base_delay * (2 ** attempt) # Экспоненциальная задержка
+            logger.info(f"Waiting {delay:.1f}s before retrying Grok request Q{step}...")
+            await asyncio.sleep(delay)
+        elif final_question is None: # Если это была последняя попытка и final_question все еще не установлен (например, после unexpected error)
+             logger.error(f"Grok API request Q{step} failed after {max_retries} attempts for user {user_id}.")
+             # Установим fallback здесь на всякий случай, если он не был установлен в блоках except
+             final_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Как бы ты описала свои чувства сейчас?')}"
+
+    # --- КОНЕЦ БЛОКА ПОВТОРНЫХ ПОПЫТОК ---
+
+    # Гарантируем, что final_question не None перед возвратом
+    if final_question is None:
+        logger.error(f"Critical logic error: final_question is None after retry loop for Q{step}, user {user_id}. Returning default fallback.")
+        final_question = f"Вопрос ({step}/3): {universal_questions.get(step, 'Что еще важно для тебя в этой ситуации?')}"
+
+    return final_question
 
 
 # --- Генерация саммари карты дня ---
 async def get_grok_summary(user_id, interaction_data, db: Database = None):
-    # ... (код функции без изменений) ...
     """
-    Генерирует краткое резюме сессии с картой.
+    Генерирует краткое резюме сессии с картой с механизмом повторных попыток.
     """
     if db is None:
         logger.error("Database object 'db' is required for get_grok_summary")
@@ -305,46 +338,78 @@ async def get_grok_summary(user_id, interaction_data, db: Database = None):
         "temperature": 0.4
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            logger.info(f"Sending SUMMARY request to Grok API for user {user_id}.")
-            response = await client.post(GROK_API_URL, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"Received SUMMARY response from Grok API for user {user_id}.")
+    # --- Блок повторных попыток ---
+    max_retries = 3
+    base_delay = 1.0
+    summary_text = None
+    fallback_summary = "Не получилось сформулировать итог сессии. Главное — те мысли и чувства, которые возникли у тебя." # Определяем fallback здесь
 
-        if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
-             raise ValueError("Invalid response structure for summary from Grok API")
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                logger.info(f"Sending SUMMARY request to Grok API for user {user_id} (Attempt {attempt + 1})")
+                response = await client.post(GROK_API_URL, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                logger.info(f"Received SUMMARY response from Grok API for user {user_id}.")
 
-        summary_text = data["choices"][0]["message"]["content"].strip()
-        summary_text = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итог|Итак)[,.:]?\s*', '', summary_text, flags=re.IGNORECASE).strip()
-        summary_text = re.sub(r'^"|"$', '', summary_text).strip()
+            if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
+                 raise ValueError("Invalid response structure for summary from Grok API")
 
-        if not summary_text or len(summary_text) < 10:
-             raise ValueError("Empty or too short summary content after cleaning")
+            summary_text_raw = data["choices"][0]["message"]["content"].strip()
+            # Очистка текста резюме
+            summary_text_raw = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итог|Итак)[,.:]?\s*', '', summary_text_raw, flags=re.IGNORECASE).strip()
+            summary_text_raw = re.sub(r'^"|"$', '', summary_text_raw).strip()
 
-        return summary_text
+            if not summary_text_raw or len(summary_text_raw) < 10:
+                 raise ValueError("Empty or too short summary content after cleaning")
 
-    except httpx.TimeoutException:
-        logger.error(f"Grok API summary request timed out for user {user_id}.")
-        return "К сожалению, не удалось сгенерировать резюме сессии (таймаут). Но твои размышления очень ценны!"
-    except httpx.RequestError as e:
-        logger.error(f"Grok API summary request failed for user {user_id}: {e}")
-        return "К сожалению, не удалось сгенерировать резюме сессии из-за технической проблемы. Но твои размышления очень ценны!"
-    except (ValueError, KeyError, IndexError) as e:
-        logger.error(f"Failed to parse Grok API summary response or invalid data for user {user_id}: {e}")
-        return "Не получилось сформулировать итог сессии. Главное — те мысли и чувства, которые возникли у тебя."
-    except Exception as e:
-        logger.exception(f"An unexpected error occurred in get_grok_summary for user {user_id}: {e}")
-        return "Произошла неожиданная ошибка при подведении итогов. Пожалуйста, попробуй позже."
+            summary_text = summary_text_raw
+            break # Успешно, выходим
+
+        except httpx.TimeoutException:
+            logger.warning(f"Grok API summary request timed out for user {user_id} (Attempt {attempt + 1})")
+            if attempt == max_retries - 1:
+                summary_text = "К сожалению, не удалось сгенерировать резюме сессии (таймаут). Но твои размышления очень ценны!"
+        except httpx.HTTPStatusError as e:
+             if e.response.status_code in [403, 429] or e.response.status_code >= 500:
+                 logger.warning(f"Grok API returned {e.response.status_code} for SUMMARY (User: {user_id}, Attempt: {attempt + 1}). Retrying...")
+                 if attempt == max_retries - 1:
+                     summary_text = "К сожалению, не удалось сгенерировать резюме сессии из-за временной ошибки сервера. Но твои размышления очень ценны!"
+             else:
+                 logger.error(f"Grok API summary request failed with unrecoverable status {e.response.status_code} for user {user_id}: {e}")
+                 summary_text = fallback_summary # Используем fallback для невосстановимых ошибок
+                 break
+        except (ValueError, KeyError, IndexError) as e:
+            logger.error(f"Failed to parse Grok API summary response or invalid data for user {user_id}: {e}")
+            summary_text = fallback_summary
+            break
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred in get_grok_summary for user {user_id} during attempt {attempt+1}: {e}")
+            if attempt == max_retries - 1:
+                summary_text = "Произошла неожиданная ошибка при подведении итогов. Пожалуйста, попробуй позже."
+            # Не выходим из цикла, даем сработать задержке
+
+        # Задержка перед следующей попыткой, если нужно
+        if attempt < max_retries - 1 and summary_text is None:
+            delay = base_delay * (2 ** attempt)
+            logger.info(f"Waiting {delay:.1f}s before retrying Grok SUMMARY request...")
+            await asyncio.sleep(delay)
+        elif summary_text is None: # Если последняя попытка и все еще None
+            logger.error(f"Grok API summary request failed after {max_retries} attempts for user {user_id}.")
+            if summary_text is None: # Убедимся, что fallback установлен
+                 summary_text = fallback_summary
+
+
+    # Гарантируем возврат строки
+    return summary_text if summary_text is not None else fallback_summary
 
 
 # --- Поддержка при низком ресурсе ---
 async def get_grok_supportive_message(user_id, db: Database = None):
-    # ... (код функции без изменений) ...
     """
     Генерирует поддерживающее сообщение и вопрос о способе восстановления
-    для пользователя с низким уровнем ресурса после сессии.
+    для пользователя с низким уровнем ресурса после сессии, с механизмом повторных попыток.
     """
     if db is None:
         logger.error("Database object 'db' is required for get_grok_supportive_message")
@@ -359,7 +424,6 @@ async def get_grok_supportive_message(user_id, db: Database = None):
     name = user_info.get("name", "Друг") if user_info else "Друг"
 
     profile_themes = profile.get("themes", [])
-    # recharge_method = profile.get("recharge_method", "") # Убрали использование последнего метода из промпта
 
     system_prompt = (
         f"Ты — очень тёплый, эмпатичный и заботливый друг-помощник. Твоя задача — поддержать пользователя ({name}), который сообщил о низком уровне внутреннего ресурса (😔) после работы с метафорической картой. "
@@ -370,8 +434,6 @@ async def get_grok_supportive_message(user_id, db: Database = None):
         "Тон должен быть мягким, принимающим и обнимающим."
         f" Основные темы, которые волнуют пользователя: {', '.join(profile_themes)}. "
     )
-    # if recharge_method: # Убрали
-    #     system_prompt += f" Известно, что ему обычно помогает восстанавливаться: {recharge_method}. Можно мягко упомянуть это или похожие способы заботы о себе, если это уместно."
 
     user_prompt = f"Пользователь {name} сообщил, что его ресурсное состояние сейчас низкое (😔). Напиши для него короткое поддерживающее сообщение."
 
@@ -386,7 +448,6 @@ async def get_grok_supportive_message(user_id, db: Database = None):
         "temperature": 0.6
     }
 
-    # Убрали упоминание последнего метода из вопроса
     question_about_recharge = "\n\nПоделись, пожалуйста, что обычно помогает тебе восстановить силы и позаботиться о себе в такие моменты?"
 
     fallback_texts = [
@@ -396,42 +457,75 @@ async def get_grok_supportive_message(user_id, db: Database = None):
         f"Мне жаль, что тебе сейчас нелегко... Пожалуйста, найди минутку для себя, сделай что-то приятное. ☕️{question_about_recharge}"
     ]
 
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            logger.info(f"Sending SUPPORTIVE request to Grok API for user {user_id}.")
-            response = await client.post(GROK_API_URL, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            logger.info(f"Received SUPPORTIVE response from Grok API for user {user_id}.")
+    # --- НАЧАЛО БЛОКА ПОВТОРНЫХ ПОПЫТОК ---
+    max_retries = 3
+    base_delay = 1.0
+    final_message = None
 
-        if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
-             raise ValueError("Invalid response structure for supportive message from Grok API")
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                logger.info(f"Sending SUPPORTIVE request to Grok API for user {user_id} (Attempt {attempt + 1})")
+                response = await client.post(GROK_API_URL, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                logger.info(f"Received SUPPORTIVE response from Grok API for user {user_id}.")
 
-        support_text = data["choices"][0]["message"]["content"].strip()
-        support_text = re.sub(r'^(Хорошо|Вот сообщение|Конечно|Понятно)[,.:]?\s*', '', support_text, flags=re.IGNORECASE).strip()
-        support_text = re.sub(r'^"|"$', '', support_text).strip()
+            if not data.get("choices") or not data["choices"][0].get("message") or not data["choices"][0]["message"].get("content"):
+                 raise ValueError("Invalid response structure for supportive message from Grok API")
 
-        if not support_text or len(support_text) < 10:
-             raise ValueError("Empty or too short support message content after cleaning")
+            support_text = data["choices"][0]["message"]["content"].strip()
+            # Очистка текста
+            support_text = re.sub(r'^(Хорошо|Вот сообщение|Конечно|Понятно)[,.:]?\s*', '', support_text, flags=re.IGNORECASE).strip()
+            support_text = re.sub(r'^"|"$', '', support_text).strip()
 
-        return support_text + question_about_recharge
+            if not support_text or len(support_text) < 10:
+                 raise ValueError("Empty or too short support message content after cleaning")
 
-    except httpx.TimeoutException:
-        logger.error(f"Grok API supportive message request timed out for user {user_id}.")
-        return random.choice(fallback_texts)
-    except httpx.RequestError as e:
-        logger.error(f"Grok API supportive message request failed for user {user_id}: {e}")
-        return random.choice(fallback_texts)
-    except (ValueError, KeyError, IndexError) as e:
-        logger.error(f"Failed to parse Grok API supportive message response for user {user_id}: {e}")
-        return random.choice(fallback_texts)
-    except Exception as e:
-        logger.exception(f"An unexpected error occurred in get_grok_supportive_message for user {user_id}: {e}")
-        return random.choice(fallback_texts)
+            final_message = support_text + question_about_recharge
+            break # Успешно
+
+        except httpx.TimeoutException:
+            logger.warning(f"Grok API supportive message request timed out for user {user_id} (Attempt {attempt + 1})")
+            if attempt == max_retries - 1:
+                 final_message = random.choice(fallback_texts)
+        except httpx.HTTPStatusError as e:
+             if e.response.status_code in [403, 429] or e.response.status_code >= 500:
+                 logger.warning(f"Grok API returned {e.response.status_code} for SUPPORTIVE (User: {user_id}, Attempt: {attempt + 1}). Retrying...")
+                 if attempt == max_retries - 1:
+                     final_message = random.choice(fallback_texts)
+             else:
+                 logger.error(f"Grok API supportive message request failed with unrecoverable status {e.response.status_code} for user {user_id}: {e}")
+                 final_message = random.choice(fallback_texts)
+                 break
+        except (ValueError, KeyError, IndexError) as e:
+            logger.error(f"Failed to parse Grok API supportive message response for user {user_id}: {e}")
+            final_message = random.choice(fallback_texts)
+            break
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred in get_grok_supportive_message for user {user_id} during attempt {attempt+1}: {e}")
+            if attempt == max_retries - 1:
+                final_message = random.choice(fallback_texts)
+            # Не выходим, даем сработать задержке
+
+        # Задержка перед следующей попыткой
+        if attempt < max_retries - 1 and final_message is None:
+            delay = base_delay * (2 ** attempt)
+            logger.info(f"Waiting {delay:.1f}s before retrying Grok SUPPORTIVE request...")
+            await asyncio.sleep(delay)
+        elif final_message is None: # Последняя попытка не удалась
+            logger.error(f"Grok API supportive message request failed after {max_retries} attempts for user {user_id}.")
+            if final_message is None: # Устанавливаем fallback, если не был установлен
+                 final_message = random.choice(fallback_texts)
+
+    # --- КОНЕЦ БЛОКА ПОВТОРНЫХ ПОПЫТОК ---
+
+    return final_message if final_message is not None else random.choice(fallback_texts)
+
 
 # --- Построение профиля пользователя (ОБНОВЛЕНО) ---
 async def build_user_profile(user_id, db: Database):
-    # ... (начало функции, проверка кэша) ...
+    # ... (код функции без изменений) ...
     """
     Строит или обновляет профиль пользователя.
     Включает данные рефлексии, статистику карт, хранит все методы восстановления (но получает последний).
@@ -517,8 +611,17 @@ async def build_user_profile(user_id, db: Database):
         raw_timestamp = action.get("timestamp")
         if isinstance(raw_timestamp, str):
             try:
-                dt_aware = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00'))
-                ts = dt_aware.astimezone(TIMEZONE) if pytz else dt_aware
+                # Пытаемся распарсить с учетом 'Z' или без
+                if raw_timestamp.endswith('Z'):
+                    dt_naive = datetime.fromisoformat(raw_timestamp[:-1])
+                    dt_aware = pytz.utc.localize(dt_naive) if pytz else dt_naive.replace(tzinfo=datetime.timezone.utc) # Используем pytz если есть
+                elif '+' in raw_timestamp:
+                    dt_aware = datetime.fromisoformat(raw_timestamp)
+                else: # Если формат без смещения (предполагаем UTC или локальное?) - безопаснее считать UTC
+                    dt_naive = datetime.fromisoformat(raw_timestamp)
+                    dt_aware = pytz.utc.localize(dt_naive) if pytz else dt_naive.replace(tzinfo=datetime.timezone.utc)
+
+                ts = dt_aware.astimezone(TIMEZONE) if pytz else dt_aware # Конвертируем в TIMEZONE если pytz есть
                 timestamps.append(ts)
             except ValueError as e:
                 logger.warning(f"Could not parse ISO timestamp string '{raw_timestamp}' for user {user_id}, action '{action.get('action')}': {e}")
@@ -526,12 +629,13 @@ async def build_user_profile(user_id, db: Database):
                  logger.warning(f"Error converting timestamp '{raw_timestamp}' for user {user_id}, action '{action.get('action')}': {e}")
         elif isinstance(raw_timestamp, datetime):
              try:
-                 ts = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo and pytz else (TIMEZONE.localize(raw_timestamp) if pytz else raw_timestamp)
+                 ts = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo and pytz else (TIMEZONE.localize(raw_timestamp) if pytz and not raw_timestamp.tzinfo else raw_timestamp) # Добавлена проверка на наивность перед localize
                  timestamps.append(ts)
              except Exception as e:
                  logger.warning(f"Error converting datetime timestamp '{raw_timestamp}' for user {user_id}, action '{action.get('action')}': {e}")
         else:
              logger.warning(f"Skipping action due to invalid timestamp type: {type(raw_timestamp)} in action: {action.get('action')}")
+
 
     # --- Расчет метрик ---
     if not actions and not reflection_count and not total_cards_drawn and not base_profile_data.get("last_updated"):
@@ -572,28 +676,29 @@ async def build_user_profile(user_id, db: Database):
         unique_dates = {ts.date() for ts in timestamps}
         if unique_dates:
              first_interaction_date = min(unique_dates)
+             # Убедимся что дата now тоже date()
              days_active = (now.date() - first_interaction_date).days + 1
     elif base_profile_data:
         days_active = base_profile_data.get("days_active", 0)
 
+
     # Тренд настроения
     mood_trend = [analyze_mood(resp) for resp in mood_source_texts]
 
-    # --- ИЗМЕНЕНИЕ: Форматируем дату рефлексии (проверяем тип) ---
+    # Форматируем дату рефлексии
     last_reflection_date_str = None
-    if isinstance(last_reflection_date_obj, date): # Проверяем, что это объект date
+    if isinstance(last_reflection_date_obj, date):
         try:
             last_reflection_date_str = last_reflection_date_obj.strftime('%Y-%m-%d')
-        except ValueError: # На случай очень старых дат, которые strftime не поддерживает
+        except ValueError:
             logger.warning(f"Could not format last_reflection_date_obj {last_reflection_date_obj} for user {user_id}")
-            last_reflection_date_str = str(last_reflection_date_obj) # Возвращаем как строку по умолчанию
-    elif last_reflection_date_obj: # Если вернулся не date, но не None (маловероятно)
+            last_reflection_date_str = str(last_reflection_date_obj)
+    elif last_reflection_date_obj:
         logger.warning(f"last_reflection_date_obj is not a date object: {type(last_reflection_date_obj)} for user {user_id}")
-        last_reflection_date_str = str(last_reflection_date_obj) # Преобразуем в строку как есть
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        last_reflection_date_str = str(last_reflection_date_obj)
 
 
-    # --- Собираем и сохраняем обновленный профиль ---
+    # Собираем и сохраняем обновленный профиль
     updated_profile = {
         "user_id": user_id,
         "mood": mood,
@@ -618,9 +723,8 @@ async def build_user_profile(user_id, db: Database):
 
 # --- Резюме для Вечерней Рефлексии ---
 async def get_reflection_summary(user_id: int, reflection_data: dict, db: Database) -> str | None:
-    # ... (код функции без изменений) ...
     """
-    Генерирует AI-резюме для вечерней рефлексии.
+    Генерирует AI-резюме для вечерней рефлексии с механизмом повторных попыток.
     """
     logger.info(f"Starting evening reflection summary generation for user {user_id}")
     headers = {"Authorization": f"Bearer {GROK_API_KEY}", "Content-Type": "application/json"}
@@ -694,33 +798,41 @@ async def get_reflection_summary(user_id: int, reflection_data: dict, db: Databa
 
         except httpx.TimeoutException:
             logger.warning(f"Grok API reflection summary request timed out for user {user_id} (Attempt {attempt + 1})")
+            if attempt == max_retries - 1:
+                summary_text = "К сожалению, не удалось сгенерировать резюме дня (таймаут)." # Обновлен fallback
         except httpx.HTTPStatusError as e:
-             # Повторяем только при 403 (Forbidden) или 429 (Too Many Requests)
-             if e.response.status_code in [403, 429]:
+             # Повторяем только при 403, 429 или 5xx
+             if e.response.status_code in [403, 429] or e.response.status_code >= 500:
                  logger.warning(f"Grok API returned {e.response.status_code} for reflection summary (User: {user_id}, Attempt: {attempt + 1}). Retrying...")
+                 if attempt == max_retries - 1: # Если последняя попытка
+                     summary_text = "К сожалению, не удалось сгенерировать резюме дня из-за временной ошибки сервера." # Обновлен fallback
              else: # Другие ошибки 4xx/5xx не повторяем
                  logger.error(f"Grok API reflection summary request failed with status {e.response.status_code} for user {user_id}: {e}")
                  summary_text = fallback_summary # Используем запасной текст
-                 break # Выходим из цикла
+                 break # Выходим из цикла при невосстановимой ошибке
         except (ValueError, KeyError, IndexError) as e:
             logger.error(f"Failed to parse Grok API reflection summary response for user {user_id}: {e}")
             summary_text = fallback_summary
             break
         except Exception as e:
-            logger.exception(f"An unexpected error occurred in get_reflection_summary for user {user_id}: {e}")
-            summary_text = None # Возвращаем None при совсем неожиданной ошибке
-            break # Выходим из цикла
+            logger.exception(f"An unexpected error occurred in get_reflection_summary for user {user_id} during attempt {attempt + 1}: {e}")
+            if attempt == max_retries - 1:
+                summary_text = "Произошла неожиданная ошибка при генерации резюме дня." # Обновлен fallback
+            # Не выходим, даем сработать задержке
 
-        # Если не вышли из цикла (т.е. была ошибка 403/429 или таймаут), ждем перед следующей попыткой
-        if attempt < max_retries - 1:
+        # Если не вышли из цикла (т.е. была ошибка для повтора), ждем перед следующей попыткой
+        if attempt < max_retries - 1 and summary_text is None:
             delay = base_delay * (2 ** attempt) # Экспоненциальная задержка
-            logger.info(f"Waiting {delay:.1f}s before retrying Grok request...")
+            logger.info(f"Waiting {delay:.1f}s before retrying Grok REFLECTION SUMMARY request...")
             await asyncio.sleep(delay)
-        else: # Если это была последняя попытка
+        elif summary_text is None: # Если это была последняя попытка и все еще None
              logger.error(f"Grok API reflection summary request failed after {max_retries} attempts for user {user_id}.")
              if summary_text is None: # Если не установили fallback при других ошибках
                  summary_text = fallback_summary
 
-    return summary_text
+
+    # Гарантируем возврат строки
+    return summary_text if summary_text is not None else fallback_summary
+
 
 # --- КОНЕЦ ФАЙЛА ---
