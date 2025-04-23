@@ -1,3 +1,5 @@
+# код/evening_reflection.py
+
 import logging
 from datetime import datetime
 from aiogram import types
@@ -18,6 +20,8 @@ from modules.card_of_the_day import get_main_menu
 logger = logging.getLogger(__name__)
 
 # Создаем Router для этого модуля
+# (Оставляем его, если он используется для других обработчиков, например, callback_query,
+#  или если планируется его использовать в будущем. Если нет - можно удалить)
 reflection_router = Router()
 
 # --- Тексты сообщений ---
@@ -32,6 +36,7 @@ MSG_AI_SUMMARY_FAIL = "Не получилось сгенерировать AI-�
 
 # --- Хендлеры ---
 
+# Эта функция будет вызываться из main.py, зарегистрированная напрямую на dp
 async def start_evening_reflection(message: types.Message, state: FSMContext, db: Database, logger_service: LoggingService):
     """Начало флоу 'Итог дня'."""
     user_id = message.from_user.id
@@ -40,7 +45,8 @@ async def start_evening_reflection(message: types.Message, state: FSMContext, db
     await message.answer(ASK_GOOD_MOMENTS)
     await state.set_state(UserState.waiting_for_good_moments)
 
-@reflection_router.message(StateFilter(UserState.waiting_for_good_moments))
+# УБРАН ДЕКОРАТОР @reflection_router.message(...)
+# Эта функция будет вызываться из main.py, зарегистрированная напрямую на dp
 async def process_good_moments(message: types.Message, state: FSMContext, db: Database, logger_service: LoggingService):
     """Обработка ответа на вопрос о хороших моментах."""
     user_id = message.from_user.id
@@ -54,7 +60,8 @@ async def process_good_moments(message: types.Message, state: FSMContext, db: Da
     await message.answer(ASK_GRATITUDE)
     await state.set_state(UserState.waiting_for_gratitude)
 
-@reflection_router.message(StateFilter(UserState.waiting_for_gratitude))
+# УБРАН ДЕКОРАТОР @reflection_router.message(...)
+# Эта функция будет вызываться из main.py, зарегистрированная напрямую на dp
 async def process_gratitude(message: types.Message, state: FSMContext, db: Database, logger_service: LoggingService):
     """Обработка ответа на вопрос о благодарности."""
     user_id = message.from_user.id
@@ -68,7 +75,8 @@ async def process_gratitude(message: types.Message, state: FSMContext, db: Datab
     await message.answer(ASK_HARD_MOMENTS)
     await state.set_state(UserState.waiting_for_hard_moments)
 
-@reflection_router.message(StateFilter(UserState.waiting_for_hard_moments))
+# УБРАН ДЕКОРАТОР @reflection_router.message(...)
+# Эта функция будет вызываться из main.py, зарегистрированная напрямую на dp
 async def process_hard_moments(message: types.Message, state: FSMContext, db: Database, logger_service: LoggingService):
     """Обработка ответа на вопрос о непростых моментах, генерация AI-резюме и завершение."""
     user_id = message.from_user.id
@@ -89,7 +97,7 @@ async def process_hard_moments(message: types.Message, state: FSMContext, db: Da
         ai_summary_text = await get_reflection_summary(user_id, data, db)
 
         if ai_summary_text:
-            await message.answer(f"{MSG_AI_SUMMARY_PREFIX}<i>{ai_summary_text}</i>")
+            await message.answer(f"{MSG_AI_SUMMARY_PREFIX}<i>{ai_summary_text}</i>", parse_mode="HTML") # Добавлен parse_mode HTML
             await logger_service.log_action(user_id, "evening_reflection_summary_sent")
         else:
             # Если AI вернул None или пустую строку (из-за непредвиденной ошибки в ai_service)
