@@ -75,10 +75,13 @@ from modules.card_of_the_day import (
 )
 
 # Модуль Вечерней Рефлексии
-# Убедимся, что все необходимые обработчики импортированы
+# Импортируем функцию для старта и обработчики состояний
 from modules.evening_reflection import (
-    reflection_router, start_evening_reflection # , process_good_moments,
-    # process_gratitude, process_hard_moments # Эти обработчики регистрируются через router
+    start_evening_reflection,
+    process_good_moments,      # <--- Добавлено
+    process_gratitude,       # <--- Добавлено
+    process_hard_moments     # <--- Добавлено
+    # reflection_router больше не импортируем здесь
 )
 
 # --- Стандартные импорты ---
@@ -816,9 +819,9 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
 
     # --- Флоу "Итог дня" (обработчики внутри reflection_router) ---
     # Регистрация хендлеров для Итога Дня больше не нужна здесь, т.к. они в роутере
-    # dp.message.register(partial(process_good_moments, db=db, logger_service=logger_service), UserState.waiting_for_good_moments)
-    # dp.message.register(partial(process_gratitude, db=db, logger_service=logger_service), UserState.waiting_for_gratitude)
-    # dp.message.register(partial(process_hard_moments, db=db, logger_service=logger_service), UserState.waiting_for_hard_moments)
+    dp.message.register(partial(process_good_moments, db=db, logger_service=logger_service), UserState.waiting_for_good_moments)
+    dp.message.register(partial(process_gratitude, db=db, logger_service=logger_service), UserState.waiting_for_gratitude)
+    dp.message.register(partial(process_hard_moments, db=db, logger_service=logger_service), UserState.waiting_for_hard_moments)
 
     # --- Обработчики некорректных вводов ---
     async def handle_text_when_waiting_callback(message: types.Message, state: FSMContext):
