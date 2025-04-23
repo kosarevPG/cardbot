@@ -891,8 +891,8 @@ async def main():
     # ... (код main() без изменений) ...
     logger.info("Starting bot...")
     commands = [
-        types.BotCommand(command="start", description="▶️ Начать / Перезапустить"),
-        types.BotCommand(command="name", description="👤 Изменить имя"),
+        types.BotCommand(command="start", description="🔄 Перезагрузка"),
+        types.BotCommand(command="name", description="👩🏼 Указать имя"),
         types.BotCommand(command="remind", description="⏰ Настроить напоминания"),
         types.BotCommand(command="remind_off", description="🔕 Выключить все напоминания"),
         types.BotCommand(command="share", description="🎁 Поделиться с другом"),
@@ -900,12 +900,12 @@ async def main():
         types.BotCommand(command="user_profile", description="📊 Мой профиль")
     ]
     # Добавляем админские команды, если они есть
-    if ADMIN_ID:
-         commands.extend([
-             types.BotCommand(command="users", description="👥 Адм: Список юзеров"),
-             types.BotCommand(command="logs", description="📜 Адм: Логи за дату"),
-             types.BotCommand(command="admin_user_profile", description="👤 Адм: Профиль юзера")
-         ])
+    #if ADMIN_ID:
+    #     commands.extend([
+    #         types.BotCommand(command="users", description="👥 Адм: Список юзеров"),
+    #         types.BotCommand(command="logs", description="📜 Адм: Логи за дату"),
+    #         types.BotCommand(command="admin_user_profile", description="👤 Адм: Профиль юзера")
+    #     ])
 
     try:
         await bot.set_my_commands(commands)
