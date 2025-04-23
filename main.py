@@ -788,8 +788,8 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.message.register(partial(handle_card_request, db=db, logger_service=logger_service), F.text == "✨ Карта дня", StateFilter("*"))
     # Регистрируем роутер для Вечерней рефлексии (вместо прямого хендлера)
     dp.include_router(reflection_router) # Используем роутер из evening_reflection.py
-    # dp.message.register(partial(start_evening_reflection, db=db, logger_service=logger_service), F.text == "🌙 Итог дня", StateFilter("*")) # Эта регистрация больше не нужна здесь
-
+    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logger_service), F.text == "🌙 Итог дня", StateFilter("*"))
+    
     # --- Регистрация состояний FSM ---
     dp.message.register(process_name_handler, UserState.waiting_for_name)
     dp.callback_query.register(process_skip_name_handler, F.data == "skip_name", UserState.waiting_for_name)
