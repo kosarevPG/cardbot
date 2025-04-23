@@ -42,6 +42,7 @@ t.start()
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, StateFilter, CommandObject
+from aiogram.exceptions import TelegramAPIError
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.context import FSMContext
@@ -232,6 +233,83 @@ def make_remind_handler(db, logger_service, user_manager):
         await message.answer(text, reply_markup=await get_main_menu(user_id, db)) # Показываем меню для контекста
         await state.set_state(UserState.waiting_for_morning_reminder_time) # Устанавливаем состояние
         await logger_service.log_action(user_id, "remind_command_invoked")
+    return wrapped_handler
+
+# --- Новая команда /broadcast (для теста) ---
+def make_broadcast_handler(db: Database, logger_service: LoggingService):
+    """Создает обработчик для команды /broadcast (ТЕСТОВЫЙ РЕЖИМ)."""
+    async def wrapped_handler(message: types.Message):
+        user_id = message.from_user.id
+        if user_id != ADMIN_ID:
+            await message.reply("Эта команда доступна только администратору.")
+            return
+
+        # Получаем текст для рассылки (все, что после /broadcast )
+        broadcast_text = message.text[len("/broadcast"):].strip()
+        if not broadcast_text:
+            await message.reply("Пожалуйста, укажите текст для рассылки после команды.\n"
+                                "Пример: `/broadcast Привет! У бота обновления!`")
+            return
+
+        # Фиксированный текст из вашего примера (можно оставить или использовать broadcast_text)
+        # Замените на broadcast_text, если хотите отправлять текст из команды
+        text_to_send = """Привет! Надеюсь, у вас все хорошо. ✨
+
+Хочу поделиться новостями: я немного обновился, чтобы наша работа с картами и саморефлексией стала еще глубже и полезнее!
+
+1) У меня новое имя – "Ресурсный помощник". Мне кажется, оно лучше отражает то, чем я могу быть для вас полезен. 😊
+
+2) Теперь я умею составлять "Профиль пользователя" (загляните через команду /user_profile!), где бережно собираются важные моменты нашего взаимодействия. Узнайте себя немного лучше!
+
+3) Появился уютный вечерний ритуал "🌙 Итог дня" – всего пара минут, чтобы мягко завершить день и позаботиться о себе.
+
+Очень хочется снова пообщаться! Нажмите /start, чтобы увидеть обновленное меню и попробовать новинки.
+
+С нетерпением жду встречи!
+Ваш Ресурсный помощник ❤️"""
+
+        # users = db.get_all_users() # <-- Закомментировано: Получение всех пользователей
+        users = [171507422] # <-- Добавлено: Тестирование на конкретном ID
+        if not users:
+            # Эта проверка становится менее актуальной, но не мешает
+            await message.reply("Не удалось определить пользователя для тестовой рассылки.")
+            return
+
+        await message.reply(f"Начинаю ТЕСТОВУЮ рассылку сообщения для {len(users)} пользователя (ID: {users[0]})...") # Уточнено сообщение админу
+        await logger_service.log_action(user_id, "broadcast_test_started", {"target_user_id": users[0], "text_preview": text_to_send[:50]})
+
+        success_count = 0
+        fail_count = 0
+        failed_users = [] # Хотя здесь будет максимум 1
+
+        # Цикл теперь пройдет только один раз
+        for target_user_id in users:
+            try:
+                # Используем HTML для возможного форматирования в будущем, если понадобится
+                await bot.send_message(target_user_id, text_to_send, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+                success_count += 1
+                # Логируем успех для каждого пользователя (опционально, может быть много логов)
+                # await logger_service.log_action(ADMIN_ID, "broadcast_sent_user", {"target_user_id": target_user_id})
+            except TelegramAPIError as e:
+                fail_count += 1
+                failed_users.append(target_user_id)
+                logger.error(f"Failed to send broadcast to {target_user_id}: {e}")
+                await logger_service.log_action(ADMIN_ID, "broadcast_failed_user", {"target_user_id": target_user_id, "error": str(e)})
+            except Exception as e: # Ловим другие возможные ошибки
+                fail_count += 1
+                failed_users.append(target_user_id)
+                logger.error(f"Unexpected error sending broadcast to {target_user_id}: {e}", exc_info=True)
+                await logger_service.log_action(ADMIN_ID, "broadcast_failed_user", {"target_user_id": target_user_id, "error": f"Unexpected: {str(e)}"})
+
+            # Пауза здесь не так критична, но можно оставить
+            await asyncio.sleep(0.05)
+
+        result_text = f"✅ Тестовая рассылка завершена!\nУспешно отправлено: {success_count}\nНе удалось отправить: {fail_count}"
+        if failed_users:
+            result_text += f"\nID пользователя с ошибкой: {failed_users[0]}"
+        await message.reply(result_text)
+        await logger_service.log_action(ADMIN_ID, "broadcast_test_finished", {"success": success_count, "failed": fail_count})
+
     return wrapped_handler
 
 # --- Обработчик ввода УТРЕННЕГО времени ---
@@ -772,6 +850,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     users_handler = make_users_handler(db, logger_service)
     logs_handler = make_logs_handler(db, logger_service)
     admin_user_profile_handler = make_admin_user_profile_handler(db, logger_service)
+    broadcast_handler = make_broadcast_handler(db, logger_service)
 
     # --- Регистрация команд ---
     dp.message.register(start_handler, Command("start"), StateFilter("*"))
@@ -785,6 +864,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.message.register(users_handler, Command("users"), StateFilter("*"))
     dp.message.register(logs_handler, Command("logs"), StateFilter("*"))
     dp.message.register(admin_user_profile_handler, Command("admin_user_profile"), StateFilter("*"))
+    dp.message.register(broadcast_handler, Command("broadcast"), StateFilter("*"))
 
     # --- Регистрация текстовых кнопок меню ---
     dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной", StateFilter("*")) # Используем ИЗМЕНЕННЫЙ обработчик
