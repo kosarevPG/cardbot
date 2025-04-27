@@ -122,6 +122,13 @@ user_manager = UserManager(db)
 # ... (SubscriptionMiddleware без изменений) ...
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
+        # --- ВРЕМЕННОЕ ОТКЛЮЧЕНИЕ ПРОВЕРКИ ПОДПИСКИ ---
+        # Эта строка немедленно передает управление дальше, игнорируя все проверки ниже.
+        # Чтобы снова включить проверку, просто удалите или закомментируйте эту строку.
+        return await handler(event, data)
+        # --- КОНЕЦ ВРЕМЕННОГО ОТКЛЮЧЕНИЯ ---
+
+        # Весь остальной код проверки ниже теперь не будет выполняться
         if isinstance(event, (types.Message, types.CallbackQuery)):
             user = event.from_user
             # Пропускаем проверку если юзер не определен или это бот или админ
@@ -153,10 +160,8 @@ class SubscriptionMiddleware:
                 elif isinstance(event, types.CallbackQuery): await event.answer("Не удается проверить подписку.", show_alert=False); await event.message.answer(error_text)
                 return # Прерываем выполнение хэндлера
         # Если все проверки пройдены, передаем управление дальше
+        # (Эта строка теперь недостижима из-за добавленной выше)
         return await handler(event, data)
-dp.message.middleware(SubscriptionMiddleware())
-dp.callback_query.middleware(SubscriptionMiddleware())
-logger.info("SubscriptionMiddleware registered.")
 
 
 # --- Общая функция для запроса времени ---
