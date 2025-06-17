@@ -189,7 +189,7 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "model": "grok-3-latest",
+        "model": "grok-3-fast",
         "max_tokens": 100,
         "stream": False,
         "temperature": 0.5
@@ -332,7 +332,7 @@ async def get_grok_summary(user_id, interaction_data, db: Database = None):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "model": "grok-3-latest",
+        "model": "grok-3-fast",
         "max_tokens": 180,
         "stream": False,
         "temperature": 0.4
@@ -442,7 +442,7 @@ async def get_grok_supportive_message(user_id, db: Database = None):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "model": "grok-3-latest",
+        "model": "grok-3-fast",
         "max_tokens": 120,
         "stream": False,
         "temperature": 0.6
@@ -761,7 +761,7 @@ async def get_reflection_summary(user_id: int, reflection_data: dict, db: Databa
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "model": "grok-3-latest",
+        "model": "grok-3-fast",
         "max_tokens": 150,
         "stream": False,
         "temperature": 0.5
