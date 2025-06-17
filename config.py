@@ -6,8 +6,17 @@ CHANNEL_ID = "@TopPsyGame"
 BOT_LINK = "t.me/choose_a_card_bot"
 TIMEZONE = pytz.timezone("Europe/Moscow")
 ADMIN_ID = 6682555021
-GROK_API_KEY = "xai-TINf07SPF3JTZEF9YkpTa8DMTVM6GYNKYE6YgYHOy5U9DxnEcnwKuU3IG2GBZEwcXFsYM42tbQo3Dfir"
-GROK_API_URL = "https://api.x.ai/v1/chat/completions"
+
+# --- ИЗМЕНЕНО: Настройки для YandexGPT ---
+YANDEX_API_KEY = "AQVN2Jf6LS4V3-lddAlWO5ubPBPnOe5AC1tIkuZ3"
+YANDEX_FOLDER_ID = "b1gcmvqq4m4vvt9dcr57"
+YANDEX_GPT_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+# Старые ключи Grok закомментированы
+# GROK_API_KEY = "xai-TINf07SPF3JTZEF9YkpTa8DMTVM6GYNKYE6YgYHOy5U9DxnEcnwKuU3IG2GBZEwcXFsYM42tbQo3Dfir"
+# GROK_API_URL = "https://api.x.ai/v1/chat/completions"
+
 NO_CARD_LIMIT_USERS = [6682555021, 392141189, 239719200]
 NO_LOGS_USERS = [6682555021, 392141189, 239719200, 7494824111,171507422,138192985]
 DATA_DIR = "/data"
