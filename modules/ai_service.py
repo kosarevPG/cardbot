@@ -102,7 +102,7 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
         }
         return f"Вопрос ({step}/3): {universal_questions.get(step, 'Что ещё приходит на ум?')}"
 
-    headers = {"Authorization": f"Bearer {os.getenv('XAI_API_KEY', GROK_API_KEY)}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {os.getenv('XAI_API_KEY', 'xai-TINf07SPF3JTZEF9YkpTa8DMTVM6GYNKYE6YgYHOy5U9DxnEcnwKuU3IG2GBZEwcXFsYM42tbQo3Dfir')}", "Content-Type": "application/json"}
     logger.info(f"Using API key: {headers['Authorization'][:20]}... for user {user_id}")
 
     profile = await build_user_profile(user_id, db)
@@ -236,7 +236,7 @@ async def get_grok_summary(user_id, interaction_data, db: Database = None):
         logger.error("Database object 'db' is required for get_grok_summary")
         return "Ошибка: Не удалось получить доступ к базе данных для генерации резюме."
 
-    headers = {"Authorization": f"Bearer {os.getenv('XAI_API_KEY', GROK_API_KEY)}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {os.getenv('XAI_API_KEY', 'xai-TINf07SPF3JTZEF9YkpTa8DMTVM6GYNKYE6YgYHOy5U9DxnEcnwKuU3IG2GBZEwcXFsYM42tbQo3Dfir')}", "Content-Type": "application/json"}
     logger.info(f"Using API key: {headers['Authorization'][:20]}... for user {user_id}")
 
     profile = await build_user_profile(user_id, db)
@@ -344,7 +344,7 @@ async def get_grok_supportive_message(user_id, db: Database = None):
         return ("Пожалуйста, позаботься о себе. Ты важен(на). ✨\n\n"
                 "Что обычно помогает тебе восстановить силы?")
 
-    headers = {"Authorization": f"Bearer {os.getenv('XAI_API_KEY', GROK_API_KEY)}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {os.getenv('XAI_API_KEY', 'xai-TINf07SPF3JTZEF9YkpTa8DMTVM6GYNKYE6YgYHOy5U9DxnEcnwKuU3IG2GBZEwcXFsYM42tbQo3Dfir')}", "Content-Type": "application/json"}
     logger.info(f"Using API key: {headers['Authorization'][:20]}... for user {user_id}")
 
     profile = await build_user_profile(user_id, db)
@@ -586,7 +586,7 @@ async def build_user_profile(user_id, db: Database):
 # --- Резюме для Вечерней Рефлексии ---
 async def get_reflection_summary(user_id: int, reflection_data: dict, db: Database) -> str | None:
     logger.info(f"Starting evening reflection summary generation for user {user_id}")
-    headers = {"Authorization": f"Bearer {os.getenv('XAI_API_KEY', GROK_API_KEY)}", "Content-Type": "application/json"}
+    headers = {"Authorization": f"Bearer {os.getenv('XAI_API_KEY', 'xai-TINf07SPF3JTZEF9YkpTa8DMTVM6GYNKYE6YgYHOy5U9DxnEcnwKuU3IG2GBZEwcXFsYM42tbQo3Dfir')}", "Content-Type": "application/json"}
     logger.info(f"Using API key: {headers['Authorization'][:20]}... for user {user_id}")
 
     good_moments = reflection_data.get("good_moments", "не указано")
