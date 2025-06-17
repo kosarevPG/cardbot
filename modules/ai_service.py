@@ -1,11 +1,10 @@
-# код/ai_service.py
+# modules/ai_service.py
 
 import httpx
 import json
 import random
 import asyncio
 import os
-from config import GROK_API_URL, TIMEZONE
 from datetime import datetime, date
 import re
 import logging
@@ -14,6 +13,11 @@ try:
     import pytz
 except ImportError:
     pytz = None
+
+# Корректировка импорта для доступа к config.py в корне
+import sys
+sys.path.append('..')  # Добавляем корень проекта в путь поиска
+from config import GROK_API_URL, TIMEZONE
 
 # Настройка базового логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
@@ -600,7 +604,7 @@ async def get_reflection_summary(user_id: int, reflection_data: dict, db: Databa
 
     system_prompt = (
         f"Ты — тёплый, мудрый и эмпатичный ИИ-помощник. Проанализируй ответы пользователя ({name}) на вопросы вечерней рефлексии. "
-        "Напиши краткое (2-4 предложения) обобщающее и поддерживающее резюме дня, упомянув хорошие моменты, благодарности и трудности. "
+        "Напиши краткое (2-4 предложения) обобщающее и поддерживающее резюме дня, упомяни хорошие моменты, благодарности и трудности. "
         "Признай важность всего опыта и подчеркни ценность рефлексии. Тон — спокойный, принимающий, без советов или акцента на негатив/позитив. "
         f"Темы пользователя (для сведения): {profile_themes_str}. Обращайся на 'ты', начни с сути."
     )
