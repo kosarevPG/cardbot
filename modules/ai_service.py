@@ -731,6 +731,12 @@ async def get_reflection_summary(user_id: int, reflection_data: dict, db: Databa
             summary_text_raw = data["result"]["alternatives"][0]["message"]["text"].strip()
             summary_text_raw = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итог|Итак)[,.:]?\s*', '', summary_text_raw, flags=re.IGNORECASE).strip()
             summary_text_raw = re.sub(r'^"|"$', '', summary_text_raw).strip()
+            # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+            # Проверяем наличие ссылок и запрещенных слов в резюме рефлексии
+            if 'http:' in summary_text_raw or 'https:' in summary_text_raw or 'ya.ru' in summary_text_raw or ']' in summary_text_raw or 'поиск' in summary_text_raw.lower() or 'интернет' in summary_text_raw.lower():
+                logger.warning(f"YandexGPT (reflection) сгенерировал ответ со ссылкой или запрещенным словом: '{summary_text_raw}'. Ответ отбракован.")
+                raise ValueError("Generated reflection summary contains a forbidden link or keyword.")
+            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
             if not summary_text_raw or len(summary_text_raw) < 10:
                  raise ValueError("Empty or too short reflection summary content after cleaning")
