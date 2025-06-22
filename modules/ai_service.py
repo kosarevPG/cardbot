@@ -325,6 +325,12 @@ async def get_grok_summary(user_id, interaction_data, db: Database = None):
             summary_text_raw = data["result"]["alternatives"][0]["message"]["text"].strip()
             summary_text_raw = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итог|Итак)[,.:]?\s*', '', summary_text_raw, flags=re.IGNORECASE).strip()
             summary_text_raw = re.sub(r'^"|"$', '', summary_text_raw).strip()
+            # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
+            # Проверяем наличие ссылок и запрещенных слов в ИТОГОВОМ сообщении
+            if 'http:' in summary_text_raw or 'https:' in summary_text_raw or 'ya.ru' in summary_text_raw or ']' in summary_text_raw or 'поиск' in summary_text_raw.lower() or 'интернет' in summary_text_raw.lower():
+                logger.warning(f"YandexGPT (summary) сгенерировал ответ со ссылкой или запрещенным словом: '{summary_text_raw}'. Ответ отбракован.")
+                raise ValueError("Generated summary contains a forbidden link or keyword.")
+            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
             if not summary_text_raw or len(summary_text_raw) < 10:
                  raise ValueError("Empty or too short summary content after cleaning")
@@ -340,7 +346,7 @@ async def get_grok_summary(user_id, interaction_data, db: Database = None):
              if e.response.status_code in [429] or e.response.status_code >= 500:
                  logger.warning(f"YandexGPT API returned {e.response.status_code} for SUMMARY (User: {user_id}, Attempt: {attempt + 1}). Retrying...")
                  if attempt == max_retries - 1:
-                     summary_text = "К сожалению, не удалось сгенерировать резюме сессии из-за временной ошибки сервера. Но твои размышления очень ценны!"
+                     summary_text = "Спасибо за твою глубину и открытость. Главное в этой сессии — те мысли и чувства, которые возникли у тебя, а не формальный итог. ✨"
              else:
                  logger.error(f"YandexGPT API summary request failed with unrecoverable status {e.response.status_code} for user {user_id}: {e}")
                  summary_text = fallback_summary
