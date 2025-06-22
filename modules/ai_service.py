@@ -308,7 +308,7 @@ async def get_grok_summary(user_id, interaction_data, db: Database = None):
     max_retries = 3
     base_delay = 1.0
     summary_text = None
-    fallback_summary = "Не получилось сформулировать итог сессии. Главное — те мысли и чувства, которые возникли у тебя."
+    fallback_summary = "Спасибо за твою глубину и открытость. Главное в этой сессии — те мысли и чувства, которые возникли у тебя, а не формальный итог."
 
     for attempt in range(max_retries):
         try:
