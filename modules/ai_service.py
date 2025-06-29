@@ -186,7 +186,7 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
             question_text = re.sub(r'^Вопрос\s*\d/\d[:.]?\s*', '', question_text).strip()
             
             # --- НОВЫЙ БЛОК: ЖЕЛЕЗНАЯ ПРОВЕРКА НА ССЫЛКИ ---
-            if 'http:' in question_text or 'https.' in question_text or 'ya.ru' in question_text or ']' in question_text:
+            if 'http:' in question_text or 'https:' in question_text or 'ya.ru' in question_text or ']' in question_text:
                 logger.warning(f"YandexGPT сгенерировал ответ со ссылкой или Markdown: '{question_text}'. Ответ отбракован.")
                 raise ValueError("Generated response contains a forbidden link or markdown.")
             # --- КОНЕЦ НОВОГО БЛОКА ---
