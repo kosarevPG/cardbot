@@ -30,7 +30,14 @@ class NotificationService:
                     # Проверка утреннего напоминания (Карта Дня)
                     morning_time = times.get('morning')
                     if morning_time == current_time_str and self.db.is_card_available(user_id, today):
-                        text = f"{name}, привет! Пришло время вытянуть свою карту дня. ✨" if name else "Привет! Пришло время вытянуть свою карту дня. ✨"
+                        text = f"{name}, , привет! ✨\n"
+    "Пора вытянуть свою «Карту дня».\n\n"
+    "• Сменить время — /remind\n"
+    "• Выключить — /remind_off"
+    "Пробуем? Вытяни карту сегодня!" if name else "Привет! ✨\n"
+    "Пора вытянуть свою «Карту дня».\n\n"
+    "• Сменить время — /remind\n"
+    "• Выключить — /remind_off"
                         try:
                             # Отправляем с клавиатурой, чтобы сразу можно было нажать
                             await self.bot.send_message(user_id, text, reply_markup=await get_main_menu(user_id, self.db))
