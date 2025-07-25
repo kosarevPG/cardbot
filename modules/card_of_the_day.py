@@ -484,6 +484,7 @@ async def generate_and_send_summary(user_id: int, message: types.Message, state:
             await message.answer(f"✨ Давай попробуем подвести итог нашей беседы:\n\n<i>{summary_text}</i>", parse_mode="HTML")
             await logger_service.log_action(user_id, "summary_sent", {
                 "summary_length": len(summary_text),
+                "summary": summary_text,
                 "session_id": session_id
             })
         except Exception as e:
@@ -585,6 +586,7 @@ async def process_recharge_method(message: types.Message, state: FSMContext, db:
         await state.update_data(recharge_method=recharge_method_text)
         await logger_service.log_action(user_id, "recharge_method_provided", {
             "length": len(recharge_method_text),
+            "response": recharge_method_text,
             "session_id": session_id
         })
         logger.info(f"Recharge method '{recharge_method_text}' added to separate table for user {user_id}")
@@ -699,6 +701,7 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
             await logger_service.log_action(user_id, "interaction_feedback_provided", {
                 "card_session": card_number, 
                 "feedback": feedback_type,
+                "bot_response": text,
                 "session_id": session_id
             })
 
