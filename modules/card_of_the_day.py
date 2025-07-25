@@ -201,6 +201,7 @@ async def process_request_text(message: types.Message, state: FSMContext, db: Da
     await state.update_data(user_request=request_text)
     
     await logger_service.log_action(user_id, "typed_question_submitted", {
+        "request": request_text,
         "length": len(request_text),
         "session_id": session_id
     })
@@ -382,6 +383,7 @@ async def ask_grok_question(message: types.Message, state: FSMContext, db: Datab
     await logger_service.log_action(user_id, "grok_question_asked", {
         "step": step, 
         "question_length": len(grok_question),
+        "question": grok_question,
         "session_id": session_id
     })
 
