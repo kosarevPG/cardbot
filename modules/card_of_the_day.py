@@ -298,6 +298,7 @@ async def process_initial_response(message: types.Message, state: FSMContext, db
     await state.update_data(initial_response=initial_response_text)
 
     await logger_service.log_action(user_id, "initial_response_provided", {
+        "response": initial_response_text,
         "length": len(initial_response_text),
         "session_id": session_id
     })
@@ -406,8 +407,9 @@ async def process_first_grok_response(message: types.Message, state: FSMContext,
     session_id = data.get("session_id", "unknown")
     await state.update_data(first_grok_response=first_response)
     await logger_service.log_action(user_id, "grok_response_provided", {
-        "step": 1, 
-        "response_length": len(first_response), 
+        "step": 1,
+        "response": first_response,
+        "length": len(first_response),
         "session_id": session_id
     })
     await ask_grok_question(message, state, db, logger_service, step=2, user_id=user_id)
@@ -420,8 +422,9 @@ async def process_second_grok_response(message: types.Message, state: FSMContext
     session_id = data.get("session_id", "unknown")
     await state.update_data(second_grok_response=second_response)
     await logger_service.log_action(user_id, "grok_response_provided", {
-        "step": 2, 
-        "response_length": len(second_response), 
+        "step": 2,
+        "response": second_response,
+        "length": len(second_response),
         "session_id": session_id
     })
     await ask_grok_question(message, state, db, logger_service, step=3, user_id=user_id)
@@ -434,8 +437,9 @@ async def process_third_grok_response(message: types.Message, state: FSMContext,
     session_id = data.get("session_id", "unknown")
     await state.update_data(third_grok_response=third_response)
     await logger_service.log_action(user_id, "grok_response_provided", {
-        "step": 3, 
-        "response_length": len(third_response), 
+        "step": 3,
+        "response": third_response,
+        "length": len(third_response),
         "session_id": session_id
     })
     await generate_and_send_summary(user_id=user_id, message=message, state=state, db=db, logger_service=logger_service)
