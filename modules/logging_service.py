@@ -11,9 +11,20 @@ class LoggingService:
         logging.basicConfig(level=logging.INFO)
 
     async def log_action(self, user_id, action, details=None):
-        chat = await self.db.bot.get_chat(user_id)
-        username = chat.username or ""
-        name = self.db.get_user(user_id)["name"]
+        try:
+            chat = await self.db.bot.get_chat(user_id)
+            username = chat.username or ""
+        except Exception as e:
+            logging.warning(f"Could not get chat info for user {user_id}: {e}")
+            username = ""
+        
+        try:
+            user_data = self.db.get_user(user_id)
+            name = user_data.get("name", "Unknown") if user_data else "Unknown"
+        except Exception as e:
+            logging.warning(f"Could not get user data for user {user_id}: {e}")
+            name = "Unknown"
+        
         timestamp = datetime.now(TIMEZONE).isoformat()
         self.db.save_action(user_id, username, name, action, details or {}, timestamp)
         logging.info(f"User {user_id}: {action}, details: {details}")

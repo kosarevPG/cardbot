@@ -236,6 +236,9 @@ async def process_request_text(message: types.Message, state: FSMContext, db: Da
         'session_id': session_id
     })
     
+    # Сохраняем запрос для анализа
+    db.save_user_request(user_id, request_text, session_id)
+    
     await logger_service.log_action(user_id, "typed_question_submitted", {
         "request": request_text,
         "length": len(request_text),

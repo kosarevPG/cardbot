@@ -184,6 +184,18 @@ class Database:
                         session_id TEXT,
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
+                
+                # Таблица user_requests - текстовые запросы пользователей к картам
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS user_requests (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        request_text TEXT NOT NULL,
+                        session_id TEXT,
+                        card_number INTEGER,
+                        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )""")
 
             logger.info("Base table structures checked/created successfully.")
         except sqlite3.Error as e:
@@ -700,6 +712,110 @@ class Database:
             logger.debug(f"Logged scenario step: user={user_id}, scenario={scenario}, step={step}")
         except sqlite3.Error as e:
             logger.error(f"Failed to log scenario step for user {user_id}: {e}", exc_info=True)
+
+    def save_user_request(self, user_id: int, request_text: str, session_id: str = None, card_number: int = None):
+        """Сохраняет текстовый запрос пользователя для анализа."""
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO user_requests (user_id, request_text, session_id, card_number, timestamp) VALUES (?, ?, ?, ?, datetime('now'))",
+                    (user_id, request_text, session_id, card_number)
+                )
+            logger.info(f"Saved user request: user={user_id}, length={len(request_text)}")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to save user request for user {user_id}: {e}", exc_info=True)
+
+    def get_user_requests_stats(self, days: int = 7):
+        """Получает статистику по запросам пользователей."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            # Общая статистика
+            params = list(excluded_users) if excluded_users else []
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    COUNT(*) as total_requests,
+                    COUNT(DISTINCT user_id) as unique_users,
+                    AVG(LENGTH(request_text)) as avg_length,
+                    MIN(LENGTH(request_text)) as min_length,
+                    MAX(LENGTH(request_text)) as max_length
+                FROM user_requests 
+                WHERE timestamp >= datetime('now', '-{days} days')
+                {excluded_condition}
+            """, params)
+            
+            stats = cursor.fetchone()
+            return {
+                'total_requests': stats['total_requests'],
+                'unique_users': stats['unique_users'],
+                'avg_length': round(stats['avg_length'], 1) if stats['avg_length'] else 0,
+                'min_length': stats['min_length'] or 0,
+                'max_length': stats['max_length'] or 0
+            }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get user requests stats: {e}", exc_info=True)
+            return {}
+
+    def get_user_requests_sample(self, limit: int = 10, days: int = 7):
+        """Получает образец запросов пользователей для анализа."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND ur.user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            params = list(excluded_users) if excluded_users else []
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    ur.request_text,
+                    ur.timestamp,
+                    ur.card_number,
+                    ur.user_id,
+                    u.name as user_name,
+                    u.username as user_username
+                FROM user_requests ur
+                LEFT JOIN users u ON ur.user_id = u.user_id
+                WHERE ur.timestamp >= datetime('now', '-{days} days')
+                {excluded_condition}
+                ORDER BY ur.timestamp DESC
+                LIMIT ?
+            """, params + [limit])
+            
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get user requests sample: {e}", exc_info=True)
+            return []
+
+    def get_user_requests_by_user(self, user_id: int, limit: int = 10):
+        """Получает запросы конкретного пользователя."""
+        try:
+            cursor = self.conn.execute("""
+                SELECT 
+                    request_text,
+                    timestamp,
+                    card_number,
+                    session_id
+                FROM user_requests
+                WHERE user_id = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (user_id, limit))
+            
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get user requests for user {user_id}: {e}", exc_info=True)
+            return []
 
     def start_user_scenario(self, user_id: int, scenario: str, session_id: str = None):
         """Начинает новый сценарий для пользователя."""

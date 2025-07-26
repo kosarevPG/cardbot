@@ -1037,6 +1037,12 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
             await show_admin_value(callback.message, db, logger_service, user_id)
         elif action == "admin_users":
             await show_admin_users(callback.message, db, logger_service, user_id)
+        elif action == "admin_users_list":
+            await show_admin_users_list(callback.message, db, logger_service, user_id)
+        elif action == "admin_requests":
+            await show_admin_requests(callback.message, db, logger_service, user_id)
+        elif action == "admin_requests_full":
+            await show_admin_requests_full(callback.message, db, logger_service, user_id)
         elif action == "admin_logs":
             await show_admin_logs(callback.message, db, logger_service, user_id)
         elif action == "admin_back":
@@ -1284,6 +1290,7 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="📋 Список пользователей", callback_data="admin_users_list")],
+            [types.InlineKeyboardButton(text="💬 Запросы пользователей", callback_data="admin_requests")],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
         ])
@@ -1300,6 +1307,238 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
         text = "❌ Ошибка при загрузке данных пользователей"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_users_list(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает список всех пользователей."""
+    try:
+        # Получаем всех пользователей
+        all_users = db.get_all_users()
+        excluded_users = set(NO_LOGS_USERS) if NO_LOGS_USERS else set()
+        filtered_users = [uid for uid in all_users if uid not in excluded_users]
+        
+        if not filtered_users:
+            text = "👥 <b>СПИСОК ПОЛЬЗОВАТЕЛЕЙ</b>\n\nПока нет пользователей в базе данных."
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users_list")],
+                [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+            ])
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+            return
+        
+        # Формируем список пользователей
+        text = f"👥 <b>СПИСОК ПОЛЬЗОВАТЕЛЕЙ</b> ({len(filtered_users)})\n\n"
+        
+        # Получаем данные пользователей
+        user_list = []
+        for uid in filtered_users:
+            user_data = db.get_user(uid)
+            if user_data:
+                name = user_data.get("name", "Без имени")
+                username = user_data.get("username", "")
+                last_action_time = "Нет действий"
+                
+                # Получаем последнее действие
+                user_actions = db.get_actions(uid)
+                if user_actions:
+                    last_action = user_actions[-1]
+                    raw_timestamp = last_action.get("timestamp")
+                    try:
+                        from datetime import datetime
+                        if isinstance(raw_timestamp, datetime):
+                            last_action_dt = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo else raw_timestamp
+                            last_action_time = last_action_dt.strftime("%Y-%m-%d %H:%M")
+                        elif isinstance(raw_timestamp, str):
+                            last_action_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE)
+                            last_action_time = last_action_dt.strftime("%Y-%m-%d %H:%M")
+                    except:
+                        last_action_time = "Ошибка даты"
+                
+                username_display = f"@{username}" if username else "без username"
+                user_list.append({
+                    'uid': uid,
+                    'name': name,
+                    'username': username_display,
+                    'last_action_time': last_action_time
+                })
+        
+        # Сортируем по времени последнего действия
+        try:
+            user_list.sort(key=lambda x: x['last_action_time'], reverse=True)
+        except Exception as sort_err:
+            logger.warning(f"Error sorting user list by timestamp: {sort_err}. List may be unsorted.")
+        
+        # Формируем текст списка
+        for i, user in enumerate(user_list[:20], 1):  # Показываем первые 20 пользователей
+            text += f"{i}. <code>{user['uid']}</code> | {user['username']} | {user['name']}\n"
+            text += f"   Последнее действие: {user['last_action_time']}\n\n"
+        
+        if len(user_list) > 20:
+            text += f"... и еще {len(user_list) - 20} пользователей"
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users_list")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_users_list_viewed", {})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin users list: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке списка пользователей"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_requests(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает запросы пользователей к картам."""
+    try:
+        # Получаем статистику запросов
+        requests_stats = db.get_user_requests_stats(7)
+        requests_sample = db.get_user_requests_sample(5, 7)
+        
+        text = f"""💬 <b>ЗАПРОСЫ ПОЛЬЗОВАТЕЛЕЙ</b> (за 7 дней)
+
+📊 <b>Статистика:</b>
+• Всего запросов: {requests_stats.get('total_requests', 0)}
+• Уникальных пользователей: {requests_stats.get('unique_users', 0)}
+• Средняя длина: {requests_stats.get('avg_length', 0)} символов
+• Минимум: {requests_stats.get('min_length', 0)} символов
+• Максимум: {requests_stats.get('max_length', 0)} символов
+
+📝 <b>Последние запросы:</b>"""
+        
+        if requests_sample:
+            for i, req in enumerate(requests_sample, 1):
+                user_id = req.get('user_id', 'N/A')
+                user_name = req.get('user_name', 'Аноним')
+                username = req.get('user_username', '')
+                timestamp = req.get('timestamp', '')
+                request_text = req['request_text']
+                
+                # Форматируем дату
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    formatted_date = dt.strftime('%d.%m.%Y %H:%M')
+                except:
+                    formatted_date = timestamp
+                
+                # Форматируем username
+                username_display = f"@{username}" if username else "без username"
+                
+                # Обрезаем длинный текст
+                display_text = request_text[:60] + "..." if len(request_text) > 60 else request_text
+                
+                text += f"\n{i}. <b>{formatted_date}</b>"
+                text += f"\n   <i>«{display_text}»</i>"
+                text += f"\n   👤 ID: {user_id} | {user_name} | {username_display}"
+                text += f"\n"
+        else:
+            text += "\nПока нет запросов"
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="📋 Все запросы", callback_data="admin_requests_full")],
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_requests")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_requests_viewed", {})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin requests: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке запросов"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_requests_full(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает полные запросы пользователей с детальной информацией."""
+    try:
+        # Получаем больше запросов для детального просмотра
+        requests_sample = db.get_user_requests_sample(20, 7)
+        
+        text = f"""📋 <b>ПОЛНЫЕ ЗАПРОСЫ ПОЛЬЗОВАТЕЛЕЙ</b> (за 7 дней)
+
+📊 <b>Всего запросов:</b> {len(requests_sample)}
+
+📝 <b>Детальная информация:</b>"""
+        
+        if requests_sample:
+            for i, req in enumerate(requests_sample, 1):
+                user_id = req.get('user_id', 'N/A')
+                user_name = req.get('user_name', 'Аноним')
+                username = req.get('user_username', '')
+                timestamp = req.get('timestamp', '')
+                request_text = req['request_text']
+                card_number = req.get('card_number', 'N/A')
+                
+                # Форматируем дату
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    formatted_date = dt.strftime('%d.%m.%Y %H:%M')
+                except:
+                    formatted_date = timestamp
+                
+                # Форматируем username
+                username_display = f"@{username}" if username else "без username"
+                
+                text += f"\n\n<b>{i}. {formatted_date}</b>"
+                text += f"\n🎴 Карта: {card_number}"
+                text += f"\n👤 <b>Пользователь:</b>"
+                text += f"\n   • ID: <code>{user_id}</code>"
+                text += f"\n   • Имя: {user_name}"
+                text += f"\n   • Username: {username_display}"
+                text += f"\n💬 <b>Запрос:</b>"
+                text += f"\n   «{request_text}»"
+                text += f"\n{'─' * 40}"
+        else:
+            text += "\n\nПока нет запросов"
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="📊 Краткая статистика", callback_data="admin_requests")],
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_requests_full")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_requests_full_viewed", {})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin requests full: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке полных запросов"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
