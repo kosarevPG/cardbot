@@ -1,6 +1,9 @@
 import logging
 from datetime import datetime
-from config import TIMEZONE
+try:
+    from config_local import TIMEZONE
+except ImportError:
+    from config import TIMEZONE
 
 class LoggingService:
     def __init__(self, db):

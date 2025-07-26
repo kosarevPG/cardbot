@@ -6,7 +6,16 @@ import threading
 import os
 
 def run_sqlite_web():
-    db_path = "/data/bot.db"
+    # Используем тот же путь к БД, что и для основного приложения
+    try:
+        from config_local import DATA_DIR
+    except ImportError:
+        from config import DATA_DIR
+    
+    if 'DB_PATH' in globals():
+        db_path = DB_PATH
+    else:
+        db_path = os.path.join(DATA_DIR, "bot.db")
     port = os.environ.get("PORT", "80")
     host = "0.0.0.0"
     # Используем аргумент --password без значения, если пароль не нужен или задается иначе
@@ -42,7 +51,7 @@ t.start()
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command, StateFilter, CommandObject
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.fsm.context import FSMContext
@@ -54,10 +63,12 @@ from functools import partial
 import pytz # Убедимся, что pytz импортирован
 
 # --- Импорты из проекта ---
-from config import (
-    TOKEN, CHANNEL_ID, ADMIN_ID, UNIVERSE_ADVICE, BOT_LINK,
-    TIMEZONE, NO_LOGS_USERS, DATA_DIR
-)
+try:
+    from config_local import *
+    print("Using development configuration (config_local.py)")
+except ImportError:
+    from config import *
+    print("Using production configuration (config.py)")
 # База данных и Сервисы
 from database.db import Database
 from modules.logging_service import LoggingService
@@ -72,7 +83,7 @@ from modules.card_of_the_day import (
     process_request_type_callback, process_request_text, process_initial_response,
     process_exploration_choice_callback, process_first_grok_response,
     process_second_grok_response, process_third_grok_response,
-    process_final_resource_callback, process_recharge_method, process_card_feedback
+    process_final_resource_callback, process_recharge_method, process_recharge_method_choice, process_card_feedback
 )
 
 # Модуль Вечерней Рефлексии
@@ -101,8 +112,13 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
-os.makedirs(DATA_DIR, exist_ok=True)
-db_path = os.path.join(DATA_DIR, "bot.db")
+# Используем локальную БД для разработки
+if 'DB_PATH' in globals():
+    db_path = DB_PATH
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+else:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    db_path = os.path.join(DATA_DIR, "bot.db")
 logger.info(f"Initializing database at: {db_path}")
 print(f"Initializing database at: {db_path}")
 try:
@@ -377,6 +393,8 @@ def make_user_profile_handler(db, logger_service):
         user_id = message.from_user.id
         name = db.get_user(user_id).get("name", "Друг")
         await logger_service.log_action(user_id, "user_profile_viewed")
+        
+        # Получаем базовый профиль
         profile = await build_user_profile(user_id, db)
         mood = profile.get("mood", "неизвестно")
         mood_trend_list = [m for m in profile.get("mood_trend", []) if m != "unknown"]
@@ -393,15 +411,73 @@ def make_user_profile_handler(db, logger_service):
         total_cards_drawn = profile.get("total_cards_drawn", 0)
         last_updated_dt = profile.get("last_updated")
         last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) else "не обновлялся"
-        text = (
-             f"📊 <b>{name}, твой профиль взаимодействия:</b>\n\n"
-             f"👤 <b>Состояние & Темы:</b>\n  - Настроение (последнее): {mood}\n  - Тренд настроения: {mood_trend}\n  - Ключевые темы (из карт и рефлексий): {themes}\n\n"
-             f"🌿 <b>Ресурс (последняя 'Карта дня'):</b>\n  - В начале: {initial_resource}\n  - В конце: {final_resource}\n  - Способ восстановления: {recharge_method}\n\n"
-             f"🌙 <b>Вечерняя Рефлексия:</b>\n  - Последний итог подведен: {last_reflection_date}\n  - Всего итогов подведено: {reflection_count}\n\n"
-             f"📈 <b>Статистика Активности:</b>\n  - Ответов в диалогах с картой: {response_count}\n  - Всего карт вытянуто: {total_cards_drawn}\n  - Дней активности: {days_active}\n\n"
-             f"⏱ <b>Профиль обновлен:</b> {last_updated} МСК\n\n"
-             f"<i>Этот профиль помогает мне лучше понимать тебя. Он учитывает твои ответы в 'Карте дня' и 'Итогах дня'.</i>"
-         )
+        
+        # Получаем расширенную статистику
+        advanced_stats = db.get_user_advanced_stats(user_id)
+        
+        # Формируем текст профиля
+        text = f"🎯 <b>{name}, твой расширенный профиль:</b>\n\n"
+        
+        # Достижения (если есть)
+        if advanced_stats.get('achievements'):
+            achievements_text = " ".join(advanced_stats['achievements'])
+            text += f"🏆 <b>Достижения:</b> {achievements_text}\n\n"
+        
+        # Серии дней
+        current_streak = advanced_stats.get('current_streak', 0)
+        max_streak = advanced_stats.get('max_consecutive_days', 0)
+        streak_emoji = "🔥" if current_streak >= 3 else "📅"
+        text += f"{streak_emoji} <b>Серия дней:</b>\n"
+        text += f"  • Текущая: {current_streak} дней подряд\n"
+        text += f"  • Рекорд: {max_streak} дней подряд\n\n"
+        
+        # Временные паттерны
+        favorite_time = advanced_stats.get('favorite_time', 'нет данных')
+        favorite_day = advanced_stats.get('favorite_day', 'нет данных')
+        text += f"⏰ <b>Твои паттерны:</b>\n"
+        text += f"  • Любимое время: {favorite_time}\n"
+        text += f"  • Любимый день: {favorite_day}\n\n"
+        
+        # Состояние и темы
+        text += f"👤 <b>Состояние & Темы:</b>\n"
+        text += f"  • Настроение: {mood}\n"
+        text += f"  • Тренд: {mood_trend}\n"
+        text += f"  • Ключевые темы: {themes}\n\n"
+        
+        # Ресурс
+        text += f"🌿 <b>Ресурс (последняя 'Карта дня'):</b>\n"
+        text += f"  • В начале: {initial_resource}\n"
+        text += f"  • В конце: {final_resource}\n"
+        text += f"  • Способ восстановления: {recharge_method}\n\n"
+        
+        # Вечерняя рефлексия
+        text += f"🌙 <b>Вечерняя Рефлексия:</b>\n"
+        text += f"  • Последний итог: {last_reflection_date}\n"
+        text += f"  • Всего итогов: {reflection_count}\n\n"
+        
+        # Расширенная статистика
+        completion_rate = advanced_stats.get('completion_rate', 0)
+        avg_depth = advanced_stats.get('avg_session_depth', 0)
+        avg_sessions = advanced_stats.get('avg_sessions_per_day', 0)
+        total_days = advanced_stats.get('total_unique_days', 0)
+        
+        text += f"📊 <b>Расширенная статистика:</b>\n"
+        text += f"  • Карт вытянуто: {total_cards_drawn}\n"
+        text += f"  • Ответов в диалогах: {response_count}\n"
+        text += f"  • Дней активности: {total_days}\n"
+        text += f"  • Среднее сессий/день: {avg_sessions}\n"
+        text += f"  • Завершенность: {completion_rate}%\n"
+        text += f"  • Глубина сессий: {avg_depth} шагов\n\n"
+        
+        # История использования
+        first_day = advanced_stats.get('first_day')
+        if first_day:
+            text += f"📅 <b>История:</b>\n"
+            text += f"  • Первый день: {first_day}\n"
+            text += f"  • Профиль обновлен: {last_updated} МСК\n\n"
+        
+        text += "<i>💡 Этот профиль показывает твои паттерны использования и прогресс. Чем больше ты взаимодействуешь, тем точнее становятся данные!</i>"
+        
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
      return wrapped_handler
 
@@ -450,6 +526,239 @@ def make_admin_user_profile_handler(db, logger_service):
          )
          await message.answer(text)
          await logger_service.log_action(user_id, "admin_user_profile_viewed", {"target_user_id": target_user_id})
+     return wrapped_handler
+
+def make_scenario_stats_handler(db, logger_service):
+     async def wrapped_handler(message: types.Message):
+         user_id = message.from_user.id
+         if user_id != ADMIN_ID: await message.answer("Эта команда доступна только администратору."); return
+         
+         args = message.text.split()
+         days = 7  # По умолчанию за последние 7 дней
+         if len(args) > 1:
+             try:
+                 days = int(args[1])
+                 if days <= 0 or days > 365:
+                     await message.answer("Количество дней должно быть от 1 до 365.")
+                     return
+             except ValueError:
+                 await message.answer("Количество дней должно быть числом.")
+                 return
+         
+         # Получаем статистику по сценариям
+         card_stats = db.get_scenario_stats('card_of_day', days)
+         reflection_stats = db.get_scenario_stats('evening_reflection', days)
+         
+         if not card_stats and not reflection_stats:
+             await message.answer(f"Нет данных о сценариях за последние {days} дней.")
+             return
+         
+         text = f"📊 <b>Статистика сценариев за последние {days} дней:</b>\n\n"
+         
+         if card_stats:
+             text += f"🎴 <b>Карта дня:</b>\n"
+             text += f"  • Запусков: {card_stats['total_starts']}\n"
+             text += f"  • Завершений: {card_stats['total_completions']}\n"
+             text += f"  • Брошено: {card_stats['total_abandoned']}\n"
+             text += f"  • Процент завершения: {card_stats['completion_rate']:.1f}%\n"
+             text += f"  • Среднее шагов: {card_stats['avg_steps']}\n\n"
+         
+         if reflection_stats:
+             text += f"🌙 <b>Вечерняя рефлексия:</b>\n"
+             text += f"  • Запусков: {reflection_stats['total_starts']}\n"
+             text += f"  • Завершений: {reflection_stats['total_completions']}\n"
+             text += f"  • Брошено: {reflection_stats['total_abandoned']}\n"
+             text += f"  • Процент завершения: {reflection_stats['completion_rate']:.1f}%\n"
+             text += f"  • Среднее шагов: {reflection_stats['avg_steps']}\n\n"
+         
+         # Получаем статистику по шагам
+         card_steps = db.get_scenario_step_stats('card_of_day', days)
+         reflection_steps = db.get_scenario_step_stats('evening_reflection', days)
+         
+         # Детальные метрики для "Карта дня"
+         if card_stats:
+             text += f"🎴 <b>Детальные метрики 'Карта дня':</b>\n"
+             
+             # 1. Тип запроса
+             try:
+                 excluded_users = set(NO_LOGS_USERS) if NO_LOGS_USERS else set()
+                 excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+                 
+                 cursor = db.conn.execute(f"""
+                     SELECT step, COUNT(*) as count
+                     FROM scenario_logs 
+                     WHERE scenario = 'card_of_day' 
+                     AND step IN ('text_request_provided', 'request_type_selected')
+                     AND timestamp >= datetime('now', '-{days} days')
+                     {excluded_condition}
+                     GROUP BY step
+                 """, list(excluded_users) if excluded_users else [])
+                 request_stats = cursor.fetchall()
+                 
+                 text_requests = 0
+                 mental_requests = 0
+                 for stat in request_stats:
+                     if stat['step'] == 'text_request_provided':
+                         text_requests = stat['count']
+                     elif stat['step'] == 'request_type_selected':
+                         mental_requests = stat['count']
+                 
+                 total_requests = text_requests + mental_requests
+                 if total_requests > 0:
+                     text += f"  📝 Запросы: {text_requests} текстовых, {mental_requests} мысленных\n"
+             except Exception as e:
+                 text += f"  📝 Запросы: ошибка анализа\n"
+             
+             # 2. Выбор рефлексии с ИИ
+             try:
+                 cursor = db.conn.execute(f"""
+                     SELECT metadata, COUNT(*) as count
+                     FROM scenario_logs 
+                     WHERE scenario = 'card_of_day' 
+                     AND step = 'ai_reflection_choice'
+                     AND timestamp >= datetime('now', '-{days} days')
+                     {excluded_condition}
+                     GROUP BY metadata
+                 """, list(excluded_users) if excluded_users else [])
+                 ai_choice_stats = cursor.fetchall()
+                 
+                 ai_yes = 0
+                 ai_no = 0
+                 for stat in ai_choice_stats:
+                     try:
+                         import json
+                         meta = json.loads(stat['metadata'])
+                         if meta.get('choice') == 'yes':
+                             ai_yes = stat['count']
+                         elif meta.get('choice') == 'no':
+                             ai_no = stat['count']
+                     except:
+                         pass
+                 
+                 total_ai_choices = ai_yes + ai_no
+                 if total_ai_choices > 0:
+                     text += f"  🤖 ИИ-рефлексия: {ai_yes} выбрали, {ai_no} отказались\n"
+             except Exception as e:
+                 text += f"  🤖 ИИ-рефлексия: ошибка анализа\n"
+             
+             # 3. Ответы на ИИ-вопросы
+             try:
+                 cursor = db.conn.execute(f"""
+                     SELECT step, COUNT(*) as count
+                     FROM scenario_logs 
+                     WHERE scenario = 'card_of_day' 
+                     AND step IN ('ai_response_1_provided', 'ai_response_2_provided', 'ai_response_3_provided')
+                     AND timestamp >= datetime('now', '-{days} days')
+                     {excluded_condition}
+                     GROUP BY step
+                 """, list(excluded_users) if excluded_users else [])
+                 ai_responses = cursor.fetchall()
+                 
+                 responses_1 = 0
+                 responses_2 = 0
+                 responses_3 = 0
+                 for stat in ai_responses:
+                     if stat['step'] == 'ai_response_1_provided':
+                         responses_1 = stat['count']
+                     elif stat['step'] == 'ai_response_2_provided':
+                         responses_2 = stat['count']
+                     elif stat['step'] == 'ai_response_3_provided':
+                         responses_3 = stat['count']
+                 
+                 if responses_1 > 0:
+                     text += f"  💬 ИИ-ответы: {responses_1}→{responses_2}→{responses_3}\n"
+             except Exception as e:
+                 text += f"  💬 ИИ-ответы: ошибка анализа\n"
+             
+             # 4. Изменение самочувствия
+             try:
+                 cursor = db.conn.execute(f"""
+                     SELECT metadata, COUNT(*) as count
+                     FROM scenario_logs 
+                     WHERE scenario = 'card_of_day' 
+                     AND step = 'mood_change_recorded'
+                     AND timestamp >= datetime('now', '-{days} days')
+                     {excluded_condition}
+                     GROUP BY metadata
+                 """, list(excluded_users) if excluded_users else [])
+                 mood_stats = cursor.fetchall()
+                 
+                 mood_better = 0
+                 mood_worse = 0
+                 mood_same = 0
+                 
+                 for stat in mood_stats:
+                     try:
+                         import json
+                         meta = json.loads(stat['metadata'])
+                         change = meta.get('change_direction', 'unknown')
+                         if change == 'better':
+                             mood_better = stat['count']
+                         elif change == 'worse':
+                             mood_worse = stat['count']
+                         elif change == 'same':
+                             mood_same = stat['count']
+                     except:
+                         pass
+                 
+                 total_mood_changes = mood_better + mood_worse + mood_same
+                 if total_mood_changes > 0:
+                     text += f"  😊 Самочувствие: +{mood_better} -{mood_worse} ={mood_same}\n"
+             except Exception as e:
+                 text += f"  😊 Самочувствие: ошибка анализа\n"
+             
+             # 5. Оценка полезности
+             try:
+                 cursor = db.conn.execute(f"""
+                     SELECT metadata, COUNT(*) as count
+                     FROM scenario_logs 
+                     WHERE scenario = 'card_of_day' 
+                     AND step = 'usefulness_rating'
+                     AND timestamp >= datetime('now', '-{days} days')
+                     {excluded_condition}
+                     GROUP BY metadata
+                 """, list(excluded_users) if excluded_users else [])
+                 rating_stats = cursor.fetchall()
+                 
+                 rating_helped = 0
+                 rating_interesting = 0
+                 rating_notdeep = 0
+                 
+                 for stat in rating_stats:
+                     try:
+                         import json
+                         meta = json.loads(stat['metadata'])
+                         rating = meta.get('rating', 'unknown')
+                         if rating == 'helped':
+                             rating_helped = stat['count']
+                         elif rating == 'interesting':
+                             rating_interesting = stat['count']
+                         elif rating == 'notdeep':
+                             rating_notdeep = stat['count']
+                     except:
+                         pass
+                 
+                 total_ratings = rating_helped + rating_interesting + rating_notdeep
+                 if total_ratings > 0:
+                     text += f"  ⭐ Оценка: {rating_helped}👍 {rating_interesting}🤔 {rating_notdeep}😕\n"
+             except Exception as e:
+                 text += f"  ⭐ Оценка: ошибка анализа\n"
+             
+             text += "\n"
+         
+         if card_steps:
+             text += f"🎴 <b>Популярные шаги 'Карта дня':</b>\n"
+             for step in card_steps[:5]:  # Топ-5 шагов
+                 text += f"  • {step['step']}: {step['count']} раз\n"
+             text += "\n"
+         
+         if reflection_steps:
+             text += f"🌙 <b>Популярные шаги 'Вечерняя рефлексия':</b>\n"
+             for step in reflection_steps[:5]:  # Топ-5 шагов
+                 text += f"  • {step['step']}: {step['count']} раз\n"
+         
+         await message.answer(text)
+         await logger_service.log_action(user_id, "scenario_stats_viewed", {"days": days})
      return wrapped_handler
 
 def make_users_handler(db, logger_service):
@@ -677,6 +986,372 @@ def make_bonus_request_handler(db, logger_service, user_manager):
          await logger_service.log_action(user_id, "bonus_request_used", {"advice_preview": advice[:50]})
      return wrapped_handler
 
+def make_admin_handler(db: Database, logger_service: LoggingService):
+    """Создает обработчик для главной админ-панели."""
+    async def admin_handler(message: types.Message):
+        user_id = message.from_user.id
+        
+        # Проверяем, является ли пользователь админом
+        if str(user_id) not in ADMIN_IDS:
+            await message.answer("У вас нет доступа к админ-панели.")
+            return
+        
+        # Главное меню админки
+        text = """📊 <b>АДМИН ПАНЕЛЬ</b>
+
+Выберите раздел для просмотра метрик:"""
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🔍 Главный дашборд", callback_data="admin_dashboard")],
+            [types.InlineKeyboardButton(text="📈 Метрики удержания", callback_data="admin_retention")],
+            [types.InlineKeyboardButton(text="🔄 Воронка 'Карта дня'", callback_data="admin_funnel")],
+            [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
+            [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
+            [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")]
+        ])
+        
+        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        await logger_service.log_action(user_id, "admin_panel_opened", {})
+    
+    return admin_handler
+
+def make_admin_callback_handler(db: Database, logger_service: LoggingService):
+    """Создает обработчик для callback'ов админ-панели."""
+    async def admin_callback_handler(callback: types.CallbackQuery):
+        user_id = callback.from_user.id
+        
+        # Проверяем, является ли пользователь админом
+        if str(user_id) not in ADMIN_IDS:
+            await callback.answer("У вас нет доступа к админ-панели.", show_alert=True)
+            return
+        
+        action = callback.data
+        
+        if action == "admin_dashboard":
+            await show_admin_dashboard(callback.message, db, logger_service, user_id)
+        elif action == "admin_retention":
+            await show_admin_retention(callback.message, db, logger_service, user_id)
+        elif action == "admin_funnel":
+            await show_admin_funnel(callback.message, db, logger_service, user_id)
+        elif action == "admin_value":
+            await show_admin_value(callback.message, db, logger_service, user_id)
+        elif action == "admin_users":
+            await show_admin_users(callback.message, db, logger_service, user_id)
+        elif action == "admin_logs":
+            await show_admin_logs(callback.message, db, logger_service, user_id)
+        elif action == "admin_back":
+            await show_admin_main_menu(callback.message, db, logger_service, user_id)
+        
+        await callback.answer()
+    
+    return admin_callback_handler
+
+async def show_admin_main_menu(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает главное меню админки."""
+    text = """📊 <b>АДМИН ПАНЕЛЬ</b>
+
+Выберите раздел для просмотра метрик:"""
+    
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="🔍 Главный дашборд", callback_data="admin_dashboard")],
+        [types.InlineKeyboardButton(text="📈 Метрики удержания", callback_data="admin_retention")],
+        [types.InlineKeyboardButton(text="🔄 Воронка 'Карта дня'", callback_data="admin_funnel")],
+        [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
+        [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
+        [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")]
+    ])
+    
+    await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+async def show_admin_dashboard(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает главный дашборд с ключевыми метриками."""
+    try:
+        # Получаем сводку метрик
+        summary = db.get_admin_dashboard_summary(7)
+        
+        if not summary:
+            text = "❌ Ошибка при получении данных дашборда"
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_dashboard")],
+                [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            ])
+            await message.edit_text(text, reply_markup=keyboard)
+            return
+        
+        # Формируем текст дашборда
+        text = f"""🔍 <b>ГЛАВНЫЙ ДАШБОРД</b> (за 7 дней)
+
+📊 <b>Здоровье продукта:</b>
+• DAU сегодня: {summary['dau']['today_dau']}
+• D1 Retention: {summary['retention']['d1_retention']}%
+• D7 Retention: {summary['retention']['d7_retention']}%
+
+🔄 <b>Карта дня:</b>
+• Запусков: {summary['card_stats']['total_starts']}
+• Завершено: {summary['card_stats']['total_completions']} ({summary['card_stats']['completion_rate']:.1f}%)
+• Среднее шагов: {summary['card_stats']['avg_steps']}
+
+🌙 <b>Итог дня:</b>
+• Запусков: {summary['evening_stats']['total_starts']}
+• Завершено: {summary['evening_stats']['total_completions']} ({summary['evening_stats']['completion_rate']:.1f}%)
+
+💎 <b>Ценность:</b>
+• Положительная динамика ресурса: {summary['value']['resource_lift']['positive_pct']}%
+• Feedback Score: {summary['value']['feedback_score']}%"""
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_dashboard")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_dashboard_viewed", {})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin dashboard: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке дашборда"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_retention(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает метрики удержания."""
+    try:
+        retention = db.get_retention_metrics(7)
+        dau = db.get_dau_metrics(7)
+        
+        text = f"""📈 <b>МЕТРИКИ УДЕРЖАНИЯ</b> (за 7 дней)
+
+🎯 <b>D1 Retention:</b>
+• {retention['d1_retention']}% ({retention['d1_returned_users']}/{retention['d1_total_users']})
+• Цель: >30%
+
+📅 <b>D7 Retention:</b>
+• {retention['d7_retention']}% ({retention['d7_returned_users']}/{retention['d7_total_users']})
+• Цель: >25%
+
+👥 <b>DAU:</b>
+• Сегодня: {dau['today_dau']}
+• Среднее за 7 дней: {dau['avg_dau']}"""
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_retention")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_retention_viewed", {})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin retention: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке метрик удержания"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_funnel(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает воронку 'Карта дня'."""
+    try:
+        funnel = db.get_card_funnel_metrics(7)
+        
+        text = f"""🔄 <b>ВОРОНКА 'КАРТА ДНЯ'</b> (за 7 дней)
+
+📊 <b>Completion Rate: {funnel['completion_rate']}%</b>
+Цель: >60%
+
+📈 <b>Детальная воронка:</b>
+1️⃣ Начали сессию: {funnel['step1']['count']} ({funnel['step1']['pct']}%)
+2️⃣ Выбрали ресурс: {funnel['step2']['count']} ({funnel['step2']['pct']}%)
+3️⃣ Согласились на диалог: {funnel['step3']['count']} ({funnel['step3']['pct']}%)
+4️⃣ Завершили диалог: {funnel['step4']['count']} ({funnel['step4']['pct']}%)
+5️⃣ Дошли до финала: {funnel['step5']['count']} ({funnel['step5']['pct']}%)"""
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_funnel")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_funnel_viewed", {})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin funnel: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке воронки"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_value(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает метрики ценности."""
+    try:
+        value = db.get_value_metrics(7)
+        
+        text = f"""💎 <b>МЕТРИКИ ЦЕННОСТИ</b> (за 7 дней)
+
+📈 <b>Resource Lift:</b>
+• Положительная динамика: {value['resource_lift']['positive_pct']}%
+• Отрицательная динамика: {value['resource_lift']['negative_pct']}%
+• Всего сессий: {value['resource_lift']['total_sessions']}
+
+👍 <b>Feedback Score:</b>
+• Позитивные отзывы: {value['feedback_score']}%
+• Всего отзывов: {value['total_feedback']}
+• Цель: ≥50%"""
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_value")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_value_viewed", {})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin value: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке метрик ценности"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_users(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает информацию о пользователях."""
+    try:
+        # Получаем базовую статистику пользователей
+        all_users = db.get_all_users()
+        excluded_users = set(NO_LOGS_USERS) if NO_LOGS_USERS else set()
+        filtered_users = [uid for uid in all_users if uid not in excluded_users]
+        total_users = len(filtered_users)
+        
+        # Активные пользователи за последние 7 дней
+        excluded_users = set(NO_LOGS_USERS) if NO_LOGS_USERS else set()
+        excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+        
+        cursor = db.conn.execute(f"""
+            SELECT COUNT(DISTINCT user_id) as active_users
+            FROM user_scenarios 
+            WHERE started_at >= datetime('now', '-7 days')
+            {excluded_condition}
+        """, list(excluded_users) if excluded_users else [])
+        active_users = cursor.fetchone()['active_users']
+        
+        activity_pct = (active_users/total_users*100) if total_users > 0 else 0
+        text = f"""👥 <b>ПОЛЬЗОВАТЕЛИ</b>
+
+📊 <b>Общая статистика:</b>
+• Всего пользователей: {total_users}
+• Активных за 7 дней: {active_users}
+• Процент активности: {activity_pct:.1f}%
+
+🔧 <b>Действия:</b>
+• /users - список всех пользователей
+• /user_profile [ID] - профиль пользователя"""
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="📋 Список пользователей", callback_data="admin_users_list")],
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_users_viewed", {})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin users: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке данных пользователей"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_logs(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+    """Показывает детальные логи."""
+    try:
+        # Получаем последние логи
+        excluded_users = set(NO_LOGS_USERS) if NO_LOGS_USERS else set()
+        excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+        
+        cursor = db.conn.execute(f"""
+            SELECT scenario, step, COUNT(*) as count
+            FROM scenario_logs 
+            WHERE timestamp >= datetime('now', '-7 days')
+            {excluded_condition}
+            GROUP BY scenario, step
+            ORDER BY count DESC
+            LIMIT 10
+        """, list(excluded_users) if excluded_users else [])
+        
+        logs = cursor.fetchall()
+        
+        text = """📋 <b>ДЕТАЛЬНЫЕ ЛОГИ</b> (за 7 дней)
+
+🔍 <b>Топ-10 шагов по частоте:</b>"""
+        
+        for i, log in enumerate(logs, 1):
+            text += f"\n{i}. {log['scenario']} → {log['step']}: {log['count']}"
+        
+        text += "\n\n🔧 <b>Действия:</b>\n• /scenario_stats - статистика сценариев\n• /logs - все логи"
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="📊 Статистика сценариев", callback_data="admin_scenario_stats")],
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_logs")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        
+        await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        await logger_service.log_action(user_id, "admin_logs_viewed", {})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin logs: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке логов"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        await message.edit_text(text, reply_markup=keyboard)
+
 # --- Регистрация всех обработчиков ---
 def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingService, user_manager: UserManager):
     logger.info("Registering handlers...")
@@ -696,7 +1371,10 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     users_handler = make_users_handler(db, logger_service)
     logs_handler = make_logs_handler(db, logger_service)
     admin_user_profile_handler = make_admin_user_profile_handler(db, logger_service)
+    scenario_stats_handler = make_scenario_stats_handler(db, logger_service)
     broadcast_handler = make_broadcast_handler(db, logger_service)
+    admin_handler = make_admin_handler(db, logger_service)
+    admin_callback_handler = make_admin_callback_handler(db, logger_service)
 
     dp.message.register(start_handler, Command("start"), StateFilter("*"))
     dp.message.register(share_handler, Command("share"), StateFilter("*"))
@@ -708,7 +1386,12 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.message.register(users_handler, Command("users"), StateFilter("*"))
     dp.message.register(logs_handler, Command("logs"), StateFilter("*"))
     dp.message.register(admin_user_profile_handler, Command("admin_user_profile"), StateFilter("*"))
+    dp.message.register(scenario_stats_handler, Command("scenario_stats"), StateFilter("*"))
     dp.message.register(broadcast_handler, Command("broadcast"), StateFilter("*"))
+    dp.message.register(admin_handler, Command("admin"), StateFilter("*"))
+    
+    # Регистрируем callback-обработчики для админ-панели
+    dp.callback_query.register(admin_callback_handler, F.data.startswith("admin_"))
 
     dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной", StateFilter("*"))
     dp.message.register(partial(handle_card_request, db=db, logger_service=logger_service), F.text == "✨ Карта дня", StateFilter("*"))
@@ -732,6 +1415,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.callback_query.register(partial(process_final_resource_callback, db=db, logger_service=logging_service), UserState.waiting_for_final_resource, F.data.startswith("resource_"))
     dp.message.register(partial(process_recharge_method, db=db, logger_service=logging_service), UserState.waiting_for_recharge_method)
     dp.callback_query.register(partial(process_card_feedback, db=db, logger_service=logging_service), F.data.startswith("feedback_v2_"), StateFilter("*"))
+    dp.callback_query.register(partial(process_recharge_method_choice, db=db, logger_service=logging_service), StateFilter(UserState.waiting_for_recharge_method_choice))
 
     dp.message.register(partial(process_good_moments, db=db, logger_service=logger_service), UserState.waiting_for_good_moments)
     dp.message.register(partial(process_gratitude, db=db, logger_service=logger_service), UserState.waiting_for_gratitude)

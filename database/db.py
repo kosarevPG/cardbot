@@ -3,7 +3,10 @@ import sqlite3
 import json
 from datetime import datetime, date
 import os
-from config import TIMEZONE
+try:
+    from config_local import TIMEZONE
+except ImportError:
+    from config import TIMEZONE
 import logging
 
 # Импорт pytz для обработки таймзон
@@ -40,31 +43,9 @@ class Database:
             sqlite3.register_adapter(datetime, lambda val: val.isoformat())
             sqlite3.register_adapter(date, lambda val: val.isoformat())
 
-            # --- ИЗМЕНЕНИЕ: Конвертеры ---
-            # Конвертер для timestamp
-            def decode_timestamp(val):
-                if val is None: return None
-                try:
-                    val_str = val.decode('utf-8')
-                    if val_str.endswith('Z'): val_str = val_str[:-1] + '+00:00'
-                    return datetime.fromisoformat(val_str)
-                except (ValueError, TypeError, AttributeError) as e:
-                    logger.error(f"Error decoding timestamp '{val}': {e}")
-                    return None
-
-            # Конвертер для date (сработает для колонок типа DATE)
-            def decode_date(val):
-                 if val is None: return None
-                 try:
-                     return date.fromisoformat(val.decode('utf-8'))
-                 except (ValueError, TypeError) as e:
-                     logger.error(f"Error decoding date '{val}': {e}")
-                     return None
-
-            sqlite3.register_converter("timestamp", decode_timestamp)
-            sqlite3.register_converter("DATE", decode_date) # Регистрируем для типа DATE
-            # УБИРАЕМ ошибочный универсальный конвертер для TEXT
-            # sqlite3.register_converter("TEXT", decode_date)
+            # --- ИЗМЕНЕНИЕ: Регистрируем конвертеры как методы класса ---
+            sqlite3.register_converter("timestamp", self.decode_timestamp)
+            sqlite3.register_converter("DATE", self.decode_date)
             # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             self.conn.row_factory = sqlite3.Row
@@ -77,6 +58,26 @@ class Database:
         except sqlite3.Error as e:
             logger.critical(f"Database initialization failed: Could not connect or setup tables/migrations/indexes at {path}. Error: {e}", exc_info=True)
             raise
+
+    # --- КОНВЕРТЕРЫ ВЫНЕСЕНЫ КАК МЕТОДЫ КЛАССА ---
+    def decode_timestamp(self, val):
+        if val is None: return None
+        try:
+            val_str = val.decode('utf-8')
+            if val_str.endswith('Z'): val_str = val_str[:-1] + '+00:00'
+            return datetime.fromisoformat(val_str)
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.error(f"Error decoding timestamp '{val}': {e}")
+            return None
+
+    def decode_date(self, val):
+        if val is None: return None
+        try:
+            return date.fromisoformat(val.decode('utf-8'))
+        except (ValueError, TypeError) as e:
+            logger.error(f"Error decoding date '{val}': {e}")
+            return None
+    # --- КОНЕЦ КОНВЕРТЕРОВ ---
 
     # ... (остальные методы класса Database без изменений) ...
     # create_tables, _run_migrations, _add_columns_if_not_exist, create_indexes,
@@ -157,6 +158,32 @@ class Database:
                         timestamp TEXT NOT NULL,
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
+                
+                # Таблица scenario_logs - детальное логирование шагов сценариев
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS scenario_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        scenario TEXT NOT NULL,
+                        step TEXT NOT NULL,
+                        metadata TEXT,
+                        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )""")
+                
+                # Таблица user_scenarios - общая статистика по сценариям
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS user_scenarios (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        scenario TEXT NOT NULL,
+                        started_at TEXT,
+                        completed_at TEXT,
+                        steps_count INTEGER DEFAULT 0,
+                        status TEXT DEFAULT 'in_progress',
+                        session_id TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )""")
 
             logger.info("Base table structures checked/created successfully.")
         except sqlite3.Error as e:
@@ -221,6 +248,13 @@ class Database:
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_users_reminder_time_evening ON users (reminder_time_evening)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_reflections_user_date ON evening_reflections (user_id, date)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_recharge_user_timestamp ON user_recharge_methods (user_id, timestamp)")
+                
+                # Индексы для новых таблиц логирования сценариев
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_scenario_logs_user_scenario ON scenario_logs (user_id, scenario)")
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_scenario_logs_timestamp ON scenario_logs (timestamp)")
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_user_scenarios_user_scenario ON user_scenarios (user_id, scenario)")
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_user_scenarios_status ON user_scenarios (status)")
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_user_scenarios_started_at ON user_scenarios (started_at)")
             logger.info("Indexes checked/created successfully.")
         except sqlite3.Error as e:
             logger.error(f"Error creating database indexes: {e}", exc_info=True)
@@ -237,7 +271,7 @@ class Database:
                 if last_request_val and isinstance(last_request_val, str):
                     try:
                         # Декодируем явно, т.к. тип TEXT
-                        user_dict["last_request"] = decode_timestamp(last_request_val.encode('utf-8'))
+                        user_dict["last_request"] = self.decode_timestamp(last_request_val.encode('utf-8'))
                     except Exception as e:
                          logger.error(f"Error decoding last_request '{last_request_val}' for user {user_id}: {e}")
                          user_dict["last_request"] = None
@@ -467,7 +501,7 @@ class Database:
                 profile_dict = dict(row)
                 last_updated_val = profile_dict.get("last_updated")
                 if last_updated_val and isinstance(last_updated_val, str):
-                    try: profile_dict["last_updated"] = decode_timestamp(last_updated_val.encode('utf-8'))
+                    try: profile_dict["last_updated"] = self.decode_timestamp(last_updated_val.encode('utf-8'))
                     except Exception as e:
                          logger.error(f"Error decoding last_updated '{last_updated_val}' for profile user {user_id}: {e}")
                          profile_dict["last_updated"] = None
@@ -651,6 +685,644 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Failed to get last recharge method for user {user_id}: {e}", exc_info=True)
             return None
+
+    # --- МЕТОДЫ ДЛЯ ЛОГИРОВАНИЯ СЦЕНАРИЕВ ---
+    
+    def log_scenario_step(self, user_id: int, scenario: str, step: str, metadata: dict = None):
+        """Логирует шаг сценария с метаданными."""
+        try:
+            metadata_json = json.dumps(metadata) if metadata else None
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO scenario_logs (user_id, scenario, step, metadata) VALUES (?, ?, ?, ?)",
+                    (user_id, scenario, step, metadata_json)
+                )
+            logger.debug(f"Logged scenario step: user={user_id}, scenario={scenario}, step={step}")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to log scenario step for user {user_id}: {e}", exc_info=True)
+
+    def start_user_scenario(self, user_id: int, scenario: str, session_id: str = None):
+        """Начинает новый сценарий для пользователя."""
+        try:
+            if session_id is None:
+                session_id = f"{user_id}_{scenario}_{datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')}"
+            
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO user_scenarios (user_id, scenario, started_at, status, session_id) VALUES (?, ?, ?, ?, ?)",
+                    (user_id, scenario, datetime.now(TIMEZONE).isoformat(), 'in_progress', session_id)
+                )
+            logger.info(f"Started scenario: user={user_id}, scenario={scenario}, session={session_id}")
+            return session_id
+        except sqlite3.Error as e:
+            logger.error(f"Failed to start scenario for user {user_id}: {e}", exc_info=True)
+            return None
+
+    def complete_user_scenario(self, user_id: int, scenario: str, session_id: str = None):
+        """Завершает сценарий пользователя."""
+        try:
+            # Подсчитываем количество шагов
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) FROM scenario_logs WHERE user_id = ? AND scenario = ?",
+                (user_id, scenario)
+            )
+            steps_count = cursor.fetchone()[0]
+            
+            # Обновляем статус сценария
+            if session_id:
+                where_clause = "user_id = ? AND scenario = ? AND session_id = ? AND status = 'in_progress'"
+                params = (user_id, scenario, session_id)
+            else:
+                where_clause = "user_id = ? AND scenario = ? AND status = 'in_progress'"
+                params = (user_id, scenario)
+            
+            with self.conn:
+                self.conn.execute(
+                    f"UPDATE user_scenarios SET completed_at = ?, status = 'completed', steps_count = ? WHERE {where_clause}",
+                    (datetime.now(TIMEZONE).isoformat(), steps_count, *params)
+                )
+            logger.info(f"Completed scenario: user={user_id}, scenario={scenario}, steps={steps_count}")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to complete scenario for user {user_id}: {e}", exc_info=True)
+
+    def abandon_user_scenario(self, user_id: int, scenario: str, session_id: str = None):
+        """Отмечает сценарий как брошенный."""
+        try:
+            if session_id:
+                where_clause = "user_id = ? AND scenario = ? AND session_id = ? AND status = 'in_progress'"
+                params = (user_id, scenario, session_id)
+            else:
+                where_clause = "user_id = ? AND scenario = ? AND status = 'in_progress'"
+                params = (user_id, scenario)
+            
+            with self.conn:
+                self.conn.execute(
+                    f"UPDATE user_scenarios SET status = 'abandoned' WHERE {where_clause}",
+                    params
+                )
+            logger.info(f"Abandoned scenario: user={user_id}, scenario={scenario}")
+        except sqlite3.Error as e:
+            logger.error(f"Failed to abandon scenario for user {user_id}: {e}", exc_info=True)
+
+    def get_scenario_stats(self, scenario: str, days: int = 7):
+        """Получает статистику по сценарию за последние N дней."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            # Общее количество запусков
+            params = [scenario] + (excluded_users if excluded_users else [])
+            cursor = self.conn.execute(
+                f"SELECT COUNT(*) FROM user_scenarios WHERE scenario = ? AND started_at >= datetime('now', '-{days} days') {excluded_condition}",
+                params
+            )
+            total_starts = cursor.fetchone()[0]
+            
+            # Количество завершений
+            cursor = self.conn.execute(
+                f"SELECT COUNT(*) FROM user_scenarios WHERE scenario = ? AND status = 'completed' AND started_at >= datetime('now', '-{days} days') {excluded_condition}",
+                params
+            )
+            total_completions = cursor.fetchone()[0]
+            
+            # Количество брошенных
+            cursor = self.conn.execute(
+                f"SELECT COUNT(*) FROM user_scenarios WHERE scenario = ? AND status = 'abandoned' AND started_at >= datetime('now', '-{days} days') {excluded_condition}",
+                params
+            )
+            total_abandoned = cursor.fetchone()[0]
+            
+            # Среднее количество шагов для завершенных сценариев
+            cursor = self.conn.execute(
+                f"SELECT AVG(steps_count) FROM user_scenarios WHERE scenario = ? AND status = 'completed' AND started_at >= datetime('now', '-{days} days') {excluded_condition}",
+                params
+            )
+            avg_steps = cursor.fetchone()[0] or 0
+            
+            return {
+                'scenario': scenario,
+                'period_days': days,
+                'total_starts': total_starts,
+                'total_completions': total_completions,
+                'total_abandoned': total_abandoned,
+                'completion_rate': (total_completions / total_starts * 100) if total_starts > 0 else 0,
+                'abandonment_rate': (total_abandoned / total_starts * 100) if total_starts > 0 else 0,
+                'avg_steps': round(avg_steps, 1)
+            }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get scenario stats for {scenario}: {e}", exc_info=True)
+            return None
+
+    def get_scenario_step_stats(self, scenario: str, days: int = 7):
+        """Получает статистику по шагам сценария."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            params = [scenario] + (excluded_users if excluded_users else [])
+            cursor = self.conn.execute(
+                f"""SELECT step, COUNT(*) as count 
+                   FROM scenario_logs 
+                   WHERE scenario = ? AND timestamp >= datetime('now', '-{days} days')
+                   {excluded_condition}
+                   GROUP BY step 
+                   ORDER BY count DESC""",
+                params
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get scenario step stats for {scenario}: {e}", exc_info=True)
+            return []
+
+    def get_user_scenario_history(self, user_id: int, scenario: str = None):
+        """Получает историю сценариев пользователя."""
+        try:
+            if scenario:
+                cursor = self.conn.execute(
+                    "SELECT * FROM user_scenarios WHERE user_id = ? AND scenario = ? ORDER BY started_at DESC",
+                    (user_id, scenario)
+                )
+            else:
+                cursor = self.conn.execute(
+                    "SELECT * FROM user_scenarios WHERE user_id = ? ORDER BY started_at DESC",
+                    (user_id,)
+                )
+            return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get user scenario history for {user_id}: {e}", exc_info=True)
+            return []
+
+    def get_user_advanced_stats(self, user_id: int):
+        """Получает расширенную статистику пользователя."""
+        try:
+            stats = {}
+            
+            # 1. Максимальное количество дней подряд без пропуска
+            cursor = self.conn.execute("""
+                WITH RECURSIVE dates AS (
+                    SELECT DATE(started_at) as date
+                    FROM user_scenarios 
+                    WHERE user_id = ?
+                    GROUP BY DATE(started_at)
+                    ORDER BY date
+                ),
+                consecutive_days AS (
+                    SELECT date, 1 as streak
+                    FROM dates
+                    WHERE date = (SELECT MIN(date) FROM dates)
+                    
+                    UNION ALL
+                    
+                    SELECT d.date, 
+                           CASE 
+                               WHEN d.date = DATE(cd.date, '+1 day') THEN cd.streak + 1
+                               ELSE 1
+                           END as streak
+                    FROM dates d
+                    JOIN consecutive_days cd ON d.date > cd.date
+                    WHERE d.date = (
+                        SELECT MIN(date) FROM dates WHERE date > cd.date
+                    )
+                )
+                SELECT MAX(streak) as max_streak
+                FROM consecutive_days
+            """, (user_id,))
+            stats['max_consecutive_days'] = cursor.fetchone()['max_streak'] or 0
+            
+            # 2. Текущая серия дней подряд
+            cursor = self.conn.execute("""
+                WITH RECURSIVE dates AS (
+                    SELECT DATE(started_at) as date
+                    FROM user_scenarios 
+                    WHERE user_id = ?
+                    GROUP BY DATE(started_at)
+                    ORDER BY date DESC
+                ),
+                current_streak AS (
+                    SELECT date, 1 as streak
+                    FROM dates
+                    WHERE date = (SELECT MAX(date) FROM dates)
+                    
+                    UNION ALL
+                    
+                    SELECT d.date, cs.streak + 1
+                    FROM dates d
+                    JOIN current_streak cs ON d.date = DATE(cs.date, '-1 day')
+                )
+                SELECT MAX(streak) as current_streak
+                FROM current_streak
+            """, (user_id,))
+            stats['current_streak'] = cursor.fetchone()['current_streak'] or 0
+            
+            # 3. Любимое время дня
+            cursor = self.conn.execute("""
+                SELECT 
+                    CASE 
+                        WHEN CAST(strftime('%H', started_at) AS INTEGER) BETWEEN 6 AND 11 THEN 'утро (6-12)'
+                        WHEN CAST(strftime('%H', started_at) AS INTEGER) BETWEEN 12 AND 17 THEN 'день (12-18)'
+                        WHEN CAST(strftime('%H', started_at) AS INTEGER) BETWEEN 18 AND 23 THEN 'вечер (18-24)'
+                        ELSE 'ночь (0-6)'
+                    END as time_period,
+                    COUNT(*) as count
+                FROM user_scenarios 
+                WHERE user_id = ?
+                GROUP BY time_period
+                ORDER BY count DESC
+                LIMIT 1
+            """, (user_id,))
+            time_result = cursor.fetchone()
+            stats['favorite_time'] = time_result['time_period'] if time_result else "нет данных"
+            
+            # 4. Любимый день недели
+            cursor = self.conn.execute("""
+                SELECT 
+                    CASE strftime('%w', started_at)
+                        WHEN '0' THEN 'воскресенье'
+                        WHEN '1' THEN 'понедельник'
+                        WHEN '2' THEN 'вторник'
+                        WHEN '3' THEN 'среда'
+                        WHEN '4' THEN 'четверг'
+                        WHEN '5' THEN 'пятница'
+                        WHEN '6' THEN 'суббота'
+                    END as day_name,
+                    COUNT(*) as count
+                FROM user_scenarios 
+                WHERE user_id = ?
+                GROUP BY day_name
+                ORDER BY count DESC
+                LIMIT 1
+            """, (user_id,))
+            day_result = cursor.fetchone()
+            stats['favorite_day'] = day_result['day_name'] if day_result else "нет данных"
+            
+            # 5. Средняя глубина прохождения сценариев
+            cursor = self.conn.execute("""
+                SELECT 
+                    AVG(steps_count) as avg_steps,
+                    COUNT(*) as total_sessions
+                FROM user_scenarios 
+                WHERE user_id = ? AND status = 'completed'
+            """, (user_id,))
+            depth_result = cursor.fetchone()
+            stats['avg_session_depth'] = round(depth_result['avg_steps'], 1) if depth_result['avg_steps'] else 0
+            stats['total_completed_sessions'] = depth_result['total_sessions'] or 0
+            
+            # 6. Процент завершения сценариев
+            cursor = self.conn.execute("""
+                SELECT 
+                    COUNT(*) as total_sessions,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_sessions
+                FROM user_scenarios 
+                WHERE user_id = ?
+            """, (user_id,))
+            completion_result = cursor.fetchone()
+            total = completion_result['total_sessions'] or 0
+            completed = completion_result['completed_sessions'] or 0
+            stats['completion_rate'] = round((completed / total * 100), 1) if total > 0 else 0
+            
+            # 7. Первый и последний день использования
+            cursor = self.conn.execute("""
+                SELECT 
+                    MIN(DATE(started_at)) as first_day,
+                    MAX(DATE(started_at)) as last_day
+                FROM user_scenarios 
+                WHERE user_id = ?
+            """, (user_id,))
+            dates_result = cursor.fetchone()
+            stats['first_day'] = dates_result['first_day'] if dates_result['first_day'] else None
+            stats['last_day'] = dates_result['last_day'] if dates_result['last_day'] else None
+            
+            # 8. Общее количество дней использования
+            cursor = self.conn.execute("""
+                SELECT COUNT(DISTINCT DATE(started_at)) as unique_days
+                FROM user_scenarios 
+                WHERE user_id = ?
+            """, (user_id,))
+            stats['total_unique_days'] = cursor.fetchone()['unique_days'] or 0
+            
+            # 9. Среднее количество сессий в день
+            cursor = self.conn.execute("""
+                SELECT 
+                    COUNT(*) as total_sessions,
+                    COUNT(DISTINCT DATE(started_at)) as unique_days
+                FROM user_scenarios 
+                WHERE user_id = ?
+            """, (user_id,))
+            sessions_result = cursor.fetchone()
+            total_sessions = sessions_result['total_sessions'] or 0
+            unique_days = sessions_result['unique_days'] or 1
+            stats['avg_sessions_per_day'] = round(total_sessions / unique_days, 1)
+            
+            # 10. Достижения (бейджи)
+            achievements = []
+            if stats['max_consecutive_days'] >= 7:
+                achievements.append("🔥 Неделя подряд")
+            if stats['max_consecutive_days'] >= 30:
+                achievements.append("⭐ Месяц подряд")
+            if stats['total_completed_sessions'] >= 10:
+                achievements.append("🎯 10 завершенных сессий")
+            if stats['total_completed_sessions'] >= 50:
+                achievements.append("🏆 50 завершенных сессий")
+            if stats['completion_rate'] >= 80:
+                achievements.append("💎 Высокая завершенность")
+            if stats['avg_session_depth'] >= 20:
+                achievements.append("🧠 Глубокие размышления")
+            
+            stats['achievements'] = achievements
+            
+            return stats
+            
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get advanced stats for user {user_id}: {e}", exc_info=True)
+            return {}
+
+    # --- НОВЫЕ МЕТОДЫ ДЛЯ АДМИН-ПАНЕЛИ ---
+    
+    def get_retention_metrics(self, days: int = 7):
+        """Получает метрики удержания (D1, D7)."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND u1.user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            # D1 Retention: пользователи, вернувшиеся на следующий день
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    COUNT(DISTINCT u1.user_id) as total_users,
+                    COUNT(DISTINCT u2.user_id) as returned_users
+                FROM user_scenarios u1
+                LEFT JOIN user_scenarios u2 ON u1.user_id = u2.user_id 
+                    AND u2.started_at >= datetime(u1.started_at, '+1 day')
+                    AND u2.started_at < datetime(u1.started_at, '+2 days')
+                WHERE u1.started_at >= datetime('now', '-{days} days')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            
+            d1_data = cursor.fetchone()
+            d1_retention = (d1_data['returned_users'] / d1_data['total_users'] * 100) if d1_data['total_users'] > 0 else 0
+            
+            # D7 Retention: пользователи, вернувшиеся на 7-й день
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    COUNT(DISTINCT u1.user_id) as total_users,
+                    COUNT(DISTINCT u2.user_id) as returned_users
+                FROM user_scenarios u1
+                LEFT JOIN user_scenarios u2 ON u1.user_id = u2.user_id 
+                    AND u2.started_at >= datetime(u1.started_at, '+7 days')
+                    AND u2.started_at < datetime(u1.started_at, '+8 days')
+                WHERE u1.started_at >= datetime('now', '-{days} days')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            
+            d7_data = cursor.fetchone()
+            d7_retention = (d7_data['returned_users'] / d7_data['total_users'] * 100) if d7_data['total_users'] > 0 else 0
+            
+            return {
+                'd1_retention': round(d1_retention, 1),
+                'd7_retention': round(d7_retention, 1),
+                'd1_total_users': d1_data['total_users'],
+                'd1_returned_users': d1_data['returned_users'],
+                'd7_total_users': d7_data['total_users'],
+                'd7_returned_users': d7_data['returned_users']
+            }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get retention metrics: {e}", exc_info=True)
+            return {'d1_retention': 0, 'd7_retention': 0, 'd1_total_users': 0, 'd1_returned_users': 0, 'd7_total_users': 0, 'd7_returned_users': 0}
+
+    def get_dau_metrics(self, days: int = 7):
+        """Получает метрики DAU (Daily Active Users)."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    DATE(started_at) as date,
+                    COUNT(DISTINCT user_id) as dau
+                FROM user_scenarios 
+                WHERE started_at >= datetime('now', '-{days} days')
+                {excluded_condition}
+                GROUP BY DATE(started_at)
+                ORDER BY date DESC
+            """, list(excluded_users) if excluded_users else [])
+            
+            daily_data = [dict(row) for row in cursor.fetchall()]
+            
+            # Сегодняшний DAU
+            today_dau = daily_data[0]['dau'] if daily_data else 0
+            
+            # Средний DAU за период
+            avg_dau = sum(d['dau'] for d in daily_data) / len(daily_data) if daily_data else 0
+            
+            return {
+                'today_dau': today_dau,
+                'avg_dau': round(avg_dau, 1),
+                'daily_data': daily_data
+            }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get DAU metrics: {e}", exc_info=True)
+            return {'today_dau': 0, 'avg_dau': 0, 'daily_data': []}
+
+    def get_card_funnel_metrics(self, days: int = 7):
+        """Получает метрики воронки сценария 'Карта дня'."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            # Шаг 1: Начали сессию
+            cursor = self.conn.execute(f"""
+                SELECT COUNT(DISTINCT user_id) as count
+                FROM scenario_logs 
+                WHERE scenario = 'card_of_day' 
+                AND step = 'started'
+                AND timestamp >= datetime('now', '-{days} days')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            step1 = cursor.fetchone()['count']
+            
+            # Шаг 2: Выбрали начальный ресурс
+            cursor = self.conn.execute(f"""
+                SELECT COUNT(DISTINCT user_id) as count
+                FROM scenario_logs 
+                WHERE scenario = 'card_of_day' 
+                AND step = 'initial_resource_selected'
+                AND timestamp >= datetime('now', '-{days} days')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            step2 = cursor.fetchone()['count']
+            
+            # Шаг 3: Согласились на углубляющий диалог
+            cursor = self.conn.execute(f"""
+                SELECT COUNT(DISTINCT user_id) as count
+                FROM scenario_logs 
+                WHERE scenario = 'card_of_day' 
+                AND step = 'ai_reflection_choice'
+                AND metadata LIKE '%"choice": "yes"%'
+                AND timestamp >= datetime('now', '-{days} days')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            step3 = cursor.fetchone()['count']
+            
+            # Шаг 4: Завершили диалог (получили AI ответы или отказались)
+            cursor = self.conn.execute(f"""
+                SELECT COUNT(DISTINCT user_id) as count
+                FROM scenario_logs 
+                WHERE scenario = 'card_of_day' 
+                AND (step LIKE 'ai_response_%' OR step = 'ai_reflection_choice')
+                AND timestamp >= datetime('now', '-{days} days')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            step4 = cursor.fetchone()['count']
+            
+            # Шаг 5: Дошли до финального фидбека
+            cursor = self.conn.execute(f"""
+                SELECT COUNT(DISTINCT user_id) as count
+                FROM scenario_logs 
+                WHERE scenario = 'card_of_day' 
+                AND step = 'completed'
+                AND timestamp >= datetime('now', '-{days} days')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            step5 = cursor.fetchone()['count']
+            
+            # Расчёт процентов
+            step1_pct = 100
+            step2_pct = (step2 / step1 * 100) if step1 > 0 else 0
+            step3_pct = (step3 / step1 * 100) if step1 > 0 else 0
+            step4_pct = (step4 / step1 * 100) if step1 > 0 else 0
+            step5_pct = (step5 / step1 * 100) if step1 > 0 else 0
+            
+            return {
+                'step1': {'count': step1, 'pct': step1_pct},
+                'step2': {'count': step2, 'pct': round(step2_pct, 1)},
+                'step3': {'count': step3, 'pct': round(step3_pct, 1)},
+                'step4': {'count': step4, 'pct': round(step4_pct, 1)},
+                'step5': {'count': step5, 'pct': round(step5_pct, 1)},
+                'completion_rate': round(step5_pct, 1)
+            }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get card funnel metrics: {e}", exc_info=True)
+            return {'step1': {'count': 0, 'pct': 0}, 'step2': {'count': 0, 'pct': 0}, 'step3': {'count': 0, 'pct': 0}, 'step4': {'count': 0, 'pct': 0}, 'step5': {'count': 0, 'pct': 0}, 'completion_rate': 0}
+
+    def get_value_metrics(self, days: int = 7):
+        """Получает метрики ценности (Resource Lift, Feedback Score)."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            # Resource Lift: динамика ресурса
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    COUNT(*) as total_sessions,
+                    SUM(CASE WHEN final_resource > initial_resource THEN 1 ELSE 0 END) as positive_lift,
+                    SUM(CASE WHEN final_resource < initial_resource THEN 1 ELSE 0 END) as negative_lift
+                FROM (
+                    SELECT 
+                        user_id,
+                        CAST(JSON_EXTRACT(MAX(CASE WHEN step = 'initial_resource_selected' THEN metadata END), '$.resource') AS INTEGER) as initial_resource,
+                        CAST(JSON_EXTRACT(MAX(CASE WHEN step = 'mood_change_recorded' THEN metadata END), '$.resource') AS INTEGER) as final_resource
+                    FROM scenario_logs 
+                    WHERE scenario = 'card_of_day' 
+                    AND timestamp >= datetime('now', '-{days} days')
+                    {excluded_condition}
+                    GROUP BY user_id
+                ) sessions
+                WHERE initial_resource IS NOT NULL AND final_resource IS NOT NULL
+            """, list(excluded_users) if excluded_users else [])
+            
+            resource_data = cursor.fetchone()
+            total_sessions = resource_data['total_sessions']
+            positive_lift_pct = (resource_data['positive_lift'] / total_sessions * 100) if total_sessions > 0 else 0
+            negative_lift_pct = (resource_data['negative_lift'] / total_sessions * 100) if total_sessions > 0 else 0
+            
+            # Feedback Score: позитивные отзывы
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    COUNT(*) as total_feedback,
+                    SUM(CASE WHEN metadata LIKE '%"feedback": "helpful"%' THEN 1 ELSE 0 END) as positive_feedback
+                FROM scenario_logs 
+                WHERE scenario = 'card_of_day' 
+                AND step = 'usefulness_rating'
+                AND timestamp >= datetime('now', '-{days} days')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            
+            feedback_data = cursor.fetchone()
+            feedback_score = (feedback_data['positive_feedback'] / feedback_data['total_feedback'] * 100) if feedback_data['total_feedback'] > 0 else 0
+            
+            return {
+                'resource_lift': {
+                    'positive_pct': round(positive_lift_pct, 1),
+                    'negative_pct': round(negative_lift_pct, 1),
+                    'total_sessions': total_sessions
+                },
+                'feedback_score': round(feedback_score, 1),
+                'total_feedback': feedback_data['total_feedback']
+            }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get value metrics: {e}", exc_info=True)
+            return {'resource_lift': {'positive_pct': 0, 'negative_pct': 0, 'total_sessions': 0}, 'feedback_score': 0, 'total_feedback': 0}
+
+    def get_admin_dashboard_summary(self, days: int = 7):
+        """Получает сводку для главного дашборда админки."""
+        try:
+            # Основные метрики
+            retention = self.get_retention_metrics(days)
+            dau = self.get_dau_metrics(days)
+            card_stats = self.get_scenario_stats('card_of_day', days)
+            evening_stats = self.get_scenario_stats('evening_reflection', days)
+            funnel = self.get_card_funnel_metrics(days)
+            value = self.get_value_metrics(days)
+            
+            return {
+                'retention': retention,
+                'dau': dau,
+                'card_stats': card_stats,
+                'evening_stats': evening_stats,
+                'funnel': funnel,
+                'value': value,
+                'period_days': days
+            }
+        except Exception as e:
+            logger.error(f"Failed to get admin dashboard summary: {e}", exc_info=True)
+            return None
+
+    # --- КОНЕЦ НОВЫХ МЕТОДОВ ---
 
     def close(self):
         # ... (код метода close) ...

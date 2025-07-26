@@ -2,7 +2,10 @@ import json
 import os
 import sqlite3
 from datetime import datetime
-from config import TIMEZONE
+try:
+    from config_local import TIMEZONE
+except ImportError:
+    from config import TIMEZONE
 from database.db import Database
 
 # Пути к JSON-файлам (в директории data/)

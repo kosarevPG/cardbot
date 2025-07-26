@@ -3,7 +3,10 @@ import sqlite3
 import json
 from datetime import datetime, date
 import os
-from config import TIMEZONE
+try:
+    from config_local import TIMEZONE
+except ImportError:
+    from config import TIMEZONE
 import logging
 
 # Импорт pytz для обработки таймзон

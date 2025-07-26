@@ -5,7 +5,11 @@ import os
 import uuid  # <--- ДОБАВЛЕНО
 from aiogram import types
 from aiogram.fsm.context import FSMContext
-from config import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR, pytz # Убедимся, что pytz импортирован
+from aiogram.fsm.state import State, StatesGroup
+try:
+    from config_local import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR, pytz
+except ImportError:
+    from config import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR, pytz # Убедимся, что pytz импортирован
 # Импортируем функции из ai_service
 from .ai_service import (
     get_grok_question, get_grok_summary, build_user_profile,
@@ -89,16 +93,29 @@ async def handle_card_request(message: types.Message, state: FSMContext, db: Dat
                 last_req_time_str = "ошибка времени"
         text = (f"{name}, ты уже вытянула карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨" if name else f"Ты уже вытянула карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨")
         logger.info(f"User {user_id}: Sending 'already drawn' message.")
+        
+        # Логируем попытку повторного использования
+        db.log_scenario_step(user_id, 'card_of_day', 'already_used_today', {
+            'last_request_time': last_req_time_str,
+            'today': today.isoformat()
+        })
+        
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await state.clear()
         return
 
     logger.info(f"User {user_id}: Card available, starting initial resource check.")
     
-    # --- ИЗМЕНЕНИЕ: Генерация и сохранение ID сессии ---
-    session_id = str(uuid.uuid4())
+    # Начинаем сценарий "Карта дня"
+    session_id = db.start_user_scenario(user_id, 'card_of_day')
+    db.log_scenario_step(user_id, 'card_of_day', 'started', {
+        'session_id': session_id,
+        'today': today.isoformat(),
+        'card_available': card_available
+    })
+    
+    # Сохраняем session_id в состоянии
     await state.update_data(session_id=session_id)
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     await logger_service.log_action(user_id, "card_flow_started", {
         "trigger": "button",
@@ -132,6 +149,13 @@ async def process_initial_resource_callback(callback: types.CallbackQuery, state
     # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     await state.update_data(initial_resource=resource_choice_label)
+    
+    # Логируем выбор начального ресурса
+    db.log_scenario_step(user_id, 'card_of_day', 'initial_resource_selected', {
+        'resource': resource_choice_label,
+        'session_id': session_id
+    })
+    
     await logger_service.log_action(user_id, "initial_resource_selected", {
         "resource": resource_choice_label,
         "session_id": session_id
@@ -168,6 +192,12 @@ async def process_request_type_callback(callback: types.CallbackQuery, state: FS
     
     await state.update_data(request_type=request_type)
     
+    # Логируем выбор типа запроса
+    db.log_scenario_step(user_id, 'card_of_day', 'request_type_selected', {
+        'request_type': choice_mode,
+        'session_id': session_id
+    })
+    
     await logger_service.log_action(user_id, "question_mode_chosen", {
         "mode": choice_mode,
         "session_id": session_id
@@ -199,6 +229,12 @@ async def process_request_text(message: types.Message, state: FSMContext, db: Da
     session_id = fsm_data.get("session_id", "unknown")
     
     await state.update_data(user_request=request_text)
+    
+    # Логируем текстовый запрос
+    db.log_scenario_step(user_id, 'card_of_day', 'text_request_provided', {
+        'request_length': len(request_text),
+        'session_id': session_id
+    })
     
     await logger_service.log_action(user_id, "typed_question_submitted", {
         "request": request_text,
@@ -261,6 +297,13 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
     try:
         await message.bot.send_chat_action(message.chat.id, 'upload_photo')
         await message.answer_photo(types.FSInputFile(card_path), protect_content=True)
+        
+        # Логируем вытягивание карты
+        db.log_scenario_step(user_id, 'card_of_day', 'card_drawn', {
+            'card_number': card_number,
+            'session_id': session_id,
+            'user_request': user_request[:100] if user_request else None
+        })
         
         # --- ИЗМЕНЕНИЕ: Обновлен лог события ---
         await logger_service.log_action(user_id, "card_drawn", {
@@ -327,6 +370,12 @@ async def process_exploration_choice_callback(callback: types.CallbackQuery, sta
     fsm_data = await state.get_data()
     session_id = fsm_data.get("session_id", "unknown")
     choice_value = "yes" if choice == "explore_yes" else "no"
+    
+    # Логируем выбор рефлексии с ИИ
+    db.log_scenario_step(user_id, 'card_of_day', 'ai_reflection_choice', {
+        'choice': choice_value,
+        'session_id': session_id
+    })
     
     await logger_service.log_action(user_id, "exploration_chosen", {
         "choice": choice_value,
@@ -408,6 +457,13 @@ async def process_first_grok_response(message: types.Message, state: FSMContext,
     data = await state.get_data()
     session_id = data.get("session_id", "unknown")
     await state.update_data(first_grok_response=first_response)
+    
+    # Логируем ответ на первый ИИ-вопрос
+    db.log_scenario_step(user_id, 'card_of_day', 'ai_response_1_provided', {
+        'response_length': len(first_response),
+        'session_id': session_id
+    })
+    
     await logger_service.log_action(user_id, "grok_response_provided", {
         "step": 1,
         "response": first_response,
@@ -423,6 +479,13 @@ async def process_second_grok_response(message: types.Message, state: FSMContext
     data = await state.get_data()
     session_id = data.get("session_id", "unknown")
     await state.update_data(second_grok_response=second_response)
+    
+    # Логируем ответ на второй ИИ-вопрос
+    db.log_scenario_step(user_id, 'card_of_day', 'ai_response_2_provided', {
+        'response_length': len(second_response),
+        'session_id': session_id
+    })
+    
     await logger_service.log_action(user_id, "grok_response_provided", {
         "step": 2,
         "response": second_response,
@@ -438,6 +501,13 @@ async def process_third_grok_response(message: types.Message, state: FSMContext,
     data = await state.get_data()
     session_id = data.get("session_id", "unknown")
     await state.update_data(third_grok_response=third_response)
+    
+    # Логируем ответ на третий ИИ-вопрос
+    db.log_scenario_step(user_id, 'card_of_day', 'ai_response_3_provided', {
+        'response_length': len(third_response),
+        'session_id': session_id
+    })
+    
     await logger_service.log_action(user_id, "grok_response_provided", {
         "step": 3,
         "response": third_response,
@@ -538,34 +608,86 @@ async def process_final_resource_callback(callback: types.CallbackQuery, state: 
     user_id = callback.from_user.id
     resource_choice_key = callback.data
     resource_choice_label = RESOURCE_LEVELS.get(resource_choice_key, "Неизвестно")
-    
     data = await state.get_data()
     session_id = data.get("session_id", "unknown")
-    
     await state.update_data(final_resource=resource_choice_label)
+    initial_resource = data.get("initial_resource", "неизвестно")
+    resource_change = "same"
+    if initial_resource != resource_choice_label:
+        resource_levels = ["😔 Низко", "😐 Средне", "😊 Хорошо", "🤩 Отлично"]
+        try:
+            initial_index = resource_levels.index(initial_resource)
+            final_index = resource_levels.index(resource_choice_label)
+            if final_index > initial_index:
+                resource_change = "better"
+            elif final_index < initial_index:
+                resource_change = "worse"
+        except ValueError:
+            resource_change = "unknown"
+    db.log_scenario_step(user_id, 'card_of_day', 'mood_change_recorded', {
+        'initial_resource': initial_resource,
+        'final_resource': resource_choice_label,
+        'change_direction': resource_change,
+        'session_id': session_id
+    })
     await logger_service.log_action(user_id, "final_resource_selected", {
         "resource": resource_choice_label,
         "session_id": session_id
     })
-    
     await callback.answer(f"Понял, твое состояние сейчас: {resource_choice_label.split()[0]}")
     try: await callback.message.edit_reply_markup(reply_markup=None)
     except Exception as e: logger.warning(f"Could not edit message reply markup (final resource) for user {user_id}: {e}")
 
     if resource_choice_key == "resource_low":
-        try:
-            await callback.message.answer("Мне жаль слышать, что ресурс на низком уровне...")
-            await callback.message.bot.send_chat_action(user_id, 'typing')
-            supportive_message_with_question = await get_grok_supportive_message(user_id, db)
-            await callback.message.answer(supportive_message_with_question)
-            await logger_service.log_action(user_id, "support_message_sent", {"session_id": session_id})
-            await state.set_state(UserState.waiting_for_recharge_method)
-        except Exception as e:
-             logger.error(f"Failed to send supportive message or set state for user {user_id}: {e}", exc_info=True)
-             await show_final_feedback_and_menu(callback.message, state, db, logger_service, user_id=user_id)
+        # Новый UX: если есть сохранённый способ восстановления, предложить его
+        last_method = db.get_last_recharge_method(user_id)
+        logger.info(f"User {user_id}: Resource is low. Last recharge method: {last_method}")
+        
+        if last_method:
+            logger.info(f"User {user_id}: Offering saved recharge method: {last_method}")
+            text = (f"Ранее ты отмечал(а), что тебе помогает восстанавливать ресурс: <b>{last_method}</b>.\n\n"
+                    "Хочешь воспользоваться этим способом сейчас или добавить новый?")
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="Да, воспользуюсь этим", callback_data="use_last_recharge")],
+                [types.InlineKeyboardButton(text="Добавить новый способ", callback_data="add_new_recharge")]
+            ])
+            await callback.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+            await state.set_state(UserState.waiting_for_recharge_method_choice)
+            return
+        else:
+            logger.info(f"User {user_id}: No saved recharge method found, asking for new one")
+            try:
+                await callback.message.answer("Мне жаль слышать, что ресурс на низком уровне...")
+                await callback.message.bot.send_chat_action(user_id, 'typing')
+                supportive_message_with_question = await get_grok_supportive_message(user_id, db)
+                await callback.message.answer(supportive_message_with_question)
+                await logger_service.log_action(user_id, "support_message_sent", {"session_id": session_id})
+                await state.set_state(UserState.waiting_for_recharge_method)
+            except Exception as e:
+                logger.error(f"Failed to send supportive message or set state for user {user_id}: {e}", exc_info=True)
+                await show_final_feedback_and_menu(callback.message, state, db, logger_service, user_id=user_id)
     else:
         await callback.message.answer(f"Здорово, что твое состояние '{resource_choice_label}'! ✨")
         await show_final_feedback_and_menu(callback.message, state, db, logger_service, user_id=user_id)
+
+# Новый обработчик выбора способа восстановления
+async def process_recharge_method_choice(callback: types.CallbackQuery, state: FSMContext, db: Database, logger_service):
+    user_id = callback.from_user.id
+    data = await state.get_data()
+    session_id = data.get("session_id", "unknown")
+    if callback.data == "use_last_recharge":
+        last_method = db.get_last_recharge_method(user_id)
+        if last_method:
+            await callback.message.answer(f"Отлично! Попробуй сейчас воспользоваться этим способом: <b>{last_method}</b>\n\nЕсли захочешь добавить новый — просто напиши его в следующий раз.", parse_mode="HTML")
+            await show_final_feedback_and_menu(callback.message, state, db, logger_service, user_id=user_id)
+        else:
+            await callback.message.answer("Не удалось найти твой способ восстановления. Пожалуйста, напиши, что тебе помогает восстановиться.")
+            await state.set_state(UserState.waiting_for_recharge_method)
+    elif callback.data == "add_new_recharge":
+        await callback.message.answer("Пожалуйста, напиши, что тебе помогает восстановиться.")
+        await state.set_state(UserState.waiting_for_recharge_method)
+    else:
+        await callback.answer("Выбери вариант на кнопках.", show_alert=True)
 
 # --- Шаг 8.5: Обработка метода восстановления ---
 async def process_recharge_method(message: types.Message, state: FSMContext, db: Database, logger_service):
@@ -623,6 +745,15 @@ async def show_final_feedback_and_menu(message: types.Message, state: FSMContext
             logger.info(f"Final profile data (resources) saved for user {user_id} before state clear.")
     except Exception as e:
         logger.error(f"Error saving final profile resource data for user {user_id} before clear: {e}", exc_info=True)
+    
+    # Завершаем сценарий "Карта дня"
+    db.complete_user_scenario(user_id, 'card_of_day', session_id)
+    db.log_scenario_step(user_id, 'card_of_day', 'completed', {
+        'card_number': card_number,
+        'session_id': session_id,
+        'initial_resource': data.get("initial_resource"),
+        'final_resource': data.get("final_resource")
+    })
     
     # --- ИЗМЕНЕНИЕ: Добавлен лог о завершении ---
     await logger_service.log_action(user_id, "card_flow_completed", {
@@ -698,6 +829,13 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
                 except Exception: pass
                 return
 
+            # Логируем оценку полезности
+            db.log_scenario_step(user_id, 'card_of_day', 'usefulness_rating', {
+                'rating': feedback_type,
+                'card_number': card_number,
+                'session_id': session_id
+            })
+            
             await logger_service.log_action(user_id, "interaction_feedback_provided", {
                 "card_session": card_number, 
                 "feedback": feedback_type,

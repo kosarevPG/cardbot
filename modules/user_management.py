@@ -26,6 +26,7 @@ class UserState(StatesGroup):
     waiting_for_third_grok_response = State()
     waiting_for_final_resource = State()
     waiting_for_recharge_method = State()
+    waiting_for_recharge_method_choice = State()
 
     # --- Состояния для Итога Дня ---
     waiting_for_good_moments = State()

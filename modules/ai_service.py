@@ -5,7 +5,10 @@ import json
 import random
 import asyncio
 # --- ИЗМЕНЕНО: импортируем переменные YandexGPT ---
-from config import YANDEX_API_KEY, YANDEX_FOLDER_ID, YANDEX_GPT_URL, TIMEZONE
+try:
+    from config_local import YANDEX_API_KEY, YANDEX_FOLDER_ID, YANDEX_GPT_URL, TIMEZONE
+except ImportError:
+    from config import YANDEX_API_KEY, YANDEX_FOLDER_ID, YANDEX_GPT_URL, TIMEZONE
 from datetime import datetime, date 
 import re
 import logging

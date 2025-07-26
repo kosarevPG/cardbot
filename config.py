@@ -6,6 +6,7 @@ CHANNEL_ID = "@TopPsyGame"
 BOT_LINK = "t.me/choose_a_card_bot"
 TIMEZONE = pytz.timezone("Europe/Moscow")
 ADMIN_ID = 6682555021
+ADMIN_IDS = [str(ADMIN_ID)]  # Список ID администраторов для админ-панели
 
 # --- ИЗМЕНЕНО: Настройки для YandexGPT ---
 YANDEX_API_KEY = "AQVN2Jf6LS4V3-lddAlWO5ubPBPnOe5AC1tIkuZ3"
@@ -18,8 +19,9 @@ YANDEX_GPT_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completio
 # GROK_API_URL = "https://api.x.ai/v1/chat/completions"
 
 NO_CARD_LIMIT_USERS = [6682555021, 392141189, 239719200]
-NO_LOGS_USERS = [6682555021, 392141189, 239719200, 7494824111,171507422,138192985]
+NO_LOGS_USERS = [6682555021, 392141189, 239719200, 7494824111, 171507422, 138192985, 999999999]
 DATA_DIR = "/data"
+# DB_PATH не указываем для production - будет использоваться DATA_DIR + "bot.db"
 
 # Список советов Вселенной
 UNIVERSE_ADVICE = [

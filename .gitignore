@@ -26,6 +26,18 @@ share/python-wheels/
 *.egg
 MANIFEST
 
+# не пушим виртуальные окружения
+.venv/
+# не пушим конфиги‑шаблоны с реальными токенами
+config/*.toml
+# .env
+.env
+# не пушим локальные конфиги с dev-токенами
+config_local.py
+# IDE‑мусор
+.idea/
+.vscode/
+
 # PyInstaller
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.

@@ -11,7 +11,10 @@ from aiogram import F, Router # Используем Router для удобст�
 from modules.user_management import UserState
 from database.db import Database
 from modules.logging_service import LoggingService
-from config import TIMEZONE
+try:
+    from config_local import TIMEZONE
+except ImportError:
+    from config import TIMEZONE
 # --- НОВЫЙ ИМПОРТ ---
 from modules.ai_service import get_reflection_summary # Импортируем новую функцию
 # --- КОНЕЦ НОВОГО ИМПОРТА ---
@@ -40,6 +43,17 @@ MSG_AI_SUMMARY_FAIL = "Не получилось сгенерировать AI-�
 async def start_evening_reflection(message: types.Message, state: FSMContext, db: Database, logger_service: LoggingService):
     """Начало флоу 'Итог дня'."""
     user_id = message.from_user.id
+    
+    # Начинаем сценарий "Вечерняя рефлексия"
+    session_id = db.start_user_scenario(user_id, 'evening_reflection')
+    db.log_scenario_step(user_id, 'evening_reflection', 'started', {
+        'session_id': session_id,
+        'today': datetime.now(TIMEZONE).date().isoformat()
+    })
+    
+    # Сохраняем session_id в состоянии
+    await state.update_data(session_id=session_id)
+    
     await logger_service.log_action(user_id, "evening_reflection_started")
     await message.answer(MSG_INTRO)
     await message.answer(ASK_GOOD_MOMENTS)
@@ -56,6 +70,15 @@ async def process_good_moments(message: types.Message, state: FSMContext, db: Da
         return
 
     await state.update_data(good_moments=answer)
+    
+    # Логируем ответ на вопрос о хороших моментах
+    fsm_data = await state.get_data()
+    session_id = fsm_data.get("session_id", "unknown")
+    db.log_scenario_step(user_id, 'evening_reflection', 'good_moments_provided', {
+        'session_id': session_id,
+        'answer_length': len(answer)
+    })
+    
     await logger_service.log_action(user_id, "evening_reflection_good_provided", {"length": len(answer)})
     await message.answer(ASK_GRATITUDE)
     await state.set_state(UserState.waiting_for_gratitude)
@@ -71,6 +94,15 @@ async def process_gratitude(message: types.Message, state: FSMContext, db: Datab
         return
 
     await state.update_data(gratitude=answer)
+    
+    # Логируем ответ на вопрос о благодарности
+    fsm_data = await state.get_data()
+    session_id = fsm_data.get("session_id", "unknown")
+    db.log_scenario_step(user_id, 'evening_reflection', 'gratitude_provided', {
+        'session_id': session_id,
+        'answer_length': len(answer)
+    })
+    
     await logger_service.log_action(user_id, "evening_reflection_gratitude_provided", {"length": len(answer)})
     await message.answer(ASK_HARD_MOMENTS)
     await state.set_state(UserState.waiting_for_hard_moments)
@@ -86,6 +118,15 @@ async def process_hard_moments(message: types.Message, state: FSMContext, db: Da
         return
 
     await state.update_data(hard_moments=hard_moments_answer)
+    
+    # Логируем ответ на вопрос о непростых моментах
+    fsm_data = await state.get_data()
+    session_id = fsm_data.get("session_id", "unknown")
+    db.log_scenario_step(user_id, 'evening_reflection', 'hard_moments_provided', {
+        'session_id': session_id,
+        'answer_length': len(hard_moments_answer)
+    })
+    
     await logger_service.log_action(user_id, "evening_reflection_hard_provided", {"length": len(hard_moments_answer)})
 
     # --- НАЧАЛО ИНТЕГРАЦИИ AI ---
@@ -137,6 +178,16 @@ async def process_hard_moments(message: types.Message, state: FSMContext, db: Da
         await state.clear()
         return # Выходим, не показывая стандартное завершение
 
+    # Завершаем сценарий "Вечерняя рефлексия"
+    db.complete_user_scenario(user_id, 'evening_reflection', session_id)
+    db.log_scenario_step(user_id, 'evening_reflection', 'completed', {
+        'session_id': session_id,
+        'ai_summary_generated': ai_summary_text is not None,
+        'good_moments_length': len(good_moments) if good_moments else 0,
+        'gratitude_length': len(gratitude) if gratitude else 0,
+        'hard_moments_length': len(hard_moments_answer)
+    })
+    
     # Завершение (отправка стандартного сообщения и меню)
     await message.answer(MSG_CONCLUSION, reply_markup=await get_main_menu(user_id, db))
     await state.clear() # Очищаем состояние

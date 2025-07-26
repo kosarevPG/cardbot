@@ -2,7 +2,10 @@
 
 import asyncio
 from datetime import datetime
-from config import TIMEZONE
+try:
+    from config_local import TIMEZONE
+except ImportError:
+    from config import TIMEZONE
 import logging
 # Импортируем функцию для получения меню
 from modules.card_of_the_day import get_main_menu
