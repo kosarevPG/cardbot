@@ -20,6 +20,8 @@ class UserState(StatesGroup):
     waiting_for_request_type_choice = State()
     waiting_for_request_text_input = State()
     waiting_for_initial_response = State()
+    waiting_for_emotion_choice = State()
+    waiting_for_custom_response = State()
     waiting_for_exploration_choice = State()
     waiting_for_first_grok_response = State()
     waiting_for_second_grok_response = State()

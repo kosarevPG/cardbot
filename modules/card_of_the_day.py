@@ -324,8 +324,24 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
                     if name
                     else f"Вот твоя карта дня.\n\nВзгляни на нее. Какие <b>первые чувства, образы, мысли или воспоминания</b> приходят? Как это может быть связано с твоим сегодняшним состоянием?")
 
-        await message.answer(text, parse_mode="HTML")
-        await state.set_state(UserState.waiting_for_initial_response)
+        # Создаем клавиатуру с эмоциями
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [
+                types.InlineKeyboardButton(text="😊 Радость", callback_data="emotion_joy"),
+                types.InlineKeyboardButton(text="🤔 Задумчивость", callback_data="emotion_thoughtful")
+            ],
+            [
+                types.InlineKeyboardButton(text="😥 Печаль", callback_data="emotion_sadness"),
+                types.InlineKeyboardButton(text="😠 Злость", callback_data="emotion_anger")
+            ],
+            [
+                types.InlineKeyboardButton(text="✨ Надежда", callback_data="emotion_hope"),
+                types.InlineKeyboardButton(text="✍️ Написать свой вариант", callback_data="emotion_custom")
+            ]
+        ])
+        
+        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        await state.set_state(UserState.waiting_for_emotion_choice)
     except Exception as e:
         logger.error(f"Failed to send card photo or initial question to user {user_id}: {e}", exc_info=True)
         await message.answer("Ой, не получилось отправить карту или вопрос...")
@@ -873,3 +889,94 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
         logger.error(f"Error processing interaction feedback for user {user_id}: {e}", exc_info=True)
         try: await callback.answer("Произошла ошибка при обработке твоего ответа.", show_alert=True)
         except Exception: pass
+
+# --- Шаг 4: Обработка выбора эмоции ---
+async def process_emotion_choice(callback: types.CallbackQuery, state: FSMContext, db: Database, logger_service):
+    """Обрабатывает выбор эмоции пользователем."""
+    user_id = callback.from_user.id
+    emotion_choice = callback.data
+    
+    # Получаем данные сессии
+    data = await state.get_data()
+    session_id = data.get("session_id", "unknown")
+    
+    # Маппинг эмоций на русские названия
+    emotion_mapping = {
+        "emotion_joy": "Радость",
+        "emotion_thoughtful": "Задумчивость", 
+        "emotion_sadness": "Печаль",
+        "emotion_anger": "Злость",
+        "emotion_hope": "Надежда"
+    }
+    
+    if emotion_choice == "emotion_custom":
+        # Пользователь хочет написать свой вариант
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer("Напишите, что вы видите или чувствуете...")
+        await state.set_state(UserState.waiting_for_custom_response)
+        await callback.answer()
+        return
+    
+    # Пользователь выбрал одну из эмоций
+    selected_emotion = emotion_mapping.get(emotion_choice, "Неизвестная эмоция")
+    
+    # Убираем клавиатуру
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception as e:
+        logger.warning(f"Could not edit message reply markup (emotion choice) for user {user_id}: {e}")
+    
+    # Сохраняем выбранную эмоцию
+    await state.update_data(initial_response=selected_emotion)
+    
+    # Логируем выбор эмоции
+    db.log_scenario_step(user_id, 'card_of_day', 'emotion_choice_provided', {
+        'emotion': selected_emotion,
+        'session_id': session_id
+    })
+    
+    await logger_service.log_action(user_id, "emotion_choice_provided", {
+        "emotion": selected_emotion,
+        "session_id": session_id
+    })
+    
+    await callback.answer()
+    
+    # Переходим к следующему шагу
+    await ask_exploration_choice(callback.message, state, db, logger_service)
+
+# --- Обработка пользовательского текста ---
+async def process_custom_response(message: types.Message, state: FSMContext, db: Database, logger_service):
+    """Обрабатывает пользовательский текст после выбора 'Написать свой вариант'."""
+    user_id = message.from_user.id
+    custom_response_text = message.text.strip()
+    
+    if not custom_response_text:
+        await message.answer("Кажется, ты ничего не написала...")
+        return
+    
+    if len(custom_response_text) < 3:
+        await message.answer("Пожалуйста, опиши ассоциации чуть подробнее...")
+        return
+    
+    # Получаем данные сессии
+    data = await state.get_data()
+    session_id = data.get("session_id", "unknown")
+    
+    # Сохраняем пользовательский ответ
+    await state.update_data(initial_response=custom_response_text)
+    
+    # Логируем пользовательский ответ
+    db.log_scenario_step(user_id, 'card_of_day', 'custom_response_provided', {
+        'response_length': len(custom_response_text),
+        'session_id': session_id
+    })
+    
+    await logger_service.log_action(user_id, "custom_response_provided", {
+        "response": custom_response_text,
+        "length": len(custom_response_text),
+        "session_id": session_id
+    })
+    
+    # Переходим к следующему шагу
+    await ask_exploration_choice(message, state, db, logger_service)

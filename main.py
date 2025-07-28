@@ -83,7 +83,8 @@ from modules.card_of_the_day import (
     process_request_type_callback, process_request_text, process_initial_response,
     process_exploration_choice_callback, process_first_grok_response,
     process_second_grok_response, process_third_grok_response,
-    process_final_resource_callback, process_recharge_method, process_recharge_method_choice, process_card_feedback
+    process_final_resource_callback, process_recharge_method, process_recharge_method_choice, process_card_feedback,
+    process_emotion_choice, process_custom_response
 )
 
 # Модуль Вечерней Рефлексии
@@ -2309,6 +2310,8 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.callback_query.register(partial(process_request_type_callback, db=db, logger_service=logging_service), UserState.waiting_for_request_type_choice, F.data.startswith("request_type_"))
     dp.message.register(partial(process_request_text, db=db, logger_service=logging_service), UserState.waiting_for_request_text_input)
     dp.message.register(partial(process_initial_response, db=db, logger_service=logging_service), UserState.waiting_for_initial_response)
+    dp.callback_query.register(partial(process_emotion_choice, db=db, logger_service=logging_service), UserState.waiting_for_emotion_choice, F.data.startswith("emotion_"))
+    dp.message.register(partial(process_custom_response, db=db, logger_service=logging_service), UserState.waiting_for_custom_response)
     dp.callback_query.register(partial(process_exploration_choice_callback, db=db, logger_service=logging_service), UserState.waiting_for_exploration_choice, F.data.startswith("explore_"))
     dp.message.register(partial(process_first_grok_response, db=db, logger_service=logging_service), UserState.waiting_for_first_grok_response)
     dp.message.register(partial(process_second_grok_response, db=db, logger_service=logging_service), UserState.waiting_for_second_grok_response)
@@ -2342,6 +2345,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
         UserState.waiting_for_name,
         UserState.waiting_for_request_text_input,
         UserState.waiting_for_initial_response,
+        UserState.waiting_for_custom_response,
         UserState.waiting_for_first_grok_response,
         UserState.waiting_for_second_grok_response,
         UserState.waiting_for_third_grok_response,
@@ -2380,6 +2384,8 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
             UserState.waiting_for_request_type_choice: "flow_abandoned_at_request_type",
             UserState.waiting_for_request_text_input: "flow_abandoned_at_request_input",
             UserState.waiting_for_initial_response: "flow_abandoned_at_initial_response",
+            UserState.waiting_for_emotion_choice: "flow_abandoned_at_emotion_choice",
+            UserState.waiting_for_custom_response: "flow_abandoned_at_custom_response",
             UserState.waiting_for_exploration_choice: "flow_abandoned_at_exploration_choice",
             UserState.waiting_for_first_grok_response: "flow_abandoned_at_grok_1",
             UserState.waiting_for_second_grok_response: "flow_abandoned_at_grok_2",
