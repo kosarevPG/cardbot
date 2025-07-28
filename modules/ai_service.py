@@ -107,7 +107,7 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
     current_mood = analyze_mood(user_response)
 
     # Определяем тип ответа пользователя
-    is_emotion_response = user_response in ["Радость", "Задумчивость", "Печаль", "Злость", "Надежда"]
+    is_emotion_response = user_response in ["Радость", "Задумчивость", "Печаль", "Злость", "Надежда", "Спокойствие"]
     
     if is_emotion_response:
         # Специальный промпт для эмоций
