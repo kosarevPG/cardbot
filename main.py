@@ -1617,7 +1617,7 @@ async def show_admin_value(message: types.Message, db: Database, logger_service:
             ],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_value_{days}")],
             [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
-        ]
+        ])
         
         try:
             await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
