@@ -384,7 +384,7 @@ async def ask_exploration_choice(message: types.Message, state: FSMContext, db: 
     user_data = db.get_user(user_id) or {}
     name = user_data.get("name") or ""
     name = name.strip() if isinstance(name, str) else ""
-    text = (f"{name}, спасибо, что поделилась! Хочешь поисследовать эти ассоциации глубже с помощью нескольких вопросов от меня (это займет еще 5-7 минут)?" if name else "Спасибо, что поделилась! Хочешь поисследовать эти ассоциации глубже с помощью нескольких вопросов от меня (это займет еще 5-7 минут)?")
+    text = (f"{name}, спасибо, что поделилась! Хочешь поисследовать эти ассоциации глубже с помощью нескольких вопросов от меня (это займет пару минут)?" if name else "Спасибо, что поделилась! Хочешь поисследовать эти ассоциации глубже с помощью нескольких вопросов от меня (это займет пару минут)?")
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="✅ Да, давай исследуем", callback_data="explore_yes")], [types.InlineKeyboardButton(text="❌ Нет, на сегодня хватит", callback_data="explore_no")]])
     await message.answer(text, reply_markup=keyboard)
     await state.set_state(UserState.waiting_for_exploration_choice)
