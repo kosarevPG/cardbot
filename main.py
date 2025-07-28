@@ -1372,7 +1372,13 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
             except ValueError:
                 await show_admin_funnel(callback.message, db, logger_service, user_id, 7)
         elif action == "admin_value":
-            await show_admin_value(callback.message, db, logger_service, user_id)
+            await show_admin_value(callback.message, db, logger_service, user_id, 7)
+        elif action.startswith("admin_value_"):
+            try:
+                days = int(action.split("_")[-1])
+                await show_admin_value(callback.message, db, logger_service, user_id, days)
+            except ValueError:
+                await show_admin_value(callback.message, db, logger_service, user_id, 7)
         elif action == "admin_users":
             await show_admin_users(callback.message, db, logger_service, user_id)
         elif action == "admin_users_list":
@@ -1582,13 +1588,16 @@ async def show_admin_funnel(message: types.Message, db: Database, logger_service
             if "message is not modified" not in str(e):
                 raise
 
-async def show_admin_value(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+async def show_admin_value(message: types.Message, db: Database, logger_service: LoggingService, user_id: int, days: int = 7):
     """Показывает метрики ценности."""
     try:
         # Для админки включаем исключаемых пользователей, чтобы видеть реальные данные
-        value = db.get_value_metrics(7, include_excluded_users=True)
+        value = db.get_value_metrics(days, include_excluded_users=True)
         
-        text = f"""💎 <b>МЕТРИКИ ЦЕННОСТИ</b> (за 7 дней)
+        # Определяем период для отображения
+        period_text = "Сегодня" if days == 1 else f"{days} дней"
+        
+        text = f"""💎 <b>МЕТРИКИ ЦЕННОСТИ</b> ({period_text})
 
 📈 <b>Resource Lift:</b>
 • Положительная динамика: {value['resource_lift']['positive_pct']}%
@@ -1601,9 +1610,14 @@ async def show_admin_value(message: types.Message, db: Database, logger_service:
 • Цель: ≥50%"""
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_value")],
+            [
+                types.InlineKeyboardButton(text="Сегодня", callback_data="admin_value_1"),
+                types.InlineKeyboardButton(text="7 дней", callback_data="admin_value_7"),
+                types.InlineKeyboardButton(text="30 дней", callback_data="admin_value_30")
+            ],
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_value_{days}")],
             [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
-        ])
+        ]
         
         try:
             await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
