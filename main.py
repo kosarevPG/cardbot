@@ -1354,7 +1354,13 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
         action = callback.data
         
         if action == "admin_dashboard":
-            await show_admin_dashboard(callback.message, db, logger_service, user_id)
+            await show_admin_dashboard(callback.message, db, logger_service, user_id, 7)
+        elif action.startswith("admin_dashboard_"):
+            try:
+                days = int(action.split("_")[-1])
+                await show_admin_dashboard(callback.message, db, logger_service, user_id, days)
+            except ValueError:
+                await show_admin_dashboard(callback.message, db, logger_service, user_id, 7)
         elif action == "admin_retention":
             await show_admin_retention(callback.message, db, logger_service, user_id)
         elif action == "admin_funnel":
@@ -1412,11 +1418,11 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
     
     await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
 
-async def show_admin_dashboard(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+async def show_admin_dashboard(message: types.Message, db: Database, logger_service: LoggingService, user_id: int, days: int = 7):
     """Показывает главный дашборд с ключевыми метриками."""
     try:
         # Получаем сводку метрик
-        summary = db.get_admin_dashboard_summary(7)
+        summary = db.get_admin_dashboard_summary(days)
         
         if not summary:
             text = "❌ Ошибка при получении данных дашборда"
@@ -1427,8 +1433,11 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
             await message.edit_text(text, reply_markup=keyboard)
             return
         
+        # Определяем период для отображения
+        period_text = "Сегодня" if days == 1 else f"{days} дней"
+        
         # Формируем текст дашборда
-        text = f"""🔍 <b>ГЛАВНЫЙ ДАШБОРД</b> (за 7 дней)
+        text = f"""🔍 <b>ГЛАВНЫЙ ДАШБОРД</b> ({period_text})
 
 📊 <b>Здоровье продукта:</b>
 • DAU сегодня: {summary['dau']['today_dau']}
@@ -1449,7 +1458,12 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
 • Feedback Score: {summary['value']['feedback_score']}%"""
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_dashboard")],
+            [
+                types.InlineKeyboardButton(text="Сегодня", callback_data="admin_dashboard_1"),
+                types.InlineKeyboardButton(text="7 дней", callback_data="admin_dashboard_7"),
+                types.InlineKeyboardButton(text="30 дней", callback_data="admin_dashboard_30")
+            ],
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_dashboard_{days}")],
             [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
         ])
         
@@ -1571,7 +1585,8 @@ async def show_admin_funnel(message: types.Message, db: Database, logger_service
 async def show_admin_value(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает метрики ценности."""
     try:
-        value = db.get_value_metrics(7)
+        # Для админки включаем исключаемых пользователей, чтобы видеть реальные данные
+        value = db.get_value_metrics(7, include_excluded_users=True)
         
         text = f"""💎 <b>МЕТРИКИ ЦЕННОСТИ</b> (за 7 дней)
 
@@ -1796,8 +1811,8 @@ async def show_admin_requests(message: types.Message, db: Database, logger_servi
                 # Форматируем username
                 username_display = f"@{username}" if username else "без username"
                 
-                # Обрезаем длинный текст
-                display_text = request_text[:60] + "..." if len(request_text) > 60 else request_text
+                # Показываем полный текст без обрезки
+                display_text = request_text
                 
                 text += f"\n{i}. <b>{formatted_date}</b>"
                 text += f"\n   <i>«{display_text}»</i>"

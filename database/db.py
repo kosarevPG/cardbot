@@ -1279,14 +1279,15 @@ class Database:
             excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
             excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
             
+            # Используем московское время для расчета DAU
             cursor = self.conn.execute(f"""
                 SELECT 
-                    DATE(started_at) as date,
+                    DATE(started_at, '+3 hours') as date,
                     COUNT(DISTINCT user_id) as dau
                 FROM user_scenarios 
-                WHERE started_at >= datetime('now', '-{days} days')
+                WHERE started_at >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
-                GROUP BY DATE(started_at)
+                GROUP BY DATE(started_at, '+3 hours')
                 ORDER BY date DESC
             """, list(excluded_users) if excluded_users else [])
             
@@ -1307,7 +1308,7 @@ class Database:
             logger.error(f"Failed to get DAU metrics: {e}", exc_info=True)
             return {'today_dau': 0, 'avg_dau': 0, 'daily_data': []}
 
-    def get_card_funnel_metrics(self, days: int = 7):
+    def get_card_funnel_metrics(self, days: int = 7, include_excluded_users: bool = False):
         """Получает метрики воронки сценария 'Карта дня'."""
         try:
             # Получаем список исключаемых пользователей
@@ -1317,6 +1318,9 @@ class Database:
                 from config import NO_LOGS_USERS
             
             excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            # Для админки можно включить исключаемых пользователей
+            if include_excluded_users:
+                excluded_users = []
             excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
             
             # Шаг 1: Начали сессию
@@ -1325,7 +1329,7 @@ class Database:
                 FROM scenario_logs 
                 WHERE scenario = 'card_of_day' 
                 AND step = 'started'
-                AND timestamp >= datetime('now', '-{days} days')
+                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             step1 = cursor.fetchone()['count']
@@ -1336,7 +1340,7 @@ class Database:
                 FROM scenario_logs 
                 WHERE scenario = 'card_of_day' 
                 AND step = 'initial_resource_selected'
-                AND timestamp >= datetime('now', '-{days} days')
+                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             step2 = cursor.fetchone()['count']
@@ -1347,7 +1351,7 @@ class Database:
                 FROM scenario_logs 
                 WHERE scenario = 'card_of_day' 
                 AND step = 'request_type_selected'
-                AND timestamp >= datetime('now', '-{days} days')
+                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             step3 = cursor.fetchone()['count']
@@ -1358,7 +1362,7 @@ class Database:
                 FROM scenario_logs 
                 WHERE scenario = 'card_of_day' 
                 AND step = 'card_drawn'
-                AND timestamp >= datetime('now', '-{days} days')
+                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             step4 = cursor.fetchone()['count']
@@ -1369,7 +1373,7 @@ class Database:
                 FROM scenario_logs 
                 WHERE scenario = 'card_of_day' 
                 AND step = 'initial_response_provided'
-                AND timestamp >= datetime('now', '-{days} days')
+                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             step5 = cursor.fetchone()['count']
@@ -1380,7 +1384,7 @@ class Database:
                 FROM scenario_logs 
                 WHERE scenario = 'card_of_day' 
                 AND step = 'ai_reflection_choice'
-                AND timestamp >= datetime('now', '-{days} days')
+                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             step6 = cursor.fetchone()['count']
@@ -1391,7 +1395,7 @@ class Database:
                 FROM scenario_logs 
                 WHERE scenario = 'card_of_day' 
                 AND step = 'completed'
-                AND timestamp >= datetime('now', '-{days} days')
+                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             step7 = cursor.fetchone()['count']
@@ -1419,7 +1423,7 @@ class Database:
             logger.error(f"Failed to get card funnel metrics: {e}", exc_info=True)
             return {'step1': {'count': 0, 'pct': 0}, 'step2': {'count': 0, 'pct': 0}, 'step3': {'count': 0, 'pct': 0}, 'step4': {'count': 0, 'pct': 0}, 'step5': {'count': 0, 'pct': 0}, 'step6': {'count': 0, 'pct': 0}, 'step7': {'count': 0, 'pct': 0}, 'completion_rate': 0}
 
-    def get_value_metrics(self, days: int = 7):
+    def get_value_metrics(self, days: int = 7, include_excluded_users: bool = False):
         """Получает метрики ценности (Resource Lift, Feedback Score)."""
         try:
             # Получаем список исключаемых пользователей
@@ -1429,26 +1433,29 @@ class Database:
                 from config import NO_LOGS_USERS
             
             excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            # Для админки можно включить исключаемых пользователей
+            if include_excluded_users:
+                excluded_users = []
             excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
             
-            # Resource Lift: динамика ресурса
+            # Resource Lift: динамика ресурса (исправленная версия)
             cursor = self.conn.execute(f"""
                 SELECT 
                     COUNT(*) as total_sessions,
-                    SUM(CASE WHEN final_resource > initial_resource THEN 1 ELSE 0 END) as positive_lift,
-                    SUM(CASE WHEN final_resource < initial_resource THEN 1 ELSE 0 END) as negative_lift
+                    SUM(CASE WHEN change_direction = 'better' THEN 1 ELSE 0 END) as positive_lift,
+                    SUM(CASE WHEN change_direction = 'worse' THEN 1 ELSE 0 END) as negative_lift
                 FROM (
                     SELECT 
                         user_id,
-                        CAST(JSON_EXTRACT(MAX(CASE WHEN step = 'initial_resource_selected' THEN metadata END), '$.resource') AS INTEGER) as initial_resource,
-                        CAST(JSON_EXTRACT(MAX(CASE WHEN step = 'mood_change_recorded' THEN metadata END), '$.resource') AS INTEGER) as final_resource
+                        JSON_EXTRACT(MAX(CASE WHEN step = 'mood_change_recorded' THEN metadata END), '$.change_direction') as change_direction
                     FROM scenario_logs 
                     WHERE scenario = 'card_of_day' 
-                    AND timestamp >= datetime('now', '-{days} days')
+                    AND step = 'mood_change_recorded'
+                    AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                     {excluded_condition}
                     GROUP BY user_id
                 ) sessions
-                WHERE initial_resource IS NOT NULL AND final_resource IS NOT NULL
+                WHERE change_direction IS NOT NULL
             """, list(excluded_users) if excluded_users else [])
             
             resource_data = cursor.fetchone()
@@ -1456,15 +1463,15 @@ class Database:
             positive_lift_pct = (resource_data['positive_lift'] / total_sessions * 100) if total_sessions > 0 else 0
             negative_lift_pct = (resource_data['negative_lift'] / total_sessions * 100) if total_sessions > 0 else 0
             
-            # Feedback Score: позитивные отзывы
+            # Feedback Score: позитивные отзывы (исправленная версия)
             cursor = self.conn.execute(f"""
                 SELECT 
                     COUNT(*) as total_feedback,
-                    SUM(CASE WHEN metadata LIKE '%"feedback": "helpful"%' THEN 1 ELSE 0 END) as positive_feedback
+                    SUM(CASE WHEN metadata LIKE '%"rating": "helped"%' OR metadata LIKE '%"rating": "interesting"%' THEN 1 ELSE 0 END) as positive_feedback
                 FROM scenario_logs 
                 WHERE scenario = 'card_of_day' 
                 AND step = 'usefulness_rating'
-                AND timestamp >= datetime('now', '-{days} days')
+                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             
