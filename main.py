@@ -1313,13 +1313,20 @@ def make_bonus_request_handler(db, logger_service, user_manager):
      return wrapped_handler
 
 def make_admin_handler(db: Database, logger_service: LoggingService):
-    """Создает обработчик для главной админ-панели."""
+    """Создает обработчик для команды /admin."""
     async def admin_handler(message: types.Message):
         user_id = message.from_user.id
         
-        # Проверяем, является ли пользователь админом
-        if str(user_id) not in ADMIN_IDS:
-            await message.answer("У вас нет доступа к админ-панели.")
+        # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+        try:
+            from config import ADMIN_IDS
+            if str(user_id) not in ADMIN_IDS:
+                logger.warning(f"BLOCKED: User {user_id} attempted to access admin panel via /admin")
+                await message.answer("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.")
+                return
+        except ImportError as e:
+            logger.error(f"CRITICAL: Failed to import ADMIN_IDS in admin handler: {e}")
+            await message.answer("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ")
             return
         
         # Главное меню админки
@@ -1347,9 +1354,16 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
     async def admin_callback_handler(callback: types.CallbackQuery):
         user_id = callback.from_user.id
         
-        # Проверяем, является ли пользователь админом
-        if str(user_id) not in ADMIN_IDS:
-            await callback.answer("У вас нет доступа к админ-панели.", show_alert=True)
+        # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+        try:
+            from config import ADMIN_IDS
+            if str(user_id) not in ADMIN_IDS:
+                logger.warning(f"BLOCKED: User {user_id} attempted to access admin callback: {callback.data}")
+                await callback.answer("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", show_alert=True)
+                return
+        except ImportError as e:
+            logger.error(f"CRITICAL: Failed to import ADMIN_IDS in callback handler: {e}")
+            await callback.answer("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", show_alert=True)
             return
         
         action = callback.data
@@ -1408,25 +1422,62 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
     return admin_callback_handler
 
 async def show_admin_main_menu(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
-    """Показывает главное меню админки."""
-    text = """📊 <b>АДМИН ПАНЕЛЬ</b>
+    """Показывает главное меню админ-панели."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", parse_mode="HTML")
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin main menu")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", parse_mode="HTML")
+        return
+    
+    try:
+        text = """📊 <b>АДМИН ПАНЕЛЬ</b>
 
 Выберите раздел для просмотра метрик:"""
-    
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="🔍 Главный дашборд", callback_data="admin_dashboard")],
-        [types.InlineKeyboardButton(text="📈 Метрики удержания", callback_data="admin_retention")],
-        [types.InlineKeyboardButton(text="🔄 Воронка 'Карта дня'", callback_data="admin_funnel")],
-        [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
-        [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
-        [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
-        [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")]
-    ])
-    
-    await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🔍 Главный дашборд", callback_data="admin_dashboard")],
+            [types.InlineKeyboardButton(text="📈 Метрики удержания", callback_data="admin_retention")],
+            [types.InlineKeyboardButton(text="🔄 Воронка 'Карта дня'", callback_data="admin_funnel")],
+            [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
+            [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
+            [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
+            [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")]
+        ])
+        
+        await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        await logger_service.log_action(user_id, "admin_main_menu_viewed", {})
+    except Exception as e:
+        logger.error(f"Error showing admin main menu: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке меню администратора"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
 
 async def show_admin_dashboard(message: types.Message, db: Database, logger_service: LoggingService, user_id: int, days: int = 7):
     """Показывает главный дашборд с ключевыми метриками."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", parse_mode="HTML")
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin dashboard")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", parse_mode="HTML")
+        return
+    
     try:
         # Получаем сводку метрик
         summary = db.get_admin_dashboard_summary(days)
@@ -1495,6 +1546,18 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
 
 async def show_admin_retention(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает метрики удержания."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", parse_mode="HTML")
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin retention")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", parse_mode="HTML")
+        return
+    
     try:
         retention = db.get_retention_metrics(7)
         dau = db.get_dau_metrics(7)
@@ -1538,7 +1601,19 @@ async def show_admin_retention(message: types.Message, db: Database, logger_serv
                 raise
 
 async def show_admin_funnel(message: types.Message, db: Database, logger_service: LoggingService, user_id: int, days: int = 7):
-    """Показывает воронку 'Карта дня'."""
+    """Показывает воронку сценария 'Карта дня'."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", parse_mode="HTML")
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin funnel")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", parse_mode="HTML")
+        return
+    
     try:
         funnel = db.get_card_funnel_metrics(days)
         
@@ -1591,6 +1666,18 @@ async def show_admin_funnel(message: types.Message, db: Database, logger_service
 
 async def show_admin_value(message: types.Message, db: Database, logger_service: LoggingService, user_id: int, days: int = 7):
     """Показывает метрики ценности."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", parse_mode="HTML")
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin value metrics")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", parse_mode="HTML")
+        return
+    
     try:
         # Для админки включаем исключаемых пользователей, чтобы видеть реальные данные
         value = db.get_value_metrics(days, include_excluded_users=True)
@@ -1640,7 +1727,19 @@ async def show_admin_value(message: types.Message, db: Database, logger_service:
                 raise
 
 async def show_admin_users(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
-    """Показывает информацию о пользователях."""
+    """Показывает меню управления пользователями."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", parse_mode="HTML")
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin users")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", parse_mode="HTML")
+        return
+    
     try:
         # Получаем базовую статистику пользователей
         all_users = db.get_all_users()
@@ -1700,6 +1799,18 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
 
 async def show_admin_users_list(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает список всех пользователей."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", parse_mode="HTML")
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin users list")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", parse_mode="HTML")
+        return
+    
     try:
         # Получаем всех пользователей
         all_users = db.get_all_users()
@@ -1791,10 +1902,21 @@ async def show_admin_users_list(message: types.Message, db: Database, logger_ser
 
 async def show_admin_requests(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает запросы пользователей к картам."""
+    # Проверяем права администратора
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("❌ У вас нет доступа к этой функции.", parse_mode="HTML")
+            return
+    except ImportError as e:
+        logger.error(f"Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("❌ Ошибка проверки прав доступа.", parse_mode="HTML")
+        return
+    
     try:
         # Получаем статистику запросов
-        requests_stats = db.get_user_requests_stats(7)
-        requests_sample = db.get_user_requests_sample(5, 7)
+        requests_stats = db.get_user_requests_stats(7, user_id)
+        requests_sample = db.get_user_requests_sample(5, 7, user_id)
         
         text = f"""💬 <b>ЗАПРОСЫ ПОЛЬЗОВАТЕЛЕЙ</b> (за 7 дней)
 
@@ -1863,9 +1985,20 @@ async def show_admin_requests(message: types.Message, db: Database, logger_servi
 
 async def show_admin_requests_full(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает полные запросы пользователей с детальной информацией."""
+    # Проверяем права администратора
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("❌ У вас нет доступа к этой функции.", parse_mode="HTML")
+            return
+    except ImportError as e:
+        logger.error(f"Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("❌ Ошибка проверки прав доступа.", parse_mode="HTML")
+        return
+    
     try:
         # Получаем больше запросов для детального просмотра
-        requests_sample = db.get_user_requests_sample(20, 7)
+        requests_sample = db.get_user_requests_sample(20, 7, user_id)
         
         text = f"""📋 <b>ПОЛНЫЕ ЗАПРОСЫ ПОЛЬЗОВАТЕЛЕЙ</b> (за 7 дней)
 
@@ -1932,6 +2065,17 @@ async def show_admin_requests_full(message: types.Message, db: Database, logger_
 
 async def show_admin_logs(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает детальные логи."""
+    # Проверяем права администратора
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("❌ У вас нет доступа к этой функции.", parse_mode="HTML")
+            return
+    except ImportError as e:
+        logger.error(f"Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("❌ Ошибка проверки прав доступа.", parse_mode="HTML")
+        return
+    
     try:
         # Получаем последние логи
         excluded_users = set(NO_LOGS_USERS) if NO_LOGS_USERS else set()
@@ -1977,6 +2121,17 @@ async def show_admin_logs(message: types.Message, db: Database, logger_service: 
 
 async def show_admin_posts(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает меню управления постами."""
+    # Проверяем права администратора
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("❌ У вас нет доступа к этой функции.", parse_mode="HTML")
+            return
+    except ImportError as e:
+        logger.error(f"Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("❌ Ошибка проверки прав доступа.", parse_mode="HTML")
+        return
+    
     try:
         # Получаем PostManager из диспетчера
         post_manager = None
@@ -2181,7 +2336,19 @@ async def process_mailings_now(message: types.Message, db: Database, logger_serv
         await message.answer("❌ Ошибка при обработке рассылок")
 
 async def handle_admin_text_input(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
-    """Обрабатывает текстовый ввод от администраторов для создания постов."""
+    """Обрабатывает текстовый ввод для админ-функций."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin text input")
+            await message.answer("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS in text input handler: {e}")
+        await message.answer("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ")
+        return
+    
     try:
         text = message.text.strip()
         

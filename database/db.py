@@ -770,8 +770,13 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Failed to save user request for user {user_id}: {e}", exc_info=True)
 
-    def get_user_requests_stats(self, days: int = 7):
-        """Получает статистику по запросам пользователей."""
+    def get_user_requests_stats(self, days: int = 7, requesting_user_id: int = None):
+        """Получает статистику запросов пользователей. ТОЛЬКО ДЛЯ АДМИНИСТРАТОРОВ."""
+        # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+        if requesting_user_id is not None and not self.is_admin(requesting_user_id):
+            logger.warning(f"BLOCKED: User {requesting_user_id} attempted to access user requests stats")
+            return {}
+        
         try:
             # Получаем список исключаемых пользователей
             try:
@@ -808,8 +813,13 @@ class Database:
             logger.error(f"Failed to get user requests stats: {e}", exc_info=True)
             return {}
 
-    def get_user_requests_sample(self, limit: int = 10, days: int = 7):
-        """Получает образец запросов пользователей для анализа."""
+    def get_user_requests_sample(self, limit: int = 10, days: int = 7, requesting_user_id: int = None):
+        """Получает образец запросов пользователей для анализа. ТОЛЬКО ДЛЯ АДМИНИСТРАТОРОВ."""
+        # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+        if requesting_user_id is not None and not self.is_admin(requesting_user_id):
+            logger.warning(f"BLOCKED: User {requesting_user_id} attempted to access user requests")
+            return []
+        
         try:
             # Получаем список исключаемых пользователей
             try:
@@ -1753,6 +1763,15 @@ class Database:
                 logger.info("Database connection closed.")
             except sqlite3.Error as e:
                 logger.error(f"Error closing database connection: {e}", exc_info=True)
+
+    def is_admin(self, user_id: int) -> bool:
+        """Проверяет, является ли пользователь администратором."""
+        try:
+            from config import ADMIN_IDS
+            return str(user_id) in ADMIN_IDS
+        except ImportError:
+            logger.error("CRITICAL: Failed to import ADMIN_IDS for admin check")
+            return False
 
 # --- КОНЕЦ КЛАССА ---
 
