@@ -1289,34 +1289,53 @@ class Database:
             excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
             excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
             
-            # Используем московское время для расчета DAU
+            # DAU за вчера
             cursor = self.conn.execute(f"""
-                SELECT 
-                    DATE(started_at, '+3 hours') as date,
-                    COUNT(DISTINCT user_id) as dau
+                SELECT COUNT(DISTINCT user_id) as dau_yesterday
                 FROM user_scenarios 
-                WHERE started_at >= datetime('now', '-{days} days', '+3 hours')
+                WHERE DATE(started_at, '+3 hours') = DATE('now', '+3 hours', '-1 day')
                 {excluded_condition}
-                GROUP BY DATE(started_at, '+3 hours')
-                ORDER BY date DESC
             """, list(excluded_users) if excluded_users else [])
+            dau_yesterday = cursor.fetchone()[0]
             
-            daily_data = [dict(row) for row in cursor.fetchall()]
+            # DAU за 7 дней (среднее)
+            cursor = self.conn.execute(f"""
+                SELECT AVG(daily_dau) as avg_dau_7
+                FROM (
+                    SELECT 
+                        DATE(started_at, '+3 hours') as date,
+                        COUNT(DISTINCT user_id) as daily_dau
+                    FROM user_scenarios 
+                    WHERE DATE(started_at, '+3 hours') >= DATE('now', '+3 hours', '-7 days')
+                    {excluded_condition}
+                    GROUP BY DATE(started_at, '+3 hours')
+                )
+            """, list(excluded_users) if excluded_users else [])
+            dau_7 = cursor.fetchone()[0] or 0
             
-            # Сегодняшний DAU
-            today_dau = daily_data[0]['dau'] if daily_data else 0
-            
-            # Средний DAU за период
-            avg_dau = sum(d['dau'] for d in daily_data) / len(daily_data) if daily_data else 0
+            # DAU за 30 дней (среднее)
+            cursor = self.conn.execute(f"""
+                SELECT AVG(daily_dau) as avg_dau_30
+                FROM (
+                    SELECT 
+                        DATE(started_at, '+3 hours') as date,
+                        COUNT(DISTINCT user_id) as daily_dau
+                    FROM user_scenarios 
+                    WHERE DATE(started_at, '+3 hours') >= DATE('now', '+3 hours', '-30 days')
+                    {excluded_condition}
+                    GROUP BY DATE(started_at, '+3 hours')
+                )
+            """, list(excluded_users) if excluded_users else [])
+            dau_30 = cursor.fetchone()[0] or 0
             
             return {
-                'today_dau': today_dau,
-                'avg_dau': round(avg_dau, 1),
-                'daily_data': daily_data
+                'dau_yesterday': dau_yesterday,
+                'dau_7': round(dau_7, 1),
+                'dau_30': round(dau_30, 1)
             }
         except sqlite3.Error as e:
             logger.error(f"Failed to get DAU metrics: {e}", exc_info=True)
-            return {'today_dau': 0, 'avg_dau': 0, 'daily_data': []}
+            return {'dau_yesterday': 0, 'dau_7': 0, 'dau_30': 0}
 
     def get_card_funnel_metrics(self, days: int = 7, include_excluded_users: bool = False):
         """Получает метрики воронки сценария 'Карта дня'."""

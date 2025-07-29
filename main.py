@@ -1494,13 +1494,21 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
         # Определяем период для отображения
         period_text = "Сегодня" if days == 1 else f"{days} дней"
         
+        # Получаем DAU и Retention метрики
+        dau_metrics = db.get_dau_metrics(days)
+        retention_metrics = db.get_retention_metrics(days)
+        
         # Формируем текст дашборда
         text = f"""🔍 <b>ГЛАВНЫЙ ДАШБОРД</b> ({period_text})
 
-📊 <b>Здоровье продукта:</b>
-• DAU сегодня: {summary['dau']['today_dau']}
-• D1 Retention: {summary['retention']['d1_retention']}%
-• D7 Retention: {summary['retention']['d7_retention']}%
+👥 <b>DAU:</b>
+• Вчера: {dau_metrics['dau_yesterday']}
+• 7 дней: {dau_metrics['dau_7']}
+• 30 дней: {dau_metrics['dau_30']}
+
+📈 <b>Retention:</b>
+• D1: {retention_metrics.get('d1_retention', 0):.1f}%
+• D7: {retention_metrics.get('d7_retention', 0):.1f}%
 
 🔄 <b>Карта дня:</b>
 • Запусков: {summary['card_stats']['total_starts']}
