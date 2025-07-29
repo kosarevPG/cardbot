@@ -1,184 +1,200 @@
 #!/usr/bin/env python3
 """
-Скрипт для мониторинга безопасности в реальном времени
-Отслеживает попытки несанкционированного доступа к админ-панели
+Мониторинг безопасности в реальном времени
 """
 
-import sqlite3
-import time
-import logging
-from datetime import datetime, timedelta
-import os
-
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('security_monitor.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# ID администраторов
-ADMIN_IDS = ['6682555021', '392141189', '239719200', '7494824111', '171507422', '138192985']
+import requests
+import re
+import json
+from datetime import datetime
+from typing import Optional, Dict, List, Any
 
 class SecurityMonitor:
-    def __init__(self, db_path='database/bot.db'):
-        self.db_path = db_path
-        self.last_check_time = datetime.now()
-        self.alert_threshold = 3  # Количество попыток для срабатывания тревоги
+    def __init__(self):
+        self.base_url = "https://cardbot-1-kosarevpg.amvera.io"
+        self.session = requests.Session()
         
-    def check_recent_admin_actions(self):
-        """Проверяет недавние админские действия на предмет подозрительной активности."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Проверяем действия за последние 5 минут
-            check_time = datetime.now() - timedelta(minutes=5)
-            
-            cursor.execute("""
-                SELECT 
-                    user_id,
-                    username,
-                    name,
-                    action,
-                    timestamp,
-                    CASE 
-                        WHEN user_id IN (6682555021, 392141189, 239719200, 7494824111, 171507422, 138192985) 
-                        THEN 'LEGITIMATE_ADMIN' 
-                        ELSE 'UNAUTHORIZED_ACCESS' 
-                    END as access_type
-                FROM actions 
-                WHERE action LIKE 'admin_%'
-                    AND timestamp >= ?
-                ORDER BY timestamp DESC
-            """, (check_time.strftime('%Y-%m-%d %H:%M:%S'),))
-            
-            recent_actions = cursor.fetchall()
-            unauthorized_actions = []
-            
-            for action in recent_actions:
-                user_id, username, name, action_type, timestamp, access_type = action
-                if access_type == 'UNAUTHORIZED_ACCESS':
-                    unauthorized_actions.append({
-                        'user_id': user_id,
-                        'username': username,
-                        'name': name,
-                        'action': action_type,
-                        'timestamp': timestamp
-                    })
-            
-            conn.close()
-            return unauthorized_actions
-            
-        except Exception as e:
-            logger.error(f"Ошибка при проверке админских действий: {e}")
-            return []
-    
-    def check_suspicious_patterns(self):
-        """Проверяет подозрительные паттерны активности."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Проверяем пользователей, которые выполняли много действий за короткое время
-            check_time = datetime.now() - timedelta(minutes=10)
-            
-            cursor.execute("""
-                SELECT 
-                    user_id,
-                    username,
-                    name,
-                    COUNT(*) as action_count,
-                    GROUP_CONCAT(DISTINCT action) as actions
-                FROM actions 
-                WHERE timestamp >= ?
-                    AND user_id NOT IN (6682555021, 392141189, 239719200, 7494824111, 171507422, 138192985)
-                GROUP BY user_id, username, name
-                HAVING action_count >= 5
-                ORDER BY action_count DESC
-            """, (check_time.strftime('%Y-%m-%d %H:%M:%S'),))
-            
-            suspicious_users = cursor.fetchall()
-            conn.close()
-            
-            return suspicious_users
-            
-        except Exception as e:
-            logger.error(f"Ошибка при проверке подозрительных паттернов: {e}")
-            return []
-    
-    def log_security_alert(self, alert_type, details):
-        """Логирует тревогу безопасности."""
-        alert_message = f"🚨 СИГНАЛ БЕЗОПАСНОСТИ: {alert_type}\n{details}"
-        logger.warning(alert_message)
+        # ТОЛЬКО ОДИН АДМИНИСТРАТОР
+        self.admin_ids = ['6682555021']
         
-        # Сохраняем в файл тревог
-        with open('security_alerts.log', 'a', encoding='utf-8') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - {alert_message}\n")
-    
-    def run_monitoring_cycle(self):
-        """Выполняет один цикл мониторинга."""
-        logger.info("🔍 Выполняется проверка безопасности...")
-        
-        # 1. Проверка несанкционированных админских действий
-        unauthorized_actions = self.check_recent_admin_actions()
-        
-        if unauthorized_actions:
-            details = "\n".join([
-                f"User {action['user_id']} ({action['username']}): {action['action']} at {action['timestamp']}"
-                for action in unauthorized_actions
-            ])
-            self.log_security_alert("НЕСАНКЦИОНИРОВАННЫЙ ДОСТУП К АДМИН-ПАНЕЛИ", details)
-        
-        # 2. Проверка подозрительных паттернов
-        suspicious_users = self.check_suspicious_patterns()
-        
-        if suspicious_users:
-            details = "\n".join([
-                f"User {user[0]} ({user[1]}): {user[3]} действий - {user[4]}"
-                for user in suspicious_users
-            ])
-            self.log_security_alert("ПОДОЗРИТЕЛЬНАЯ АКТИВНОСТЬ", details)
-        
-        # 3. Обновляем время последней проверки
-        self.last_check_time = datetime.now()
-        
-        if not unauthorized_actions and not suspicious_users:
-            logger.info("✅ Безопасность в норме")
-    
-    def start_monitoring(self, interval_seconds=60):
-        """Запускает непрерывный мониторинг."""
-        logger.info(f"🚀 Запуск мониторинга безопасности (интервал: {interval_seconds} сек)")
+    def execute_sql_query(self, sql_query: str) -> Optional[Dict[str, Any]]:
+        """Выполняет SQL-запрос"""
+        url = f"{self.base_url}/actions/query/"
         
         try:
-            while True:
-                self.run_monitoring_cycle()
-                time.sleep(interval_seconds)
+            data = {'sql': sql_query}
+            response = self.session.post(url, data=data, timeout=30)
+            
+            if response.status_code == 200:
+                return self.parse_query_results(response.text)
+            else:
+                print(f"❌ Ошибка выполнения запроса: {response.status_code}")
+                return None
                 
-        except KeyboardInterrupt:
-            logger.info("🛑 Мониторинг безопасности остановлен")
         except Exception as e:
-            logger.error(f"❌ Ошибка в мониторинге: {e}")
+            print(f"❌ Ошибка: {e}")
+            return None
+    
+    def parse_query_results(self, html_content: str) -> Dict[str, Any]:
+        """Парсит результаты SQL-запроса из HTML"""
+        try:
+            result = {
+                'headers': [],
+                'rows': [],
+                'total_rows': 0,
+                'error': None
+            }
+            
+            # Проверяем на ошибки SQL
+            if 'error' in html_content.lower() or 'exception' in html_content.lower():
+                error_match = re.search(r'<div[^>]*class="[^"]*error[^"]*"[^>]*>(.*?)</div>', html_content, re.IGNORECASE | re.DOTALL)
+                if error_match:
+                    result['error'] = error_match.group(1).strip()
+                    return result
+            
+            # Ищем таблицу с результатами
+            table_pattern = r'<table[^>]*class="[^"]*table[^"]*"[^>]*>(.*?)</table>'
+            table_match = re.search(table_pattern, html_content, re.DOTALL | re.IGNORECASE)
+            
+            if table_match:
+                table_html = table_match.group(1)
+                
+                # Извлекаем заголовки
+                headers = []
+                header_pattern = r'<th[^>]*>(.*?)</th>'
+                for match in re.findall(header_pattern, table_html, re.DOTALL):
+                    header_text = re.sub(r'<[^>]+>', '', match).strip()
+                    headers.append(header_text)
+                result['headers'] = headers
+                
+                # Извлекаем строки данных
+                rows = []
+                row_pattern = r'<tr[^>]*>(.*?)</tr>'
+                for row_match in re.findall(row_pattern, table_html, re.DOTALL):
+                    cell_pattern = r'<td[^>]*>(.*?)</td>'
+                    cells = []
+                    for cell_match in re.findall(cell_pattern, row_match, re.DOTALL):
+                        cell_text = re.sub(r'<[^>]+>', '', cell_match).strip()
+                        cells.append(cell_text)
+                    if cells and len(cells) == len(headers):
+                        rows.append(cells)
+                result['rows'] = rows
+                result['total_rows'] = len(rows)
+            
+            return result
+            
+        except Exception as e:
+            return {'error': str(e)}
+    
+    def check_admin_actions(self):
+        """Проверяет админские действия"""
+        print("🔍 ПРОВЕРКА АДМИНСКИХ ДЕЙСТВИЙ")
+        print("=" * 50)
+        
+        sql = """
+        SELECT 
+            COUNT(CASE WHEN user_id IN (6682555021) THEN 1 END) as legitimate_actions,
+            COUNT(CASE WHEN user_id NOT IN (6682555021) THEN 1 END) as unauthorized_actions
+        FROM actions 
+        WHERE action LIKE 'admin_%'
+        """
+        
+        results = self.execute_sql_query(sql)
+        
+        if results and not results.get('error'):
+            if results['rows']:
+                row = results['rows'][0]
+                if len(row) >= 2:
+                    legitimate = int(row[0])
+                    unauthorized = int(row[1])
+                    
+                    print(f"✅ Легитимных действий: {legitimate}")
+                    print(f"🚨 Несанкционированных действий: {unauthorized}")
+                    
+                    if unauthorized > 0:
+                        print("🚨 ВНИМАНИЕ: Обнаружены несанкционированные админские действия!")
+                        
+                        # Получаем детали несанкционированных действий
+                        sql_details = """
+                        SELECT user_id, username, name, action, timestamp
+                        FROM actions 
+                        WHERE action LIKE 'admin_%' AND user_id NOT IN (6682555021)
+                        ORDER BY timestamp DESC
+                        LIMIT 10
+                        """
+                        
+                        details_results = self.execute_sql_query(sql_details)
+                        
+                        if details_results and not details_results.get('error'):
+                            if details_results['rows']:
+                                print("\n🚨 ПОСЛЕДНИЕ НЕСАНКЦИОНИРОВАННЫЕ ДЕЙСТВИЯ:")
+                                for detail_row in details_results['rows']:
+                                    if len(detail_row) >= 5:
+                                        user_id, username, name, action, timestamp = detail_row
+                                        print(f"   User: {user_id} ({name}) | Action: {action} | Time: {timestamp}")
+                    else:
+                        print("✅ Все админские действия легитимны")
+            else:
+                print("ℹ️ Админских действий не найдено")
+        else:
+            print(f"❌ Ошибка выполнения запроса: {results.get('error', 'Неизвестная ошибка')}")
+    
+    def check_suspicious_users(self):
+        """Проверяет подозрительных пользователей"""
+        print("\n🔍 ПРОВЕРКА ПОДОЗРИТЕЛЬНЫХ ПОЛЬЗОВАТЕЛЕЙ")
+        print("=" * 50)
+        
+        sql = """
+        SELECT user_id, username, name, COUNT(*) as admin_action_count
+        FROM actions 
+        WHERE action LIKE 'admin_%' AND user_id NOT IN (6682555021)
+        GROUP BY user_id, username, name
+        ORDER BY admin_action_count DESC
+        """
+        
+        results = self.execute_sql_query(sql)
+        
+        if results and not results.get('error'):
+            if results['rows']:
+                print(f"🚨 Найдено подозрительных пользователей: {len(results['rows'])}")
+                print()
+                
+                for row in results['rows']:
+                    if len(row) >= 4:
+                        user_id, username, name, action_count = row
+                        print(f"🚨 User ID: {user_id}")
+                        print(f"   Username: {username}")
+                        print(f"   Name: {name}")
+                        print(f"   Admin actions: {action_count}")
+                        print("-" * 30)
+            else:
+                print("✅ Подозрительных пользователей не найдено")
+        else:
+            print(f"❌ Ошибка выполнения запроса: {results.get('error', 'Неизвестная ошибка')}")
+    
+    def run_security_check(self):
+        """Запускает полную проверку безопасности"""
+        print("🔍 МОНИТОР БЕЗОПАСНОСТИ В РЕАЛЬНОМ ВРЕМЕНИ")
+        print("=" * 60)
+        print(f"Время проверки: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print()
+        
+        # Проверка админских действий
+        self.check_admin_actions()
+        
+        # Проверка подозрительных пользователей
+        self.check_suspicious_users()
+        
+        print("\n" + "="*60)
+        print("📋 РЕКОМЕНДАЦИИ:")
+        print("1. Если обнаружены несанкционированные действия - немедленно заблокировать доступ")
+        print("2. Мониторить активность подозрительных пользователей")
+        print("3. Регулярно проверять логи безопасности")
 
 def main():
-    """Главная функция."""
-    print("🔒 МОНИТОРИНГ БЕЗОПАСНОСТИ АДМИН-ПАНЕЛИ")
-    print("=" * 50)
-    
-    # Проверяем существование базы данных
-    if not os.path.exists('database/bot.db'):
-        print("❌ База данных не найдена: database/bot.db")
-        return
-    
-    # Создаем монитор
+    """Основная функция"""
     monitor = SecurityMonitor()
-    
-    # Запускаем мониторинг
-    monitor.start_monitoring(interval_seconds=30)  # Проверка каждые 30 секунд
+    monitor.run_security_check()
 
 if __name__ == "__main__":
     main() 
