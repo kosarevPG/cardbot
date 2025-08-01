@@ -1289,6 +1289,15 @@ class Database:
             excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
             excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
             
+            # DAU за сегодня
+            cursor = self.conn.execute(f"""
+                SELECT COUNT(DISTINCT user_id) as dau_today
+                FROM user_scenarios 
+                WHERE DATE(started_at, '+3 hours') = DATE('now', '+3 hours')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            dau_today = cursor.fetchone()[0]
+            
             # DAU за вчера
             cursor = self.conn.execute(f"""
                 SELECT COUNT(DISTINCT user_id) as dau_yesterday
@@ -1329,13 +1338,14 @@ class Database:
             dau_30 = cursor.fetchone()[0] or 0
             
             return {
+                'dau_today': dau_today,
                 'dau_yesterday': dau_yesterday,
                 'dau_7': round(dau_7, 1),
                 'dau_30': round(dau_30, 1)
             }
         except sqlite3.Error as e:
             logger.error(f"Failed to get DAU metrics: {e}", exc_info=True)
-            return {'dau_yesterday': 0, 'dau_7': 0, 'dau_30': 0}
+            return {'dau_today': 0, 'dau_yesterday': 0, 'dau_7': 0, 'dau_30': 0}
 
     def get_card_funnel_metrics(self, days: int = 7, include_excluded_users: bool = False):
         """Получает метрики воронки сценария 'Карта дня'."""

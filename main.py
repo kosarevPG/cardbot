@@ -1502,6 +1502,7 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
         text = f"""🔍 <b>ГЛАВНЫЙ ДАШБОРД</b> ({period_text})
 
 👥 <b>DAU:</b>
+• Сегодня: {dau_metrics['dau_today']}
 • Вчера: {dau_metrics['dau_yesterday']}
 • 7 дней: {dau_metrics['dau_7']}
 • 30 дней: {dau_metrics['dau_30']}
