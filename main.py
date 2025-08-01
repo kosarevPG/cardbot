@@ -1581,8 +1581,9 @@ async def show_admin_retention(message: types.Message, db: Database, logger_serv
 • Цель: >25%
 
 👥 <b>DAU:</b>
-• Сегодня: {dau['today_dau']}
-• Среднее за 7 дней: {dau['avg_dau']}"""
+• Вчера: {dau['dau_yesterday']}
+• Среднее за 7 дней: {dau['dau_7']}
+• Среднее за 30 дней: {dau['dau_30']}"""
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_retention")],
