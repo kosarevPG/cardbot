@@ -871,10 +871,10 @@ def make_scenario_stats_handler(db, logger_service):
                  await message.answer("Количество дней должно быть числом.")
                  return
          
-                 # Получаем статистику по сценариям (оптимизировано)
-        summary = db.get_admin_dashboard_summary(days)
-        card_stats = summary['card_stats']
-        reflection_stats = summary['evening_stats']
+         # Получаем статистику по сценариям (оптимизировано)
+         summary = db.get_admin_dashboard_summary(days)
+         card_stats = summary['card_stats']
+         reflection_stats = summary['evening_stats']
          
          if not card_stats and not reflection_stats:
              await message.answer(f"Нет данных о сценариях за последние {days} дней.")
@@ -2655,11 +2655,21 @@ async def main():
     post_manager = PostManager(db, bot, logging_service)
     scheduler = MailingScheduler(post_manager, check_interval=60)
     
-    dp["db"] = db
-    dp["logger_service"] = logging_service
-    dp["user_manager"] = user_manager
-    dp["post_manager"] = post_manager
-    dp["scheduler"] = scheduler
+    # Инициализируем данные в диспетчере с проверками
+    try:
+        # Убеждаемся, что workflow_data существует
+        if not hasattr(dp, 'workflow_data') or dp.workflow_data is None:
+            dp.workflow_data = {}
+        
+        dp["db"] = db
+        dp["logger_service"] = logging_service
+        dp["user_manager"] = user_manager
+        dp["post_manager"] = post_manager
+        dp["scheduler"] = scheduler
+        logger.info("Dispatcher data initialized successfully")
+    except Exception as init_err:
+        logger.error(f"Error initializing dispatcher data: {init_err}")
+        print(f"Warning: Dispatcher data initialization failed: {init_err}")
     
     register_handlers(dp, db, logging_service, user_manager)
     
@@ -2672,6 +2682,10 @@ async def main():
     logger.info("Starting polling...")
     print("Bot is starting polling...")
     try:
+        # Проверяем, что все необходимые данные инициализированы
+        if not hasattr(dp, 'workflow_data') or dp.workflow_data is None:
+            dp.workflow_data = {}
+        
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     except Exception as e:
         logger.critical(f"Polling failed: {e}", exc_info=True)
@@ -2681,15 +2695,21 @@ async def main():
         print("Bot is stopping...")
         
         # Останавливаем планировщик
-        if 'scheduler' in dp:
-            await dp["scheduler"].stop()
-            logger.info("Mailing scheduler stopped.")
+        try:
+            if 'scheduler' in dp and dp["scheduler"]:
+                await dp["scheduler"].stop()
+                logger.info("Mailing scheduler stopped.")
+        except Exception as scheduler_err:
+            logger.error(f"Error stopping scheduler: {scheduler_err}")
         
         reminder_task.cancel()
         try:
             await reminder_task
         except asyncio.CancelledError:
             logger.info("Reminder task cancelled successfully.")
+        except Exception as reminder_err:
+            logger.error(f"Error cancelling reminder task: {reminder_err}")
+            
         if db and db.conn:
             try:
                 db.close()
@@ -2703,6 +2723,11 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot stopped manually.")
+        print("Bot stopped manually.")
     except Exception as e:
         logger.critical(f"Critical error in main execution: {e}", exc_info=True)
         print(f"CRITICAL error in main execution: {e}")
+        # Дополнительная обработка для предотвращения KeyError
+        if "KeyError" in str(e):
+            print("KeyError detected - this might be related to dispatcher data access")
+            logger.error("KeyError in dispatcher - check data initialization")
