@@ -247,7 +247,16 @@ def make_start_handler(db, logger_service, user_manager):
         args = command.args if command else ""
         await logger_service.log_action(user_id, "start_command", {"args": args})
         user_data = db.get_user(user_id)
-        if user_data.get("username") != username: db.update_user(user_id, {"username": username})
+        
+        # Проверяем, новый ли это пользователь (нет first_seen)
+        is_new_user = not user_data.get("first_seen")
+        if is_new_user:
+            # Устанавливаем first_seen для нового пользователя
+            db.update_user_first_seen(user_id)
+            await logger_service.log_action(user_id, "new_user_first_seen", {"timestamp": datetime.now().isoformat()})
+        
+        if user_data.get("username") != username: 
+            db.update_user(user_id, {"username": username})
         if args and args.startswith("ref_"):
             try:
                 referrer_id = int(args[4:])
@@ -1776,12 +1785,21 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
         active_users = cursor.fetchone()['active_users']
         
         activity_pct = (active_users/total_users*100) if total_users > 0 else 0
+        
+        # Получаем статистику по новым пользователям
+        new_users_stats = db.get_new_users_stats(7)
+        
         text = f"""👥 <b>ПОЛЬЗОВАТЕЛИ</b>
 
 📊 <b>Общая статистика:</b>
 • Всего пользователей: {total_users}
 • Активных за 7 дней: {active_users}
 • Процент активности: {activity_pct:.1f}%
+
+🆕 <b>Новые пользователи (7 дней):</b>
+• Всего новых: {new_users_stats['total_new_users']}
+• С меткой first_seen: {new_users_stats['users_with_first_seen']}
+• Без метки: {new_users_stats['users_without_first_seen']}
 
 🔧 <b>Действия:</b>
 • /users - список всех пользователей

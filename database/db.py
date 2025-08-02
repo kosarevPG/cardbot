@@ -99,7 +99,8 @@ class Database:
                     CREATE TABLE IF NOT EXISTS users (
                         user_id INTEGER PRIMARY KEY, name TEXT, username TEXT,
                         last_request TEXT, reminder_time TEXT,
-                        reminder_time_evening TEXT, bonus_available BOOLEAN DEFAULT FALSE
+                        reminder_time_evening TEXT, bonus_available BOOLEAN DEFAULT FALSE,
+                        first_seen TEXT
                     )""")
                 # Таблица user_cards
                 self.conn.execute("""
@@ -258,7 +259,10 @@ class Database:
                 'reflection_count': 'INTEGER DEFAULT 0',
             }
             self._add_columns_if_not_exist('user_profiles', profile_columns)
-            users_columns = { 'reminder_time_evening': 'TEXT' }
+            users_columns = { 
+                'reminder_time_evening': 'TEXT',
+                'first_seen': 'TEXT'
+            }
             self._add_columns_if_not_exist('users', users_columns)
             reflection_columns = { 'ai_summary': 'TEXT' }
             self._add_columns_if_not_exist('evening_reflections', reflection_columns)
@@ -341,23 +345,25 @@ class Database:
                 return user_dict
 
             logger.info(f"User {user_id} not found in 'users' table, creating default entry.")
+            current_time = datetime.now().isoformat()
             default_user_data = {
                 "user_id": user_id, "name": "", "username": "", "last_request": None,
-                "reminder_time": None, "reminder_time_evening": None, "bonus_available": False
+                "reminder_time": None, "reminder_time_evening": None, "bonus_available": False,
+                "first_seen": current_time
             }
             with self.conn:
                 self.conn.execute(
-                    """INSERT INTO users (user_id, name, username, last_request, reminder_time, reminder_time_evening, bonus_available)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO users (user_id, name, username, last_request, reminder_time, reminder_time_evening, bonus_available, first_seen)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (user_id, default_user_data["name"], default_user_data["username"], None,
                      default_user_data["reminder_time"], default_user_data["reminder_time_evening"],
-                     int(default_user_data["bonus_available"]))
+                     int(default_user_data["bonus_available"]), default_user_data["first_seen"])
                 )
             logger.info(f"Default user entry created for {user_id}")
             return default_user_data
         except sqlite3.Error as e:
             logger.error(f"Failed to get or create user {user_id}: {e}", exc_info=True)
-            return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "reminder_time_evening": None, "bonus_available": False}
+            return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "reminder_time_evening": None, "bonus_available": False, "first_seen": None}
 
     def update_user(self, user_id, data):
         # ... (код метода update_user) ...
@@ -374,13 +380,21 @@ class Database:
             last_request_to_save = last_request_input.isoformat()
         elif isinstance(last_request_input, str):
              last_request_to_save = last_request_input
+        
+        # Обработка first_seen
+        first_seen_to_save = current_user_data.get("first_seen")
+        if not first_seen_to_save and data.get("first_seen"):
+            first_seen_to_save = data.get("first_seen")
+        elif not first_seen_to_save:
+            first_seen_to_save = datetime.now().isoformat()
+        
         try:
             with self.conn:
                 self.conn.execute("""
-                    INSERT OR REPLACE INTO users (user_id, name, username, last_request, reminder_time, reminder_time_evening, bonus_available)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO users (user_id, name, username, last_request, reminder_time, reminder_time_evening, bonus_available, first_seen)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, ( user_id, name_to_save, username_to_save, last_request_to_save,
-                       reminder_to_save, reminder_evening_to_save, int(bonus_to_save) ))
+                       reminder_to_save, reminder_evening_to_save, int(bonus_to_save), first_seen_to_save ))
         except sqlite3.Error as e:
             logger.error(f"Failed to update user {user_id}: {e}", exc_info=True)
 
@@ -1800,6 +1814,62 @@ class Database:
             return str(user_id) in ADMIN_IDS
         except ImportError:
             logger.error("CRITICAL: Failed to import ADMIN_IDS for admin check")
+            return False
+
+    def get_new_users_stats(self, days: int = 7) -> dict:
+        """Получает статистику по новым пользователям за указанное количество дней."""
+        try:
+            cursor = self.conn.execute("""
+                SELECT 
+                    COUNT(*) as total_new_users,
+                    COUNT(CASE WHEN first_seen IS NOT NULL THEN 1 END) as users_with_first_seen,
+                    COUNT(CASE WHEN first_seen IS NULL THEN 1 END) as users_without_first_seen
+                FROM users 
+                WHERE first_seen >= datetime('now', '-{} days')
+            """.format(days))
+            
+            result = cursor.fetchone()
+            if result:
+                return {
+                    'total_new_users': result[0],
+                    'users_with_first_seen': result[1],
+                    'users_without_first_seen': result[2]
+                }
+            return {'total_new_users': 0, 'users_with_first_seen': 0, 'users_without_first_seen': 0}
+        except sqlite3.Error as e:
+            logger.error(f"Error getting new users stats: {e}", exc_info=True)
+            return {'total_new_users': 0, 'users_with_first_seen': 0, 'users_without_first_seen': 0}
+
+    def get_user_first_seen(self, user_id: int) -> datetime | None:
+        """Получает дату первого входа пользователя."""
+        try:
+            cursor = self.conn.execute("SELECT first_seen FROM users WHERE user_id = ?", (user_id,))
+            result = cursor.fetchone()
+            if result and result[0]:
+                try:
+                    return self.decode_timestamp(result[0].encode('utf-8'))
+                except Exception as e:
+                    logger.error(f"Error decoding first_seen for user {user_id}: {e}")
+                    return None
+            return None
+        except sqlite3.Error as e:
+            logger.error(f"Error getting first_seen for user {user_id}: {e}", exc_info=True)
+            return None
+
+    def update_user_first_seen(self, user_id: int, first_seen: datetime = None) -> bool:
+        """Обновляет дату первого входа пользователя."""
+        try:
+            if first_seen is None:
+                first_seen = datetime.now()
+            
+            with self.conn:
+                self.conn.execute("""
+                    UPDATE users SET first_seen = ? WHERE user_id = ? AND (first_seen IS NULL OR first_seen = '')
+                """, (first_seen.isoformat(), user_id))
+            
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error updating first_seen for user {user_id}: {e}", exc_info=True)
             return False
 
 # --- КОНЕЦ КЛАССА ---
