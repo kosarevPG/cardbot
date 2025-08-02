@@ -871,9 +871,10 @@ def make_scenario_stats_handler(db, logger_service):
                  await message.answer("Количество дней должно быть числом.")
                  return
          
-         # Получаем статистику по сценариям
-         card_stats = db.get_scenario_stats('card_of_day', days)
-         reflection_stats = db.get_scenario_stats('evening_reflection', days)
+                 # Получаем статистику по сценариям (оптимизировано)
+        summary = db.get_admin_dashboard_summary(days)
+        card_stats = summary['card_stats']
+        reflection_stats = summary['evening_stats']
          
          if not card_stats and not reflection_stats:
              await message.answer(f"Нет данных о сценариях за последние {days} дней.")
@@ -1479,7 +1480,7 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
         return
     
     try:
-        # Получаем сводку метрик
+        # Получаем сводку метрик (оптимизировано - все данные в одном запросе)
         summary = db.get_admin_dashboard_summary(days)
         
         if not summary:
@@ -1494,9 +1495,9 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
         # Определяем период для отображения
         period_text = "Сегодня" if days == 1 else f"{days} дней"
         
-        # Получаем DAU и Retention метрики
-        dau_metrics = db.get_dau_metrics(days)
-        retention_metrics = db.get_retention_metrics(days)
+        # Используем данные из summary (устраняем дублирование)
+        dau_metrics = summary['dau']
+        retention_metrics = summary['retention']
         
         # Формируем текст дашборда
         text = f"""🔍 <b>ГЛАВНЫЙ ДАШБОРД</b> ({period_text})
@@ -1568,8 +1569,10 @@ async def show_admin_retention(message: types.Message, db: Database, logger_serv
         return
     
     try:
-        retention = db.get_retention_metrics(7)
-        dau = db.get_dau_metrics(7)
+        # Получаем все метрики одним запросом (оптимизировано)
+        summary = db.get_admin_dashboard_summary(7)
+        retention = summary['retention']
+        dau = summary['dau']
         
         text = f"""📈 <b>МЕТРИКИ УДЕРЖАНИЯ</b> (за 7 дней)
 
@@ -1625,7 +1628,9 @@ async def show_admin_funnel(message: types.Message, db: Database, logger_service
         return
     
     try:
-        funnel = db.get_card_funnel_metrics(days)
+        # Получаем все метрики одним запросом (оптимизировано)
+        summary = db.get_admin_dashboard_summary(days)
+        funnel = summary['funnel']
         
         period_text = {
             1: "сегодня",
@@ -1689,8 +1694,9 @@ async def show_admin_value(message: types.Message, db: Database, logger_service:
         return
     
     try:
-        # Для админки включаем исключаемых пользователей, чтобы видеть реальные данные
-        value = db.get_value_metrics(days, include_excluded_users=True)
+        # Получаем все метрики одним запросом (оптимизировано)
+        summary = db.get_admin_dashboard_summary(days)
+        value = summary['value']
         
         # Определяем период для отображения
         period_text = "Сегодня" if days == 1 else f"{days} дней"
