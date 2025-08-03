@@ -17,4 +17,4 @@ routes:
   - path: /
     port: 80
     domains:
-      - cardbot-kosarevpg.amvera.io
+      - cardbot-1-kosarevpg.amvera.io
