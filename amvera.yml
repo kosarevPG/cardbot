@@ -8,6 +8,10 @@ meta:
 build:
   requirementsPath: requirements.txt
 
+# Указываем файл для запуска
+run:
+  web: python main.py
+
 # Добавляем routes — все запросы на домен пойдут на порт 80
 routes:
   - path: /
