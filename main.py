@@ -1903,12 +1903,9 @@ async def show_admin_users_list(message: types.Message, db: Database, logger_ser
             logger.warning(f"Error sorting user list by timestamp: {sort_err}. List may be unsorted.")
         
         # Формируем текст списка
-        for i, user in enumerate(user_list[:20], 1):  # Показываем первые 20 пользователей
+        for i, user in enumerate(user_list, 1):  # Показываем всех пользователей
             text += f"{i}. <code>{user['uid']}</code> | {user['username']} | {user['name']}\n"
             text += f"   Последнее действие: {user['last_action_time']}\n\n"
-        
-        if len(user_list) > 20:
-            text += f"... и еще {len(user_list) - 20} пользователей"
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users_list")],
