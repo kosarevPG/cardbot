@@ -1408,6 +1408,12 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
             await show_admin_users(callback.message, db, logger_service, user_id)
         elif action == "admin_users_list":
             await show_admin_users_list(callback.message, db, logger_service, user_id)
+        elif action.startswith("admin_users_page_"):
+            try:
+                page = int(action.split("_")[-1])
+                await show_admin_users_list(callback.message, db, logger_service, user_id, page)
+            except ValueError:
+                await show_admin_users_list(callback.message, db, logger_service, user_id)
         elif action == "admin_requests":
             await show_admin_requests(callback.message, db, logger_service, user_id)
         elif action == "admin_requests_full":
@@ -1831,7 +1837,7 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
             if "message is not modified" not in str(e):
                 raise
 
-async def show_admin_users_list(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
+async def show_admin_users_list(message: types.Message, db: Database, logger_service: LoggingService, user_id: int, page: int = 0):
     """Показывает список всех пользователей."""
     # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
     try:
@@ -1902,15 +1908,49 @@ async def show_admin_users_list(message: types.Message, db: Database, logger_ser
         except Exception as sort_err:
             logger.warning(f"Error sorting user list by timestamp: {sort_err}. List may be unsorted.")
         
-        # Формируем текст списка
-        for i, user in enumerate(user_list, 1):  # Показываем всех пользователей
+        # Формируем текст списка с ограничением длины
+        max_users_per_page = 15  # Максимум пользователей на страницу
+        current_page = page
+        start_idx = current_page * max_users_per_page
+        end_idx = start_idx + max_users_per_page
+        
+        # Показываем только часть пользователей для избежания MESSAGE_TOO_LONG
+        visible_users = user_list[start_idx:end_idx]
+        
+        for i, user in enumerate(visible_users, start_idx + 1):
             text += f"{i}. <code>{user['uid']}</code> | {user['username']} | {user['name']}\n"
             text += f"   Последнее действие: {user['last_action_time']}\n\n"
         
-        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        # Добавляем информацию о пагинации
+        total_pages = (len(user_list) + max_users_per_page - 1) // max_users_per_page
+        current_page_display = current_page + 1
+        
+        if total_pages > 1:
+            text += f"\n📄 Страница {current_page_display} из {total_pages}\n"
+            text += f"Показано {len(visible_users)} из {len(user_list)} пользователей"
+        else:
+            text += f"\n📄 Всего пользователей: {len(user_list)}"
+        
+        # Создаем клавиатуру с навигацией
+        keyboard_buttons = []
+        
+        # Кнопки навигации
+        if total_pages > 1:
+            nav_buttons = []
+            if current_page > 0:
+                nav_buttons.append(types.InlineKeyboardButton(text="⬅️", callback_data=f"admin_users_page_{current_page-1}"))
+            nav_buttons.append(types.InlineKeyboardButton(text=f"{current_page_display}/{total_pages}", callback_data="admin_users_list"))
+            if current_page < total_pages - 1:
+                nav_buttons.append(types.InlineKeyboardButton(text="➡️", callback_data=f"admin_users_page_{current_page+1}"))
+            keyboard_buttons.append(nav_buttons)
+        
+        # Основные кнопки
+        keyboard_buttons.extend([
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users_list")],
             [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
         ])
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         
         try:
             await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
