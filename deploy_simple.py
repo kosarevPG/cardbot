@@ -81,6 +81,7 @@ def deploy_to_production():
     
     # Команды для деплоя
     commands = [
+        "git pull origin master",
         "git add .",
         "git commit -m \"Update AI service: fix feminine gender addressing\"",
         "git push origin master"
