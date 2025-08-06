@@ -1049,6 +1049,19 @@ class Database:
             logger.error(f"Failed to get user scenario history for {user_id}: {e}", exc_info=True)
             return []
 
+    def has_completed_scenario_first_time(self, user_id: int, scenario: str) -> bool:
+        """Проверяет, завершил ли пользователь сценарий хотя бы один раз."""
+        try:
+            cursor = self.conn.execute(
+                "SELECT COUNT(*) as count FROM user_scenarios WHERE user_id = ? AND scenario = ? AND status = 'completed'",
+                (user_id, scenario)
+            )
+            result = cursor.fetchone()
+            return result['count'] >= 1 if result else False
+        except sqlite3.Error as e:
+            logger.error(f"Failed to check first completion for user {user_id}, scenario {scenario}: {e}", exc_info=True)
+            return False
+
     def get_user_advanced_stats(self, user_id: int):
         """Получает расширенную статистику пользователя."""
         try:

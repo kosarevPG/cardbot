@@ -204,13 +204,26 @@ user_manager = UserManager(db)
 # --- Middleware ---
 class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
-        return await handler(event, data)
         if isinstance(event, (types.Message, types.CallbackQuery)):
             user = event.from_user
             if not user or user.is_bot or user.id == ADMIN_ID:
                 return await handler(event, data)
             user_id = user.id
             try:
+                # Получаем доступ к базе данных через data
+                db = data.get("db")
+                if not db:
+                    logger.error("Database not found in middleware data")
+                    return await handler(event, data)
+                
+                # Проверяем, завершил ли пользователь сценарий "Карта дня" впервые
+                has_completed_card_scenario = db.has_completed_scenario_first_time(user_id, 'card_of_day')
+                
+                # Если пользователь еще не завершил сценарий "Карта дня" впервые, пропускаем проверку подписки
+                if not has_completed_card_scenario:
+                    return await handler(event, data)
+                
+                # Проверяем подписку только после первого успешного завершения сценария "Карта дня"
                 user_status = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
                 allowed_statuses = ["member", "administrator", "creator"]
                 if user_status.status not in allowed_statuses:
@@ -2725,6 +2738,12 @@ async def main():
     except Exception as init_err:
         logger.error(f"Error initializing dispatcher data: {init_err}")
         print(f"Warning: Dispatcher data initialization failed: {init_err}")
+    
+    # Регистрируем middleware для проверки подписки
+    subscription_middleware = SubscriptionMiddleware()
+    dp.message.middleware(subscription_middleware)
+    dp.callback_query.middleware(subscription_middleware)
+    logger.info("Subscription middleware registered successfully")
     
     register_handlers(dp, db, logging_service, user_manager)
     
