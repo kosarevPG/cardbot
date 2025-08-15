@@ -1,4 +1,3 @@
-# Last Amvera rebuild: 2025-08-15 23:55:00
 # код/main.py
 
 import subprocess
