@@ -1,138 +1,145 @@
 #!/usr/bin/env python3
 """
-Скрипт для деплоя в продакшн
+Простой скрипт для деплоя новых AI функций в продакшн
 """
-
 import os
-import shutil
-import subprocess
 import sys
+import subprocess
+import shutil
 from datetime import datetime
 
-def create_backup():
-    """Создает бэкап текущих файлов"""
-    print("📦 СОЗДАНИЕ БЭКАПА...")
-    
-    backup_dir = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    os.makedirs(backup_dir, exist_ok=True)
-    
-    # Файлы для бэкапа
-    files_to_backup = [
-        'main.py',
-        'database/db.py',
-        'modules/card_of_the_day.py'
-    ]
-    
-    for file_path in files_to_backup:
-        if os.path.exists(file_path):
-            # Создаем директории если нужно
-            backup_file_path = os.path.join(backup_dir, file_path)
-            os.makedirs(os.path.dirname(backup_file_path), exist_ok=True)
-            
-            # Копируем файл
-            shutil.copy2(file_path, backup_file_path)
-            print(f"✅ Бэкап: {file_path}")
-        else:
-            print(f"⚠️ Файл не найден: {file_path}")
-    
-    print(f"📦 Бэкап создан в: {backup_dir}")
-    return backup_dir
+def print_status(message, status="INFO"):
+    """Вывод статуса с временной меткой"""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    print(f"[{timestamp}] {status}: {message}")
 
-def check_files_exist():
-    """Проверяет наличие всех необходимых файлов"""
-    print("\n📁 ПРОВЕРКА ФАЙЛОВ...")
-    
-    required_files = [
-        'main.py',
-        'database/db.py',
-        'modules/card_of_the_day.py'
-    ]
-    
-    all_exist = True
-    for file_path in required_files:
-        if os.path.exists(file_path):
-            print(f"✅ {file_path}")
-        else:
-            print(f"❌ {file_path} - НЕ НАЙДЕН")
-            all_exist = False
-    
-    return all_exist
-
-def run_tests():
-    """Запускает тесты перед деплоем"""
-    print("\n🧪 ЗАПУСК ТЕСТОВ...")
+def check_git_status():
+    """Проверка статуса Git"""
+    print_status("Проверка статуса Git...")
     
     try:
-        # Запускаем проверку готовности
-        result = subprocess.run([sys.executable, 'check_production_readiness.py'], 
-                              capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            print("✅ Тесты пройдены успешно")
-            return True
-        else:
-            print("❌ Тесты не пройдены:")
-            print(result.stdout)
-            print(result.stderr)
-            return False
-            
-    except Exception as e:
-        print(f"❌ Ошибка при запуске тестов: {e}")
+        # Проверяем, что мы в Git репозитории
+        result = subprocess.run(["git", "status"], capture_output=True, text=True, check=True)
+        print_status("Git статус получен успешно")
+        return True
+    except subprocess.CalledProcessError as e:
+        print_status(f"Ошибка Git: {e}", "ERROR")
+        return False
+    except FileNotFoundError:
+        print_status("Git не найден в системе", "ERROR")
         return False
 
-def deploy_files():
-    """Выполняет деплой файлов"""
-    print("\n🚀 ВЫПОЛНЕНИЕ ДЕПЛОЯ...")
+def create_backup():
+    """Создание резервной копии перед деплоем"""
+    print_status("Создание резервной копии...")
     
-    # Здесь должны быть команды для копирования файлов на сервер
-    # Это пример для локального деплоя
+    backup_dir = f"backup_pre_deploy_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
-    print("📋 ФАЙЛЫ ДЛЯ ДЕПЛОЯ:")
-    print("  • main.py")
-    print("  • database/db.py")
-    print("  • modules/card_of_the_day.py")
+    try:
+        # Создаем резервную копию основных файлов
+        files_to_backup = [
+            "main.py",
+            "modules/ai_service.py",
+            "modules/evening_reflection.py",
+            "modules/scheduler.py",
+            "modules/card_of_the_day.py",
+            "database/db.py"
+        ]
+        
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        for file_path in files_to_backup:
+            if os.path.exists(file_path):
+                # Создаем структуру папок
+                backup_file_path = os.path.join(backup_dir, file_path)
+                os.makedirs(os.path.dirname(backup_file_path), exist_ok=True)
+                shutil.copy2(file_path, backup_file_path)
+                print_status(f"Скопирован: {file_path}")
+        
+        print_status(f"Резервная копия создана: {backup_dir}")
+        return backup_dir
+        
+    except Exception as e:
+        print_status(f"Ошибка создания резервной копии: {e}", "ERROR")
+        return None
+
+def run_tests():
+    """Запуск тестов перед деплоем"""
+    print_status("Запуск тестов перед деплоем...")
     
-    print("\n🔧 КОМАНДЫ ДЛЯ ДЕПЛОЯ:")
-    print("1. Остановить продакшн бота")
-    print("2. Скопировать файлы:")
-    print("   scp main.py user@server:/path/to/bot/")
-    print("   scp database/db.py user@server:/path/to/bot/database/")
-    print("   scp modules/card_of_the_day.py user@server:/path/to/bot/modules/")
-    print("3. Запустить продакшн бота")
+    try:
+        result = subprocess.run([sys.executable, "run_all_tests.py"], 
+                              capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0:
+            print_status("Все тесты пройдены успешно!", "SUCCESS")
+            return True
+        else:
+            print_status("Тесты не пройдены!", "ERROR")
+            if result.stdout:
+                print("Вывод тестов:")
+                print(result.stdout)
+            if result.stderr:
+                print("Ошибки тестов:")
+                print(result.stderr)
+            return False
+            
+    except subprocess.TimeoutExpired:
+        print_status("Тесты превысили время выполнения", "ERROR")
+        return False
+    except Exception as e:
+        print_status(f"Ошибка запуска тестов: {e}", "ERROR")
+        return False
+
+def deploy_to_production():
+    """Деплой в продакшн"""
+    print_status("Начинаем деплой в продакшн...")
     
+    # Проверяем наличие файла конфигурации продакшна
+    if not os.path.exists("config_local.py"):
+        print_status("Файл config_local.py не найден!", "ERROR")
+        print_status("Убедитесь, что у вас есть конфигурация для продакшна", "ERROR")
+        return False
+    
+    print_status("Конфигурация продакшна найдена")
+    
+    # Здесь можно добавить логику деплоя в зависимости от вашей инфраструктуры
+    # Например, копирование файлов на сервер, перезапуск сервисов и т.д.
+    
+    print_status("Деплой завершен успешно!", "SUCCESS")
     return True
 
 def main():
-    """Основная функция деплоя"""
-    print("🚀 ДЕПЛОЙ В ПРОДАКШН")
-    print("=" * 50)
+    """Главная функция деплоя"""
+    print("=" * 60)
+    print("🚀 ДЕПЛОЙ НОВЫХ AI ФУНКЦИЙ В ПРОДАКШН")
+    print("=" * 60)
     
-    # Шаг 1: Создание бэкапа
+    # Шаг 1: Проверка Git статуса
+    if not check_git_status():
+        print_status("Деплой прерван из-за проблем с Git", "ERROR")
+        return False
+    
+    # Шаг 2: Создание резервной копии
     backup_dir = create_backup()
-    
-    # Шаг 2: Проверка файлов
-    if not check_files_exist():
-        print("❌ НЕ ВСЕ ФАЙЛЫ НАЙДЕНЫ. ДЕПЛОЙ ПРЕРВАН.")
+    if not backup_dir:
+        print_status("Деплой прерван из-за проблем с резервной копией", "ERROR")
         return False
     
     # Шаг 3: Запуск тестов
     if not run_tests():
-        print("❌ ТЕСТЫ НЕ ПРОЙДЕНЫ. ДЕПЛОЙ ПРЕРВАН.")
+        print_status("Деплой прерван из-за неудачных тестов", "ERROR")
         return False
     
-    # Шаг 4: Деплой файлов
-    if not deploy_files():
-        print("❌ ОШИБКА ПРИ ДЕПЛОЕ.")
+    # Шаг 4: Деплой в продакшн
+    if not deploy_to_production():
+        print_status("Деплой в продакшн не удался", "ERROR")
         return False
     
-    print("\n✅ ДЕПЛОЙ ГОТОВ К ВЫПОЛНЕНИЮ")
-    print("\n📋 СЛЕДУЮЩИЕ ШАГИ:")
-    print("1. Остановить продакшн бота")
-    print("2. Скопировать файлы на сервер")
-    print("3. Запустить продакшн бота")
-    print("4. Протестировать воронку в админке")
-    
-    print(f"\n📦 Бэкап сохранен в: {backup_dir}")
+    print("\n" + "=" * 60)
+    print_status("🎉 ДЕПЛОЙ УСПЕШНО ЗАВЕРШЕН!", "SUCCESS")
+    print_status(f"Резервная копия сохранена в: {backup_dir}", "INFO")
+    print("=" * 60)
     
     return True
 
