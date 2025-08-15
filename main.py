@@ -1,4 +1,4 @@
-# Last Amvera rebuild: 2025-08-15 23:55:00
+# Last Amvera rebuild: 2025-08-15 23:58:00 - Force rebuild for AI functions
 # код/main.py
 
 import subprocess
