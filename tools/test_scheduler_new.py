@@ -6,7 +6,8 @@ import sys
 import os
 import asyncio
 import time
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from modules.scheduler import ReflectionAnalysisScheduler
 from database.db import Database

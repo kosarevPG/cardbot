@@ -8,9 +8,16 @@ import asyncio
 import tempfile
 import shutil
 from unittest.mock import Mock, AsyncMock, patch
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add parent directory to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config_local import ADMIN_ID
+# Try to import from config_local first, fallback to config
+try:
+    from config_local import ADMIN_ID
+    print("Using config_local.py")
+except ImportError:
+    from config import ADMIN_ID
+    print("Using config.py")
 from database.db import Database
 from modules.logging_service import LoggingService
 from modules.post_management import PostManager

@@ -71,9 +71,9 @@ def main():
     
     # Список тестов для запуска
     tests = [
-        ("test_ai_functions.py", "AI функции (эмпатичный ответ, еженедельный анализ, синергия карт)"),
-        ("test_scheduler_new.py", "Планировщик еженедельного анализа"),
-        ("test_evening_reflection_integration.py", "Интеграция AI функций в вечернюю рефлексию")
+        ("tools/test_ai_functions.py", "AI функции (эмпатичный ответ, еженедельный анализ, синергия карт)"),
+        ("tools/test_scheduler_new.py", "Планировщик еженедельного анализа"),
+        ("tools/test_evening_reflection_integration.py", "Интеграция AI функций в вечернюю рефлексию")
     ]
     
     # Запускаем базовый тест функциональности
