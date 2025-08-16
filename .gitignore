@@ -113,8 +113,8 @@ ipython_config.py
 #   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
 #poetry.lock
 
-# Tools directory (вспомогательные файлы)
-tools/
+# Tools directory (вспомогательные файлы) - временно включено для GitHub
+# tools/
 
 # pdm
 #   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
