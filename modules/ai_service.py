@@ -1311,3 +1311,203 @@ async def get_weekly_analysis(reflections: list[dict]) -> str:
     return analysis_text if analysis_text is not None else fallback_analysis
 
 # --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
+
+# --- УЛУЧШЕННАЯ ФУНКЦИЯ: Интегрированная вечерняя рефлексия ---
+async def get_integrated_reflection_summary(user_id: int, reflection_data: dict, db: Database) -> str | None:
+    """
+    Генерирует интегрированное AI-резюме для вечерней рефлексии, 
+    учитывающее карту дня, предыдущие ответы и общий контекст пользователя.
+    
+    Args:
+        user_id: ID пользователя
+        reflection_data: Данные рефлексии
+        db: Экземпляр базы данных
+        
+    Returns:
+        str | None: Интегрированное резюме дня или None в случае ошибки
+    """
+    logger.info(f"Starting integrated evening reflection summary for user {user_id}")
+    headers = {
+        "Authorization": f"Api-Key {YANDEX_API_KEY}",
+        "Content-Type": "application/json",
+        "x-folder-id": YANDEX_FOLDER_ID
+    }
+
+    good_moments = reflection_data.get("good_moments", "не указано")
+    gratitude = reflection_data.get("gratitude", "не указано")
+    hard_moments = reflection_data.get("hard_moments", "не указано")
+
+    # Получаем профиль пользователя
+    profile = await build_user_profile(user_id, db)
+    user_info = db.get_user(user_id)
+    name = user_info.get("name", "Друг") if user_info else "Друг"
+    
+    # Получаем карту дня (если была)
+    today = datetime.now(TIMEZONE).date()
+    card_number = db.get_today_card_of_the_day(user_id)
+    card_context = ""
+    if card_number:
+        # Используем простую информацию о карте без импорта
+        card_name = f"Карта {card_number}"
+        card_meaning = "Метафорический образ для размышлений"
+        card_context = f"\n\nУтренняя карта дня: {card_name}\nКлючевые значения: {card_meaning}"
+    
+    # Получаем ответы пользователя на карту дня (если были)
+    card_responses = []
+    actions = db.get_actions(user_id)
+    for action in actions:
+        if action.get("action") in ["initial_response_provided", "grok_response_provided"]:
+            response = action.get("details", {}).get("response", "")
+            if response and isinstance(response, str):
+                card_responses.append(response)
+    
+    card_responses_text = ""
+    if card_responses:
+        card_responses_text = f"\n\nОтветы на карту дня:\n" + "\n".join([f"- {resp}" for resp in card_responses])
+    
+    # Получаем текущее настроение и ресурсное состояние
+    current_mood = profile.get("mood", "неизвестно")
+    initial_resource = profile.get("initial_resource", "не указано")
+    final_resource = profile.get("final_resource", "не указано")
+    
+    # Формируем контекст дня
+    day_context = f"\n\nКонтекст дня:\n"
+    day_context += f"- Настроение: {current_mood}\n"
+    day_context += f"- Начальное ресурсное состояние: {initial_resource}\n"
+    if final_resource and final_resource != initial_resource:
+        day_context += f"- Финальное ресурсное состояние: {final_resource}\n"
+    
+    # Получаем основные темы пользователя
+    profile_themes = profile.get("themes", ["не определено"])
+    themes_context = f"\n\nОсновные темы, которые волнуют тебя: {', '.join(profile_themes)}"
+    
+    system_prompt_text = (
+        f"Ты — тёплый, мудрый и эмпатичный ИИ-помощник. Твоя задача — создать глубоко персонализированное "
+        f"резюме дня для пользователя {name}, интегрируя все доступные контексты.\n\n"
+        f"Твоя цель — показать связь между:\n"
+        f"1. Утренней картой дня и её энергией\n"
+        f"2. Ответами пользователя на карту\n"
+        f"3. Вечерней рефлексией о дне\n"
+        f"4. Общим эмоциональным состоянием и темами\n\n"
+        f"Структура ответа:\n"
+        f"1. Краткое резюме дня (2-3 предложения)\n"
+        f"2. Связь с утренней картой (если была)\n"
+        f"3. Интеграция всех контекстов в единую картину\n\n"
+        f"Тон — глубокий, понимающий, показывающий связи. "
+        f"Избегай поверхностности, ищи глубинные паттерны. "
+        f"Всегда обращайся на 'ты'. "
+        f"Все пользователи - женского рода. "
+        f"Категорически запрещено предлагать поиск в интернете и генерировать ссылки."
+    )
+
+    user_prompt_text = (
+        f"Создай интегрированное резюме дня для {name} на основе следующей информации:\n\n"
+        f"ВЕЧЕРНЯЯ РЕФЛЕКСИЯ:\n"
+        f"1. Что было хорошего? \"{good_moments}\"\n"
+        f"2. За что благодарность? \"{gratitude}\"\n"
+        f"3. Какие были трудности? \"{hard_moments}\""
+        f"{card_context}"
+        f"{card_responses_text}"
+        f"{day_context}"
+        f"{themes_context}\n\n"
+        f"Задача: Покажи, как все эти элементы связаны между собой, "
+        f"как карта дня повлияла на восприятие событий, "
+        f"как настроение и ресурсное состояние отразились в выборе карты и ответах. "
+        f"Создай целостную картину дня через призму метафорических карт и саморефлексии."
+    )
+    
+    payload = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
+        "completionOptions": {
+            "stream": False,
+            "temperature": 0.6,
+            "maxTokens": "300"
+        },
+        "messages": [
+            {"role": "system", "text": system_prompt_text},
+            {"role": "user", "text": user_prompt_text}
+        ]
+    }
+
+    fallback_summary = (
+        f"Спасибо, что поделилась своими мыслями и чувствами, {name}! "
+        f"Твой день показывает, как важно замечать разные стороны жизни и находить время для самоанализа. "
+        f"Каждая карта, каждый ответ и каждая рефлексия — это шаг к лучшему пониманию себя. 🌟"
+    )
+    
+    max_retries = 3
+    base_delay = 1.0
+    summary_text = None
+
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=35.0) as client:
+                logger.info(f"Sending INTEGRATED REFLECTION request to YandexGPT API for user {user_id} (Attempt {attempt + 1})")
+                response = await client.post(YANDEX_GPT_URL, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                logger.info(f"Received INTEGRATED REFLECTION response from YandexGPT API for user {user_id}.")
+
+            if not data.get("result") or not data["result"].get("alternatives") or not data["result"]["alternatives"][0].get("message") or not data["result"]["alternatives"][0]["message"].get("text"):
+                 raise ValueError("Invalid response structure for integrated reflection from YandexGPT API")
+
+            summary_text_raw = data["result"]["alternatives"][0]["message"]["text"].strip()
+            summary_text_raw = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итак)[,.:]?\s*', '', summary_text_raw, flags=re.IGNORECASE).strip()
+            summary_text_raw = re.sub(r'^"|"$', '', summary_text_raw).strip()
+
+            # Проверяем наличие ссылок и запрещенных слов (более разумная проверка)
+            forbidden_patterns = [
+                'http:', 'https:', 'ya.ru', 'www.', '.com', '.ru', '.org',
+                't.me/', 'telegram.me/', 'bit.ly', 'tinyurl'
+            ]
+            
+            has_forbidden = any(pattern in summary_text_raw.lower() for pattern in forbidden_patterns)
+            
+            # Проверяем на явные попытки рекламы или спама
+            spam_indicators = ['купить', 'заказать', 'скидка', 'акция', 'бесплатно', 'деньги']
+            has_spam = any(indicator in summary_text_raw.lower() for indicator in spam_indicators)
+            
+            if has_forbidden or has_spam:
+                logger.warning(f"YandexGPT (integrated reflection) сгенерировал ответ с запрещенным контентом: '{summary_text_raw[:100]}...'. Ответ отбракован.")
+                raise ValueError("Generated integrated reflection contains forbidden content.")
+
+            if not summary_text_raw or len(summary_text_raw) < 20:
+                 raise ValueError("Empty or too short integrated reflection content after cleaning")
+
+            summary_text = summary_text_raw
+            break
+
+        except httpx.TimeoutException:
+            logger.warning(f"YandexGPT API integrated reflection request timed out for user {user_id} (Attempt {attempt + 1})")
+            if attempt == max_retries - 1:
+                summary_text = fallback_summary
+        except httpx.HTTPStatusError as e:
+             if e.response.status_code in [429] or e.response.status_code >= 500:
+                 logger.warning(f"YandexGPT API returned {e.response.status_code} for integrated reflection (User: {user_id}, Attempt: {attempt + 1}). Retrying...")
+                 if attempt == max_retries - 1:
+                     summary_text = fallback_summary
+             else:
+                 logger.error(f"YandexGPT API integrated reflection request failed with status {e.response.status_code} for user {user_id}: {e}")
+                 summary_text = fallback_summary
+                 break
+        except (ValueError, KeyError, IndexError) as e:
+            logger.error(f"Failed to parse YandexGPT API integrated reflection response for user {user_id}: {e}")
+            summary_text = fallback_summary
+            break
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred in get_integrated_reflection_summary for user {user_id} during attempt {attempt + 1}: {e}")
+            if attempt == max_retries - 1:
+                summary_text = fallback_summary
+        
+        if attempt < max_retries - 1 and summary_text is None:
+            delay = base_delay * (2 ** attempt)
+            logger.info(f"Waiting {delay:.1f}s before retrying YandexGPT INTEGRATED REFLECTION request...")
+            await asyncio.sleep(delay)
+        elif summary_text is None:
+            logger.error(f"YandexGPT API integrated reflection request failed after {max_retries} attempts for user {user_id}.")
+            if summary_text is None:
+                 summary_text = fallback_summary
+
+    return summary_text if summary_text is not None else fallback_summary
+
+# --- КОНЕЦ УЛУЧШЕННОЙ ФУНКЦИИ ---
