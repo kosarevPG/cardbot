@@ -373,12 +373,21 @@ async def get_grok_summary(user_id, interaction_data, db: Database = None):
             summary_text_raw = data["result"]["alternatives"][0]["message"]["text"].strip()
             summary_text_raw = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итог|Итак)[,.:]?\s*', '', summary_text_raw, flags=re.IGNORECASE).strip()
             summary_text_raw = re.sub(r'^"|"$', '', summary_text_raw).strip()
-            # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-            # Проверяем наличие ссылок и запрещенных слов в ИТОГОВОМ сообщении
-            if 'http:' in summary_text_raw or 'https:' in summary_text_raw or 'ya.ru' in summary_text_raw or ']' in summary_text_raw or 'поиск' in summary_text_raw.lower() or 'интернет' in summary_text_raw.lower():
-                logger.warning(f"YandexGPT (summary) сгенерировал ответ со ссылкой или запрещенным словом: '{summary_text_raw}'. Ответ отбракован.")
-                raise ValueError("Generated summary contains a forbidden link or keyword.")
-            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+            # Проверяем наличие ссылок и запрещенных слов (более разумная проверка)
+            forbidden_patterns = [
+                'http:', 'https:', 'ya.ru', 'www.', '.com', '.ru', '.org',
+                't.me/', 'telegram.me/', 'bit.ly', 'tinyurl'
+            ]
+            
+            has_forbidden = any(pattern in summary_text_raw.lower() for pattern in forbidden_patterns)
+            
+            # Проверяем на явные попытки рекламы или спама
+            spam_indicators = ['купить', 'заказать', 'скидка', 'акция', 'бесплатно', 'деньги']
+            has_spam = any(indicator in summary_text_raw.lower() for indicator in spam_indicators)
+            
+            if has_forbidden or has_spam:
+                logger.warning(f"YandexGPT (summary) сгенерировал ответ с запрещенным контентом: '{summary_text_raw[:100]}...'. Ответ отбракован.")
+                raise ValueError("Generated summary contains forbidden content.")
 
             if not summary_text_raw or len(summary_text_raw) < 10:
                  raise ValueError("Empty or too short summary content after cleaning")
@@ -787,12 +796,21 @@ async def get_reflection_summary(user_id: int, reflection_data: dict, db: Databa
             summary_text_raw = data["result"]["alternatives"][0]["message"]["text"].strip()
             summary_text_raw = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итак)[,.:]?\s*', '', summary_text_raw, flags=re.IGNORECASE).strip()
             summary_text_raw = re.sub(r'^"|"$', '', summary_text_raw).strip()
-            # --- НАЧАЛО ИСПРАВЛЕНИЯ ---
-            # Проверяем наличие ссылок и запрещенных слов в резюме рефлексии
-            if 'http:' in summary_text_raw or 'https:' in summary_text_raw or 'ya.ru' in summary_text_raw or ']' in summary_text_raw or 'поиск' in summary_text_raw.lower() or 'интернет' in summary_text_raw.lower():
-                logger.warning(f"YandexGPT (reflection) сгенерировал ответ со ссылкой или запрещенным словом: '{summary_text_raw}'. Ответ отбракован.")
-                raise ValueError("Generated reflection summary contains a forbidden link or keyword.")
-            # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
+            # Проверяем наличие ссылок и запрещенных слов (более разумная проверка)
+            forbidden_patterns = [
+                'http:', 'https:', 'ya.ru', 'www.', '.com', '.ru', '.org',
+                't.me/', 'telegram.me/', 'bit.ly', 'tinyurl'
+            ]
+            
+            has_forbidden = any(pattern in summary_text_raw.lower() for pattern in forbidden_patterns)
+            
+            # Проверяем на явные попытки рекламы или спама
+            spam_indicators = ['купить', 'заказать', 'скидка', 'акция', 'бесплатно', 'деньги']
+            has_spam = any(indicator in summary_text_raw.lower() for indicator in spam_indicators)
+            
+            if has_forbidden or has_spam:
+                logger.warning(f"YandexGPT (reflection) сгенерировал ответ с запрещенным контентом: '{summary_text_raw[:100]}...'. Ответ отбракован.")
+                raise ValueError("Generated reflection summary contains forbidden content.")
 
             if not summary_text_raw or len(summary_text_raw) < 10:
                  raise ValueError("Empty or too short reflection summary content after cleaning")
@@ -952,10 +970,21 @@ async def get_reflection_summary_and_card_synergy(user_id: int, reflection_data:
             summary_text_raw = re.sub(r'^(Хорошо|Вот резюме|Конечно|Отлично|Итак)[,.:]?\s*', '', summary_text_raw, flags=re.IGNORECASE).strip()
             summary_text_raw = re.sub(r'^"|"$', '', summary_text_raw).strip()
 
-            # Проверяем наличие ссылок и запрещенных слов
-            if 'http:' in summary_text_raw or 'https:' in summary_text_raw or 'ya.ru' in summary_text_raw or ']' in summary_text_raw or 'поиск' in summary_text_raw.lower() or 'интернет' in summary_text_raw.lower():
-                logger.warning(f"YandexGPT (reflection with card synergy) сгенерировал ответ со ссылкой или запрещенным словом: '{summary_text_raw}'. Ответ отбракован.")
-                raise ValueError("Generated reflection summary with card synergy contains a forbidden link or keyword.")
+            # Проверяем наличие ссылок и запрещенных слов (более разумная проверка)
+            forbidden_patterns = [
+                'http:', 'https:', 'ya.ru', 'www.', '.com', '.ru', '.org',
+                't.me/', 'telegram.me/', 'bit.ly', 'tinyurl'
+            ]
+            
+            has_forbidden = any(pattern in summary_text_raw.lower() for pattern in forbidden_patterns)
+            
+            # Проверяем на явные попытки рекламы или спама
+            spam_indicators = ['купить', 'заказать', 'скидка', 'акция', 'бесплатно', 'деньги']
+            has_spam = any(indicator in summary_text_raw.lower() for indicator in spam_indicators)
+            
+            if has_forbidden or has_spam:
+                logger.warning(f"YandexGPT (reflection with card synergy) сгенерировал ответ с запрещенным контентом: '{summary_text_raw[:100]}...'. Ответ отбракован.")
+                raise ValueError("Generated reflection summary with card synergy contains forbidden content.")
 
             if not summary_text_raw or len(summary_text_raw) < 10:
                  raise ValueError("Empty or too short reflection summary with card synergy content after cleaning")
@@ -1075,10 +1104,21 @@ async def get_empathetic_response(text: str) -> str:
             response_text_raw = re.sub(r'^(Хорошо|Вот ответ|Конечно|Отлично|Итак)[,.:]?\s*', '', response_text_raw, flags=re.IGNORECASE).strip()
             response_text_raw = re.sub(r'^"|"$', '', response_text_raw).strip()
 
-            # Проверяем наличие ссылок и запрещенных слов
-            if 'http:' in response_text_raw or 'https:' in response_text_raw or 'ya.ru' in response_text_raw or ']' in response_text_raw or 'поиск' in response_text_raw.lower() or 'интернет' in response_text_raw.lower():
-                logger.warning(f"YandexGPT (empathetic) сгенерировал ответ со ссылкой или запрещенным словом: '{response_text_raw}'. Ответ отбракован.")
-                raise ValueError("Generated empathetic response contains a forbidden link or keyword.")
+            # Проверяем наличие ссылок и запрещенных слов (более разумная проверка)
+            forbidden_patterns = [
+                'http:', 'https:', 'ya.ru', 'www.', '.com', '.ru', '.org',
+                't.me/', 'telegram.me/', 'bit.ly', 'tinyurl'
+            ]
+            
+            has_forbidden = any(pattern in response_text_raw.lower() for pattern in forbidden_patterns)
+            
+            # Проверяем на явные попытки рекламы или спама
+            spam_indicators = ['купить', 'заказать', 'скидка', 'акция', 'бесплатно', 'деньги']
+            has_spam = any(indicator in response_text_raw.lower() for indicator in spam_indicators)
+            
+            if has_forbidden or has_spam:
+                logger.warning(f"YandexGPT (empathetic) сгенерировал ответ с запрещенным контентом: '{response_text_raw[:100]}...'. Ответ отбракован.")
+                raise ValueError("Generated empathetic response contains forbidden content.")
 
             if not response_text_raw or len(response_text_raw) < 10:
                  raise ValueError("Empty or too short empathetic response content after cleaning")
@@ -1215,10 +1255,21 @@ async def get_weekly_analysis(reflections: list[dict]) -> str:
             analysis_text_raw = re.sub(r'^(Хорошо|Вот анализ|Конечно|Отлично|Итак)[,.:]?\s*', '', analysis_text_raw, flags=re.IGNORECASE).strip()
             analysis_text_raw = re.sub(r'^"|"$', '', analysis_text_raw).strip()
 
-            # Проверяем наличие ссылок и запрещенных слов
-            if 'http:' in analysis_text_raw or 'https:' in analysis_text_raw or 'ya.ru' in analysis_text_raw or ']' in analysis_text_raw or 'поиск' in analysis_text_raw.lower() or 'интернет' in analysis_text_raw.lower():
-                logger.warning(f"YandexGPT (weekly analysis) сгенерировал ответ со ссылкой или запрещенным словом: '{analysis_text_raw}'. Ответ отбракован.")
-                raise ValueError("Generated weekly analysis contains a forbidden link or keyword.")
+            # Проверяем наличие ссылок и запрещенных слов (более разумная проверка)
+            forbidden_patterns = [
+                'http:', 'https:', 'ya.ru', 'www.', '.com', '.ru', '.org',
+                't.me/', 'telegram.me/', 'bit.ly', 'tinyurl'
+            ]
+            
+            has_forbidden = any(pattern in analysis_text_raw.lower() for pattern in forbidden_patterns)
+            
+            # Проверяем на явные попытки рекламы или спама
+            spam_indicators = ['купить', 'заказать', 'скидка', 'акция', 'бесплатно', 'деньги']
+            has_spam = any(indicator in analysis_text_raw.lower() for indicator in spam_indicators)
+            
+            if has_forbidden or has_spam:
+                logger.warning(f"YandexGPT (weekly analysis) сгенерировал ответ с запрещенным контентом: '{analysis_text_raw[:100]}...'. Ответ отбракован.")
+                raise ValueError("Generated weekly analysis contains forbidden content.")
 
             if not analysis_text_raw or len(analysis_text_raw) < 50:
                  raise ValueError("Empty or too short weekly analysis content after cleaning")
