@@ -61,7 +61,12 @@ from aiogram.fsm.state import State, StatesGroup
 # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from aiogram.fsm.storage.memory import MemoryStorage
 from functools import partial
-import pytz # Убедимся, что pytz импортирован
+# Импорт pytz с обработкой ошибок
+try:
+    import pytz
+except ImportError:
+    pytz = None
+    print("Warning: pytz library not found. Timezone conversions might be affected.")
 
 # --- Импорты из проекта ---
 try:
@@ -760,7 +765,7 @@ def make_user_profile_handler(db, logger_service):
         days_active = profile.get("days_active", 0)
         total_cards_drawn = profile.get("total_cards_drawn", 0)
         last_updated_dt = profile.get("last_updated")
-        last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) else "не обновлялся"
+                    last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) and TIMEZONE else "не обновлялся"
         
         # Получаем расширенную статистику
         advanced_stats = db.get_user_advanced_stats(user_id)
@@ -865,7 +870,7 @@ def make_admin_user_profile_handler(db, logger_service):
          days_active = profile.get("days_active", 0)
          total_cards_drawn = profile.get("total_cards_drawn", 0)
          last_updated_dt = profile.get("last_updated")
-         last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) else "N/A"
+                     last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) and TIMEZONE else "N/A"
          text = (
              f"👤 <b>Профиль пользователя:</b> <code>{target_user_id}</code>\n   Имя: {name}, Ник: @{username}\n\n"
              f"<b>Состояние & Темы:</b>\n  Настроение: {mood}\n  Тренд: {mood_trend}\n  Темы: {themes}\n\n"
@@ -1142,10 +1147,10 @@ def make_users_handler(db, logger_service):
                 try:
                     last_action_dt = None
                     if isinstance(raw_timestamp, datetime):
-                         last_action_dt = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo and pytz else (TIMEZONE.localize(raw_timestamp) if pytz else raw_timestamp)
+                         last_action_dt = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo and TIMEZONE else (TIMEZONE.localize(raw_timestamp) if pytz and TIMEZONE else raw_timestamp)
                          last_action_timestamp_iso_or_dt = raw_timestamp
                     elif isinstance(raw_timestamp, str):
-                         last_action_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE)
+                                                         last_action_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE) if TIMEZONE else datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00'))
                          last_action_timestamp_iso_or_dt = raw_timestamp
                     else:
                          logger.warning(f"Invalid timestamp type for last action of user {uid}: {type(raw_timestamp)}")
@@ -1166,9 +1171,9 @@ def make_users_handler(db, logger_service):
             })
         try:
             user_list.sort(
-                key=lambda x: (x["last_action_timestamp_iso_or_dt"].astimezone(TIMEZONE) if isinstance(x["last_action_timestamp_iso_or_dt"], datetime) and x["last_action_timestamp_iso_or_dt"].tzinfo
-                                else datetime.fromisoformat(str(x["last_action_timestamp_iso_or_dt"]).replace('Z', '+00:00')).astimezone(TIMEZONE) if isinstance(x["last_action_timestamp_iso_or_dt"], str)
-                                else datetime.min.replace(tzinfo=TIMEZONE)),
+                key=lambda x: (x["last_action_timestamp_iso_or_dt"].astimezone(TIMEZONE) if isinstance(x["last_action_timestamp_iso_or_dt"], datetime) and x["last_action_timestamp_iso_or_dt"].tzinfo and TIMEZONE
+                                else datetime.fromisoformat(str(x["last_action_timestamp_iso_or_dt"]).replace('Z', '+00:00')).astimezone(TIMEZONE) if isinstance(x["last_action_timestamp_iso_or_dt"], str) and TIMEZONE
+                                else datetime.min.replace(tzinfo=TIMEZONE) if TIMEZONE else datetime.min),
                 reverse=True
             )
         except (ValueError, TypeError) as sort_err:
@@ -1206,7 +1211,7 @@ def make_logs_handler(db, logger_service):
                 await message.answer("Неверный формат даты. Используй ГГГГ-ММ-ДД (например, 2024-12-31).")
                 return
         else:
-            target_date = datetime.now(TIMEZONE).date()
+            target_date = datetime.now(TIMEZONE).date() if TIMEZONE else datetime.now().date()
             target_date_str = target_date.strftime("%Y-%m-%d")
         await logger_service.log_action(user_id, "logs_command", {"date": target_date_str})
         logs = db.get_actions()
@@ -1217,9 +1222,9 @@ def make_logs_handler(db, logger_service):
             try:
                 raw_timestamp = log.get("timestamp")
                 if isinstance(raw_timestamp, datetime):
-                     log_timestamp_dt = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo and pytz else (TIMEZONE.localize(raw_timestamp) if pytz else raw_timestamp)
+                     log_timestamp_dt = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo and TIMEZONE else (TIMEZONE.localize(raw_timestamp) if pytz and TIMEZONE else raw_timestamp)
                 elif isinstance(raw_timestamp, str):
-                     log_timestamp_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE)
+                     log_timestamp_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE) if TIMEZONE else datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00'))
                 else:
                      logger.warning(f"Skipping log due to invalid timestamp type: {type(raw_timestamp)} in action {log.get('id')}")
                      continue
@@ -1302,7 +1307,7 @@ def make_process_feedback_handler(db, logger_service):
           user_data = db.get_user(user_id)
           name = user_data.get("name", "Аноним")
           username = user_data.get("username", "N/A")
-          timestamp_iso = datetime.now(TIMEZONE).isoformat()
+          timestamp_iso = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
           try:
               with db.conn:
                   db.conn.execute("INSERT INTO feedback (user_id, name, feedback, timestamp) VALUES (?, ?, ?, ?)",
@@ -1901,7 +1906,7 @@ async def show_admin_users_list(message: types.Message, db: Database, logger_ser
                     try:
                         from datetime import datetime
                         if isinstance(raw_timestamp, datetime):
-                            last_action_dt = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo else raw_timestamp
+                            last_action_dt = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo and TIMEZONE else raw_timestamp
                             last_action_time = last_action_dt.strftime("%Y-%m-%d %H:%M")
                         elif isinstance(raw_timestamp, str):
                             last_action_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE)

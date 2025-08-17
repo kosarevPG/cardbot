@@ -1,11 +1,18 @@
-import pytz
+# Импорт pytz с обработкой ошибок
+try:
+    import pytz
+    TIMEZONE = pytz.timezone("Europe/Moscow")
+except ImportError:
+    pytz = None
+    TIMEZONE = None
+    print("Warning: pytz library not found. TIMEZONE will be None.")
+
 import os
 
 # Токены и настройки из переменных окружения (секреты Amvera)
 TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "YOUR_CHANNEL_ID_HERE")
 BOT_LINK = os.getenv("BOT_LINK", "YOUR_BOT_LINK_HERE")
-TIMEZONE = pytz.timezone("Europe/Moscow")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "YOUR_ADMIN_ID_HERE"))
 ADMIN_IDS = [str(ADMIN_ID)]  # Список ID администраторов для админ-панели
 
