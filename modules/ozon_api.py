@@ -27,6 +27,8 @@ class OzonAPI:
         
         if not self.client_id:
             logger.warning("Ozon Client ID не найден, некоторые функции могут не работать")
+            # Можно попробовать использовать API ключ как Client ID
+            self.client_id = self.api_key[:8] if self.api_key else ""
     
     async def test_connection(self) -> Dict[str, Union[bool, str]]:
         """Тестирует подключение к Ozon API"""
@@ -45,8 +47,12 @@ class OzonAPI:
                 
                 if response.status_code == 200:
                     return {"success": True, "message": "Подключение к Ozon API успешно"}
+                elif response.status_code == 401:
+                    return {"success": False, "message": "Ошибка авторизации (401): проверьте API ключ и Client ID в переменных O и OZON_CLIENT_ID"}
+                elif response.status_code == 403:
+                    return {"success": False, "message": "Ошибка доступа (403): недостаточно прав для доступа к API"}
                 else:
-                    return {"success": False, "message": f"Ошибка API: {response.status_code}"}
+                    return {"success": False, "message": f"Ошибка API: {response.status_code} - {response.text[:100]}"}
                     
         except Exception as e:
             logger.error(f"Ошибка подключения к Ozon API: {e}")

@@ -14,6 +14,8 @@ class WildberriesAPI:
     def __init__(self):
         self.api_key = os.getenv("W", "")  # API ключ из переменной окружения
         self.base_url = "https://suppliers-api.wildberries.ru"
+        # Альтернативный URL если основной не работает
+        self.fallback_url = "https://suppliers-api.wildberries.ru"
         self.headers = {
             "Authorization": self.api_key,
             "Content-Type": "application/json"
@@ -39,7 +41,14 @@ class WildberriesAPI:
                     
         except Exception as e:
             logger.error(f"Ошибка подключения к WB API: {e}")
-            return {"success": False, "message": f"Ошибка подключения: {str(e)}"}
+            
+            # Проверяем, может ли быть проблема с DNS
+            if "Name or service not known" in str(e):
+                return {"success": False, "message": "Ошибка DNS: не удается разрешить домен suppliers-api.wildberries.ru. Проверьте интернет-соединение."}
+            elif "401" in str(e):
+                return {"success": False, "message": "Ошибка авторизации: проверьте API ключ в переменной W"}
+            else:
+                return {"success": False, "message": f"Ошибка подключения: {str(e)}"}
     
     async def get_sales_stats(self, date_from: str = None, date_to: str = None) -> Dict:
         """Получает статистику продаж"""
