@@ -765,7 +765,7 @@ def make_user_profile_handler(db, logger_service):
         days_active = profile.get("days_active", 0)
         total_cards_drawn = profile.get("total_cards_drawn", 0)
         last_updated_dt = profile.get("last_updated")
-                    last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) and TIMEZONE else "не обновлялся"
+        last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) and TIMEZONE else "не обновлялся"
         
         # Получаем расширенную статистику
         advanced_stats = db.get_user_advanced_stats(user_id)
@@ -870,7 +870,7 @@ def make_admin_user_profile_handler(db, logger_service):
          days_active = profile.get("days_active", 0)
          total_cards_drawn = profile.get("total_cards_drawn", 0)
          last_updated_dt = profile.get("last_updated")
-                     last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) and TIMEZONE else "N/A"
+         last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) and TIMEZONE else "N/A"
          text = (
              f"👤 <b>Профиль пользователя:</b> <code>{target_user_id}</code>\n   Имя: {name}, Ник: @{username}\n\n"
              f"<b>Состояние & Темы:</b>\n  Настроение: {mood}\n  Тренд: {mood_trend}\n  Темы: {themes}\n\n"
