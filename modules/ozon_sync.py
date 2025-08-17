@@ -30,33 +30,33 @@ class OzonDataSync:
     async def get_ozon_stock(self, offer_id: str, offer_map: dict[str, int]) -> Optional[int]:
         """Получает остаток товара по offer_id используя настоящий эндпоинт"""
         try:
-            body = {}
-            if offer_id in offer_map:
-                body = {"product_id": offer_map[offer_id]}
-            else:
-                # fallback, если вдруг offer_id валиден
-                body = {"offer_id": offer_id, "product_id": 0, "sku": 0}
+            import httpx, asyncio, random
             
-            import httpx
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                r = await client.post(
-                    f"{self.ozon_api.base_url}/v3/product/info/stocks",
-                    headers=self.ozon_api.headers,
-                    json=body
-                )
-                
-                if r.status_code == 404:
-                    logger.warning(f"Stocks 404 for {offer_id} (body={body})")
-                    return None
-                
-                r.raise_for_status()
-                
-                res = r.json().get("result", {})
-                total_present = 0
-                for wh in res.get("stocks", []):
-                    total_present += int(wh.get("present", 0))
-                
-                return total_present
+            body = {"product_id": offer_map[offer_id]} if offer_id in offer_map else {"offer_id": offer_id}
+            
+            for attempt in range(3):
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    r = await client.post(
+                        f"{self.ozon_api.base_url}/v3/product/info/stocks",
+                        headers=self.ozon_api.headers,
+                        json=body
+                    )
+                    
+                    if r.status_code in (429, 500, 502, 503, 504):
+                        await asyncio.sleep((2** attempt) + random.random())
+                        continue
+                    
+                    if r.status_code == 404:
+                        logger.warning(f"Stocks 404 for {offer_id} (body={body})")
+                        return None
+                    
+                    r.raise_for_status()
+                    
+                    res = r.json().get("result", {})
+                    total_present = sum(int(wh.get("present", 0)) for wh in res.get("stocks", []))
+                    return total_present
+            
+            return None
                 
         except Exception as e:
             logger.error(f"Ошибка получения остатка для {offer_id}: {e}")
@@ -81,12 +81,18 @@ class OzonDataSync:
                     
                     data = r.json()["result"]
                     for it in data.get("items", []):
-                        # иногда приходит массив, иногда строка
-                        for offer in it.get("offer_id", []):
-                            offer_map[str(offer)] = it["product_id"]
+                        offer = it.get("offer_id")
+                        pid = it.get("product_id")
                         
-                        if isinstance(it.get("offer_id"), str):
-                            offer_map[it["offer_id"]] = it["product_id"]
+                        if not pid:
+                            continue
+                        
+                        if isinstance(offer, str) and offer:
+                            offer_map[offer] = pid
+                        elif isinstance(offer, list):
+                            for o in offer:
+                                if o:
+                                    offer_map[str(o)] = pid
                     
                     last_id = data.get("last_id")
                     if not last_id:
@@ -103,6 +109,8 @@ class OzonDataSync:
     async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
         """Получает аналитику продаж и выручки по offer_id"""
         try:
+            import httpx, asyncio, random
+            
             body = {
                 "date_from": date_from,
                 "date_to": date_to,
@@ -112,29 +120,35 @@ class OzonDataSync:
                 "limit": 1000
             }
             
-            import httpx
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                r = await client.post(
-                    f"{self.ozon_api.base_url}/v3/analytics/data",
-                    headers=self.ozon_api.headers,
-                    json=body
-                )
-                
-                if r.status_code == 404:
-                    logger.warning(f"Analytics 404 for {offer_id} (body={body})")
-                    return {"ordered_units": 0, "revenue": 0.0}
-                
-                r.raise_for_status()
-                
-                rows = r.json().get("result", [])
-                if not rows:
-                    return {"ordered_units": 0, "revenue": 0.0}
-                
-                row = rows[0]
-                return {
-                    "ordered_units": int(row.get("ordered_units", 0)),
-                    "revenue": float(row.get("revenue", 0.0))
-                }
+            for attempt in range(3):
+                async with httpx.AsyncClient(timeout=20.0) as client:
+                    r = await client.post(
+                        f"{self.ozon_api.base_url}/v3/analytics/data",
+                        headers=self.ozon_api.headers,
+                        json=body
+                    )
+                    
+                    if r.status_code in (429, 500, 502, 503, 504):
+                        await asyncio.sleep((2** attempt) + random.random())
+                        continue
+                    
+                    if r.status_code == 404:
+                        logger.warning(f"Analytics 404 for {offer_id} (body={body})")
+                        return {"ordered_units": 0, "revenue": 0.0}
+                    
+                    r.raise_for_status()
+                    
+                    rows = r.json().get("result", [])
+                    if not rows:
+                        return {"ordered_units": 0, "revenue": 0.0}
+                    
+                    row = rows[0]
+                    return {
+                        "ordered_units": int(row.get("ordered_units", 0)),
+                        "revenue": float(row.get("revenue", 0.0))
+                    }
+            
+            return {"ordered_units": 0, "revenue": 0.0}
                 
         except Exception as e:
             logger.error(f"Ошибка получения аналитики для {offer_id}: {e}")
@@ -154,11 +168,12 @@ class OzonDataSync:
             
             if result["success"]:
                 data = result["data"]
-                # Извлекаем offer_id из данных, убираем пустые строки
+                # Извлекаем offer_id из данных, убираем пустые строки и нормализуем
                 offer_ids = []
                 for row in data:
                     if row and row[0] and row[0].strip():  # Проверяем, что ячейка не пустая
-                        offer_ids.append(row[0].strip())
+                        normalized_id = row[0].strip().upper()  # Нормализуем через .strip() и .upper()
+                        offer_ids.append(normalized_id)
                 
                 logger.info(f"Прочитано {len(offer_ids)} offer_id из таблицы")
                 return offer_ids
@@ -298,11 +313,12 @@ class OzonDataSync:
                 }
             
             data = sheet_rows["data"]
-            # индекс строки по offer_id (D-колонка)
+            # индекс строки по offer_id (D-колонка) - нормализуем для поиска
             row_by_offer: dict[str, int] = {}
             for i, row in enumerate(data, start=1):
                 if len(row) > 3 and row[3]:
-                    row_by_offer[row[3].strip()] = i
+                    normalized_id = row[3].strip().upper()  # Нормализуем для поиска
+                    row_by_offer[normalized_id] = i
             
             updates = []  # (range, [[value]])
             results = []
@@ -310,7 +326,9 @@ class OzonDataSync:
             date_from = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
             
             for offer_id in offer_ids:
-                row_index = row_by_offer.get(offer_id)
+                # Нормализуем offer_id для поиска в таблице
+                normalized_offer_id = offer_id.upper()
+                row_index = row_by_offer.get(normalized_offer_id)
                 if not row_index:
                     logger.warning(f"{offer_id} нет в листе - пропускаю")
                     results.append({"offer_id": offer_id, "success": False, "error": "not in sheet"})
