@@ -1,0 +1,20 @@
+# Ozon API Configuration
+# Скопируйте эти переменные в ваш .env файл или установите в системе
+
+# API ключ Ozon (получите в личном кабинете продавца)
+OZON_API_KEY=your_ozon_api_key_here
+
+# Client ID Ozon (получите в личном кабинете продавца)
+OZON_CLIENT_ID=your_ozon_client_id_here
+
+# Дополнительные настройки
+OZON_API_TIMEOUT=20
+OZON_API_RETRY_ATTEMPTS=3
+
+# Пример установки в PowerShell:
+# $env:OZON_API_KEY="ваш_реальный_ключ"
+# $env:OZON_CLIENT_ID="ваш_реальный_client_id"
+
+# Пример установки в bash:
+# export OZON_API_KEY="ваш_реальный_ключ"
+# export OZON_CLIENT_ID="ваш_реальный_client_id"
