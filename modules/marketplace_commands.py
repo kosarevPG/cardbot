@@ -131,19 +131,22 @@ async def cmd_ozon_stocks(message: types.Message):
 def register_marketplace_handlers(dp):
     """Регистрирует обработчики команд маркетплейсов"""
     
+    # Импортируем фильтры для aiogram 3.x
+    from aiogram.filters import Command
+    
     # Основные команды
-    dp.message.register(cmd_wb_test, commands=["wb_test"])
-    dp.message.register(cmd_wb_stats, commands=["wb_stats"])
-    dp.message.register(cmd_wb_products, commands=["wb_products"])
-    dp.message.register(cmd_wb_stocks, commands=["wb_stocks"])
+    dp.message.register(cmd_wb_test, Command("wb_test"))
+    dp.message.register(cmd_wb_stats, Command("wb_stats"))
+    dp.message.register(cmd_wb_products, Command("wb_products"))
+    dp.message.register(cmd_wb_stocks, Command("wb_stocks"))
     
     # Команды Ozon
-    dp.message.register(cmd_ozon_test, commands=["ozon_test"])
-    dp.message.register(cmd_ozon_stats, commands=["ozon_stats"])
-    dp.message.register(cmd_ozon_products, commands=["ozon_products"])
-    dp.message.register(cmd_ozon_stocks, commands=["ozon_stocks"])
+    dp.message.register(cmd_ozon_test, Command("ozon_test"))
+    dp.message.register(cmd_ozon_stats, Command("ozon_stats"))
+    dp.message.register(cmd_ozon_products, Command("ozon_products"))
+    dp.message.register(cmd_ozon_stocks, Command("ozon_stocks"))
     
     # Общие команды
-    dp.message.register(cmd_marketplace_help, commands=["marketplace_help"])
+    dp.message.register(cmd_marketplace_help, Command("marketplace_help"))
     
     logger.info("Обработчики команд маркетплейсов зарегистрированы")
