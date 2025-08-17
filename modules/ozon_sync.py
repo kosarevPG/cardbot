@@ -85,17 +85,16 @@ class OzonDataSync:
             return None
     
     async def build_offer_map(self) -> dict[str, int]:
-        """Строит карту offer_id -> product_id"""
+        """Строит карту offer_id -> product_id согласно документации v2 API"""
         try:
-            # Берём все товары — пагинация при необходимости
-            payload = {"filter": {}, "limit": 1000, "last_id": ""}
+            # Согласно документации v2: используем page_size и page
+            payload = {"page_size": 1000, "page": 1}
             offer_map = {}
             
-            import httpx
             async with httpx.AsyncClient(timeout=20.0) as client:
                 while True:
                     r = await client.post(
-                        f"{self.ozon_api.base_url}/v3/product/list",
+                        f"{self.ozon_api.base_url}/v2/product/list",
                         headers=self.ozon_api.headers,
                         json=payload
                     )
@@ -116,10 +115,13 @@ class OzonDataSync:
                                 if o:
                                     offer_map[str(o)] = pid
                     
-                    last_id = data.get("last_id")
-                    if not last_id:
+                    # Проверяем, есть ли следующая страница
+                    total = data.get("total", 0)
+                    current_page = payload["page"]
+                    if current_page * payload["page_size"] >= total:
                         break
-                    payload["last_id"] = last_id
+                    
+                    payload["page"] += 1
             
             logger.info(f"Построена карта для {len(offer_map)} товаров")
             return offer_map
@@ -129,10 +131,8 @@ class OzonDataSync:
             return {}
 
     async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
-        """Получает аналитику продаж и выручки по offer_id"""
+        """Получает аналитику продаж и выручки по offer_id согласно документации v1 API"""
         try:
-            import httpx, asyncio, random
-            
             body = {
                 "date_from": date_from,
                 "date_to": date_to,
@@ -142,8 +142,8 @@ class OzonDataSync:
                 "limit": 1000
             }
             
-            # Используем только рабочий эндпоинт v2
-            path = "/v2/analytics/data"
+            # Используем эндпоинт v1 согласно документации
+            path = "/v1/analytics/data"
             
             async with httpx.AsyncClient(timeout=20.0) as client:
                 r = await client.post(
@@ -156,10 +156,10 @@ class OzonDataSync:
                     data = r.json()
                     logger.debug(f"analytics for {offer_id} via {path}: {data}")
                     
-                    # Парсим результат
+                    # Парсим результат согласно документации v1
                     result = data.get("result", {})
                     if "data" in result:
-                        # Стандартная структура
+                        # Стандартная структура v1
                         for row in result["data"]:
                             if row.get("offer_id") == offer_id:
                                 return {

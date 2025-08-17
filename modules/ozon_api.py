@@ -16,10 +16,10 @@ class OzonAPI:
         self.client_id = os.getenv("OZON_CLIENT_ID", "")  # Client ID для Ozon
         self.base_url = "https://api-seller.ozon.ru"
         
-        # Правильные эндпоинты для Ozon API согласно документации
+        # Правильные эндпоинты для Ozon API согласно официальной документации
         self.endpoints = {
-            "product_list": "/v3/product/list",           # Получение product_id по offer_id (v3 вместо v2)
-            "analytics": "/v2/analytics/data",            # Аналитика (продажи, выручка) - v2 вместо v1
+            "product_list": "/v2/product/list",           # Получение product_id по offer_id (согласно документации)
+            "analytics": "/v1/analytics/data",            # Аналитика (продажи, выручка) - v1 согласно документации
             "stocks": "/v3/product/info/stocks",          # Остатки на складе
             "product_info": "/v3/product/list"            # Общая информация о товарах
         }
@@ -40,14 +40,14 @@ class OzonAPI:
     
     async def get_product_mapping(self, page_size: int = 1000, page: int = 1) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Получение product_id по offer_id - метод POST /v3/product/list
-        Строит словарь соответствия offer_id → product_id
+        Получение product_id по offer_id - метод POST /v2/product/list
+        Строит словарь соответствия offer_id → product_id согласно документации
         """
         try:
+            # Согласно документации: получаем все товары и строим mapping
             payload = {
-                "filter": {},
-                "limit": page_size,
-                "last_id": ""
+                "page_size": page_size,
+                "page": page
             }
             
             async with httpx.AsyncClient(timeout=20.0) as client:
@@ -87,7 +87,7 @@ class OzonAPI:
     
     async def get_analytics(self, product_ids: List[int], date_from: str = None, date_to: str = None) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Получение аналитики (продажи, выручка) - метод POST /v2/analytics/data
+        Получение аналитики (продажи, выручка) - метод POST /v1/analytics/data согласно документации
         """
         try:
             # Если даты не указаны, берем последние 7 дней
@@ -142,11 +142,12 @@ class OzonAPI:
     
     async def get_stocks(self, product_id: int) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Остатки на складе - метод POST /v3/product/info/stocks
+        Остатки на складе - метод POST /v3/product/info/stocks согласно документации
         """
         try:
+            # Согласно документации: передаем массив product_id
             payload = {
-                "product_id": product_id
+                "product_id": [product_id]
             }
             
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -158,20 +159,34 @@ class OzonAPI:
                 
                 if response.status_code == 200:
                     data = response.json()
-                    stocks = data.get("result", {}).get("stocks", [])
+                    # Согласно документации: result содержит массив с данными по каждому product_id
+                    result_items = data.get("result", [])
                     
-                    # Считаем общий остаток по всем складам
-                    total_present = sum(int(wh.get("present", 0)) for wh in stocks)
-                    
-                    logger.info(f"Получены остатки для product_id {product_id}: {total_present}")
-                    
-                    return {
-                        "success": True,
-                        "product_id": product_id,
-                        "total_stock": total_present,
-                        "warehouse_stocks": stocks,
-                        "raw_data": data
-                    }
+                    if result_items and len(result_items) > 0:
+                        # Берем первый элемент (наш product_id)
+                        item = result_items[0]
+                        stocks = item.get("stocks", [])
+                        
+                        # Считаем общий остаток по всем складам
+                        total_present = sum(int(wh.get("present", 0)) for wh in stocks)
+                        
+                        logger.info(f"Получены остатки для product_id {product_id}: {total_present}")
+                        
+                        return {
+                            "success": True,
+                            "product_id": product_id,
+                            "total_stock": total_present,
+                            "warehouse_stocks": stocks,
+                            "raw_data": data
+                        }
+                    else:
+                        return {
+                            "success": True,
+                            "product_id": product_id,
+                            "total_stock": 0,
+                            "warehouse_stocks": [],
+                            "raw_data": data
+                        }
                 else:
                     logger.error(f"Ошибка API при получении остатков для product_id {product_id}: {response.status_code} - {response.text}")
                     return {
