@@ -41,8 +41,8 @@ class OzonDataSync:
                 logger.warning(f"Offer_id {offer_id} не найден в mapping, пропускаем")
                 return None
             
-            # Используем только рабочий эндпоинт v2 согласно документации
-            path = "/v2/product/info/stocks"
+            # Используем эндпоинт v3 согласно документации
+            path = "/v3/product/info/stocks"
             
             async with httpx.AsyncClient(timeout=15.0) as client:
                 r = await client.post(
@@ -76,16 +76,19 @@ class OzonDataSync:
             return None
     
     async def build_offer_map(self) -> dict[str, int]:
-        """Строит карту offer_id -> product_id согласно документации v3 API"""
+        """Строит карту offer_id -> product_id согласно документации v2 API"""
         try:
-            # Согласно документации v3: используем filter, limit, last_id
-            payload = {"filter": {}, "limit": 1000, "last_id": ""}
+            # Согласно документации v2: используем page_size и page для пагинации
+            page = 1
+            page_size = 1000
             offer_map = {}
             
             async with httpx.AsyncClient(timeout=20.0) as client:
                 while True:
+                    payload = {"page": page, "page_size": page_size}
+                    
                     r = await client.post(
-                        f"{self.ozon_api.base_url}/v3/product/list",
+                        f"{self.ozon_api.base_url}/v2/product/list",
                         headers=self.ozon_api.headers,
                         json=payload
                     )
@@ -107,10 +110,9 @@ class OzonDataSync:
                                     offer_map[str(o)] = pid
                     
                     # Проверяем, есть ли следующая страница
-                    last_id = data.get("last_id")
-                    if not last_id:
+                    if len(data.get("items", [])) < page_size:
                         break
-                    payload["last_id"] = last_id
+                    page += 1
             
             logger.info(f"Построена карта для {len(offer_map)} товаров")
             return offer_map
@@ -122,22 +124,15 @@ class OzonDataSync:
     async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
         """Получает аналитику продаж и выручки по offer_id согласно документации v1 API"""
         try:
-            # Согласно документации v1: правильная структура запроса с product_id
-            # Но сначала нужно получить product_id по offer_id
-            offer_map = await self.build_offer_map()
-            
-            if offer_id not in offer_map:
-                logger.warning(f"Offer_id {offer_id} не найден в mapping для аналитики")
-                return {"ordered_units": 0, "revenue": 0.0}
-            
-            product_id = offer_map[offer_id]
+            # Согласно документации v1: используем offer_id напрямую, НЕ product_id
+            # Метод /v1/analytics/data работает с offer_id, а не с product_id
             
             body = {
                 "date_from": date_from,
                 "date_to": date_to,
                 "metrics": ["ordered_units", "revenue"],
-                "dimension": "product_id",
-                "filters": [{"key": "product_id", "op": "IN", "value": [product_id]}],
+                "dimension": "offer_id",
+                "filters": [{"key": "offer_id", "op": "IN", "value": [offer_id]}],
                 "limit": 1000
             }
             
@@ -153,20 +148,20 @@ class OzonDataSync:
                 
                 if r.status_code == 200:
                     data = r.json()
-                    logger.debug(f"analytics for {offer_id} (product_id: {product_id}) via {path}: {data}")
+                    logger.debug(f"analytics for {offer_id} via {path}: {data}")
                     
                     # Парсим результат согласно документации v1
                     result = data.get("result", {})
                     if "data" in result:
-                        # Стандартная структура v1
+                        # Стандартная структура v1 - ищем по offer_id
                         for row in result["data"]:
-                            if row.get("product_id") == product_id:
+                            if row.get("offer_id") == offer_id:
                                 return {
                                     "ordered_units": int(row.get("ordered_units", 0)),
                                     "revenue": float(row.get("revenue", 0.0))
                                 }
                     
-                    # Если не нашли конкретный product_id, возвращаем 0
+                    # Если не нашли конкретный offer_id, возвращаем 0
                     return {"ordered_units": 0, "revenue": 0.0}
                 else:
                     logger.warning(f"Analytics {r.status_code} for {offer_id}: {r.text[:200]}")

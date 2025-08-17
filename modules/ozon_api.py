@@ -18,9 +18,9 @@ class OzonAPI:
         
         # Правильные эндпоинты для Ozon API согласно актуальной документации
         self.endpoints = {
-            "product_list": "/v3/product/list",           # Получение product_id по offer_id (v3 согласно документации)
+            "product_list": "/v2/product/list",           # Получение product_id по offer_id (v2 согласно документации)
             "analytics": "/v1/analytics/data",            # Аналитика (продажи, выручка) - v1 согласно документации
-            "stocks": "/v2/product/info/stocks",          # Остатки на складе (v2 согласно документации)
+            "stocks": "/v3/product/info/stocks",          # Остатки на складе (v3 согласно документации)
             "product_info": "/v3/product/list"            # Общая информация о товарах
         }
         
@@ -40,15 +40,14 @@ class OzonAPI:
     
     async def get_product_mapping(self, page_size: int = 1000, page: int = 1) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Получение product_id по offer_id - метод POST /v3/product/list
-        Строит словарь соответствия offer_id → product_id согласно документации v3
+        Получение product_id по offer_id - метод POST /v2/product/list
+        Строит словарь соответствия offer_id → product_id согласно документации v2
         """
         try:
-            # Согласно документации v3: используем filter, limit, last_id
+            # Согласно документации v2: используем page и page_size для пагинации
             payload = {
-                "filter": {},
-                "limit": page_size,
-                "last_id": ""
+                "page": page,
+                "page_size": page_size
             }
             
             async with httpx.AsyncClient(timeout=20.0) as client:
@@ -149,10 +148,10 @@ class OzonAPI:
     
     async def get_stocks(self, product_id: int) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Остатки на складе - метод POST /v2/product/info/stocks согласно документации
+        Остатки на складе - метод POST /v3/product/info/stocks согласно документации
         """
         try:
-            # Согласно документации v2: передаем массив product_id
+            # Согласно документации v3: передаем массив product_id
             payload = {
                 "product_id": [product_id]
             }
