@@ -125,8 +125,7 @@ class OzonAPI:
             payload = {
                 "filter": {
                     "since": date_from,
-                    "to": date_to,
-                    "status": "awaiting_packaging"
+                    "to": date_to
                 },
                 "limit": 100,
                 "offset": 0
@@ -245,6 +244,22 @@ class OzonAPI:
             return {"success": False, "error": str(e)}
 
 # Функции для удобного использования
+async def get_ozon_products() -> Dict:
+    """Получает список товаров Ozon"""
+    try:
+        ozon_api = OzonAPI()
+        return await ozon_api.get_products()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+async def get_ozon_stocks() -> Dict:
+    """Получает остатки товаров Ozon"""
+    try:
+        ozon_api = OzonAPI()
+        return await ozon_api.get_stocks()
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 async def test_ozon_connection() -> str:
     """Тестирует подключение к Ozon API и возвращает сообщение"""
     try:

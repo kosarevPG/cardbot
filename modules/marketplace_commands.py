@@ -109,8 +109,32 @@ async def cmd_ozon_products(message: types.Message):
     try:
         await message.answer("📦 Получаю список товаров Ozon...")
         
-        # Здесь будет вызов API для получения товаров
-        await message.answer("🔄 Функция в разработке...")
+        from modules.ozon_api import get_ozon_products
+        
+        result = await get_ozon_products()
+        if result["success"]:
+            data = result["data"]
+            if isinstance(data, dict) and "result" in data:
+                items = data["result"].get("items", [])
+                total = data["result"].get("total", 0)
+                await message.answer(f"✅ Получено товаров: {len(items)} из {total}")
+                
+                if items:
+                    # Показываем первые 3 товара
+                    preview = "📋 **Первые товары:**\n\n"
+                    for i, item in enumerate(items[:3], 1):
+                        offer_id = item.get("offer_id", "N/A")
+                        product_id = item.get("product_id", "N/A")
+                        archived = "📦" if not item.get("archived") else "🗄️"
+                        preview += f"{i}. {archived} {offer_id} (ID: {product_id})\n"
+                    
+                    await message.answer(preview, parse_mode="Markdown")
+                else:
+                    await message.answer("📭 Товары не найдены")
+            else:
+                await message.answer("❌ Неожиданный формат данных")
+        else:
+            await message.answer(f"❌ Ошибка получения товаров: {result.get('error', 'Неизвестная ошибка')}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_products: {e}")
@@ -121,8 +145,33 @@ async def cmd_ozon_stocks(message: types.Message):
     try:
         await message.answer("📊 Получаю остатки товаров Ozon...")
         
-        # Здесь будет вызов API для получения остатков
-        await message.answer("🔄 Функция в разработке...")
+        from modules.ozon_api import get_ozon_stocks
+        
+        result = await get_ozon_stocks()
+        if result["success"]:
+            data = result["data"]
+            if isinstance(data, dict) and "result" in data:
+                items = data["result"].get("items", [])
+                total = data["result"].get("total", 0)
+                await message.answer(f"✅ Получено остатков: {len(items)} из {total}")
+                
+                if items:
+                    # Показываем первые 3 остатка
+                    preview = "📋 **Первые остатки:**\n\n"
+                    for i, item in enumerate(items[:3], 1):
+                        offer_id = item.get("offer_id", "N/A")
+                        product_id = item.get("product_id", "N/A")
+                        stocks = item.get("stocks", [])
+                        total_stock = sum(stock.get("present", 0) for stock in stocks)
+                        preview += f"{i}. 📦 {offer_id} (ID: {product_id}) - {total_stock} шт.\n"
+                    
+                    await message.answer(preview, parse_mode="Markdown")
+                else:
+                    await message.answer("📭 Остатки не найдены")
+            else:
+                await message.answer("❌ Неожиданный формат данных")
+        else:
+            await message.answer(f"❌ Ошибка получения остатков: {result.get('error', 'Неизвестная ошибка')}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_stocks: {e}")
