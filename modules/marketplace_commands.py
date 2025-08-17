@@ -1,7 +1,5 @@
 # Команды для работы с маркетплейсами
 from aiogram import types
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters import Text
 import logging
 from .wb_api import test_wb_connection, get_wb_summary
 
@@ -83,10 +81,10 @@ def register_marketplace_handlers(dp):
     """Регистрирует обработчики команд маркетплейсов"""
     
     # Основные команды
-    dp.register_message_handler(cmd_wb_test, commands=["wb_test"])
-    dp.register_message_handler(cmd_wb_stats, commands=["wb_stats"])
-    dp.register_message_handler(cmd_wb_products, commands=["wb_products"])
-    dp.register_message_handler(cmd_wb_stocks, commands=["wb_stocks"])
-    dp.register_message_handler(cmd_marketplace_help, commands=["marketplace_help"])
+    dp.message.register(cmd_wb_test, commands=["wb_test"])
+    dp.message.register(cmd_wb_stats, commands=["wb_stats"])
+    dp.message.register(cmd_wb_products, commands=["wb_products"])
+    dp.message.register(cmd_wb_stocks, commands=["wb_stocks"])
+    dp.message.register(cmd_marketplace_help, commands=["marketplace_help"])
     
     logger.info("Обработчики команд маркетплейсов зарегистрированы")
