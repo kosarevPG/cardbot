@@ -76,19 +76,19 @@ class OzonDataSync:
             return None
     
     async def build_offer_map(self) -> dict[str, int]:
-        """Строит карту offer_id -> product_id согласно документации v2 API"""
+        """Строит карту offer_id -> product_id согласно документации v3 API"""
         try:
-            # Согласно документации v2: используем page_size и page для пагинации
-            page = 1
+            # Согласно документации v3: используем filter, limit, last_id для пагинации
+            last_id = ""
             page_size = 1000
             offer_map = {}
             
             async with httpx.AsyncClient(timeout=20.0) as client:
                 while True:
-                    payload = {"page": page, "page_size": page_size}
+                    payload = {"filter": {}, "limit": page_size, "last_id": last_id}
                     
                     r = await client.post(
-                        f"{self.ozon_api.base_url}/v2/product/list",
+                        f"{self.ozon_api.base_url}/v3/product/list",
                         headers=self.ozon_api.headers,
                         json=payload
                     )
@@ -110,9 +110,9 @@ class OzonDataSync:
                                     offer_map[str(o)] = pid
                     
                     # Проверяем, есть ли следующая страница
-                    if len(data.get("items", [])) < page_size:
+                    last_id = data.get("last_id", "")
+                    if not last_id or len(data.get("items", [])) < page_size:
                         break
-                    page += 1
             
             logger.info(f"Построена карта для {len(offer_map)} товаров")
             return offer_map

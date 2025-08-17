@@ -18,7 +18,7 @@ class OzonAPI:
         
         # Правильные эндпоинты для Ozon API согласно актуальной документации
         self.endpoints = {
-            "product_list": "/v2/product/list",           # Получение product_id по offer_id (v2 согласно документации)
+            "product_list": "/v3/product/list",           # Получение product_id по offer_id (v3 согласно документации)
             "analytics": "/v1/analytics/data",            # Аналитика (продажи, выручка) - v1 согласно документации
             "stocks": "/v3/product/info/stocks",          # Остатки на складе (v3 согласно документации)
             "product_info": "/v3/product/list"            # Общая информация о товарах
@@ -40,44 +40,60 @@ class OzonAPI:
     
     async def get_product_mapping(self, page_size: int = 1000, page: int = 1) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Получение product_id по offer_id - метод POST /v2/product/list
-        Строит словарь соответствия offer_id → product_id согласно документации v2
+        Получение product_id по offer_id - метод POST /v3/product/list
+        Строит словарь соответствия offer_id → product_id согласно документации v3
         """
         try:
-            # Согласно документации v2: используем page и page_size для пагинации
-            payload = {
-                "page": page,
-                "page_size": page_size
-            }
+            # Согласно документации v3: используем filter, limit, last_id для пагинации
+            last_id = ""
+            mapping = {}
             
             async with httpx.AsyncClient(timeout=20.0) as client:
-                response = await client.post(
-                    f"{self.base_url}{self.endpoints['product_list']}",
-                    headers=self.headers,
-                    json=payload
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    products = data.get("result", {}).get("items", [])
-                    
-                    # Строим словарь offer_id → product_id
-                    mapping = {}
-                    for p in products:
-                        offer_id = p.get("offer_id")
-                        product_id = p.get("product_id")
-                        if offer_id and product_id:
-                            mapping[offer_id] = product_id
-                    
-                    logger.info(f"Получено {len(mapping)} соответствий offer_id → product_id")
-                    
-                    return {
-                        "success": True,
-                        "mapping": mapping,
-                        "total_count": len(mapping),
-                        "page": page,
-                        "page_size": page_size
+                while True:
+                    payload = {
+                        "filter": {},
+                        "limit": page_size,
+                        "last_id": last_id
                     }
+                    
+                    response = await client.post(
+                        f"{self.base_url}{self.endpoints['product_list']}",
+                        headers=self.headers,
+                        json=payload
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        products = data.get("result", {}).get("items", [])
+                        
+                        # Строим словарь offer_id → product_id
+                        for p in products:
+                            offer_id = p.get("offer_id")
+                            product_id = p.get("product_id")
+                            if offer_id and product_id:
+                                mapping[offer_id] = product_id
+                        
+                        # Проверяем, есть ли следующая страница
+                        last_id = data.get("result", {}).get("last_id", "")
+                        if not last_id or len(products) < page_size:
+                            break
+                    else:
+                        logger.error(f"Ошибка API при получении product_mapping: {response.status_code} - {response.text}")
+                        return {
+                            "success": False,
+                            "error": f"Ошибка API: {response.status_code}",
+                            "details": response.text
+                        }
+                
+                logger.info(f"Получено {len(mapping)} соответствий offer_id → product_id")
+                
+                return {
+                    "success": True,
+                    "mapping": mapping,
+                    "total_count": len(mapping),
+                    "page": page,
+                    "page_size": page_size
+                }
                 else:
                     logger.error(f"Ошибка API при получении product_mapping: {response.status_code} - {response.text}")
                     return {
