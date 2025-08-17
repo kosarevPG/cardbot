@@ -20,7 +20,7 @@ class OzonAPI:
             "info": "/v3/product/list",  # Используем рабочий эндпоинт для теста
             "products": "/v3/product/list",
             "orders": "/v3/posting/fbs/list",
-            "stocks": "/v3/product/info/stocks"
+            "stocks": "/v3/product/list"  # Используем тот же эндпоинт для остатков
         }
         self.headers = {
             "Client-Id": self.client_id,
@@ -190,12 +190,12 @@ class OzonAPI:
             return {"success": False, "error": str(e)}
     
     async def get_stocks(self) -> Dict:
-        """Получает остатки товаров"""
+        """Получает остатки товаров через список товаров"""
         try:
             payload = {
                 "filter": {},
-                "limit": 100,
-                "offset": 0
+                "last_id": "",
+                "limit": 100
             }
             
             async with httpx.AsyncClient(timeout=15.0) as client:

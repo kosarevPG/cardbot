@@ -153,25 +153,27 @@ async def cmd_ozon_stocks(message: types.Message):
             if isinstance(data, dict) and "result" in data:
                 items = data["result"].get("items", [])
                 total = data["result"].get("total", 0)
-                await message.answer(f"✅ Получено остатков: {len(items)} из {total}")
+                await message.answer(f"✅ Получено товаров: {len(items)} из {total}")
                 
                 if items:
-                    # Показываем первые 3 остатка
-                    preview = "📋 **Первые остатки:**\n\n"
+                    # Показываем первые 3 товара с информацией о наличии
+                    preview = "📋 **Информация о товарах:**\n\n"
                     for i, item in enumerate(items[:3], 1):
                         offer_id = item.get("offer_id", "N/A")
                         product_id = item.get("product_id", "N/A")
-                        stocks = item.get("stocks", [])
-                        total_stock = sum(stock.get("present", 0) for stock in stocks)
-                        preview += f"{i}. 📦 {offer_id} (ID: {product_id}) - {total_stock} шт.\n"
+                        has_fbo = "✅" if item.get("has_fbo_stocks") else "❌"
+                        has_fbs = "✅" if item.get("has_fbs_stocks") else "❌"
+                        archived = "🗄️" if item.get("archived") else "📦"
+                        preview += f"{i}. {archived} {offer_id} (ID: {product_id})\n"
+                        preview += f"   FBO склады: {has_fbo} | FBS склады: {has_fbs}\n\n"
                     
                     await message.answer(preview, parse_mode="Markdown")
                 else:
-                    await message.answer("📭 Остатки не найдены")
+                    await message.answer("📭 Товары не найдены")
             else:
                 await message.answer("❌ Неожиданный формат данных")
         else:
-            await message.answer(f"❌ Ошибка получения остатков: {result.get('error', 'Неизвестная ошибка')}")
+            await message.answer(f"❌ Ошибка получения товаров: {result.get('error', 'Неизвестная ошибка')}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_stocks: {e}")
