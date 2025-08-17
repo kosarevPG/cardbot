@@ -1150,7 +1150,7 @@ def make_users_handler(db, logger_service):
                          last_action_dt = raw_timestamp.astimezone(TIMEZONE) if raw_timestamp.tzinfo and TIMEZONE else (TIMEZONE.localize(raw_timestamp) if pytz and TIMEZONE else raw_timestamp)
                          last_action_timestamp_iso_or_dt = raw_timestamp
                     elif isinstance(raw_timestamp, str):
-                                                         last_action_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE) if TIMEZONE else datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00'))
+                         last_action_dt = datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00')).astimezone(TIMEZONE) if TIMEZONE else datetime.fromisoformat(raw_timestamp.replace('Z', '+00:00'))
                          last_action_timestamp_iso_or_dt = raw_timestamp
                     else:
                          logger.warning(f"Invalid timestamp type for last action of user {uid}: {type(raw_timestamp)}")
