@@ -85,16 +85,16 @@ class OzonDataSync:
             return None
     
     async def build_offer_map(self) -> dict[str, int]:
-        """Строит карту offer_id -> product_id согласно документации v2 API"""
+        """Строит карту offer_id -> product_id согласно документации v3 API"""
         try:
-            # Согласно документации v2: используем page_size и page
-            payload = {"page_size": 1000, "page": 1}
+            # Согласно документации v3: используем filter, limit, last_id
+            payload = {"filter": {}, "limit": 1000, "last_id": ""}
             offer_map = {}
             
             async with httpx.AsyncClient(timeout=20.0) as client:
                 while True:
                     r = await client.post(
-                        f"{self.ozon_api.base_url}/v2/product/list",
+                        f"{self.ozon_api.base_url}/v3/product/list",
                         headers=self.ozon_api.headers,
                         json=payload
                     )
@@ -116,12 +116,10 @@ class OzonDataSync:
                                     offer_map[str(o)] = pid
                     
                     # Проверяем, есть ли следующая страница
-                    total = data.get("total", 0)
-                    current_page = payload["page"]
-                    if current_page * payload["page_size"] >= total:
+                    last_id = data.get("last_id")
+                    if not last_id:
                         break
-                    
-                    payload["page"] += 1
+                    payload["last_id"] = last_id
             
             logger.info(f"Построена карта для {len(offer_map)} товаров")
             return offer_map
@@ -133,6 +131,7 @@ class OzonDataSync:
     async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
         """Получает аналитику продаж и выручки по offer_id согласно документации v1 API"""
         try:
+            # Согласно документации v1: правильная структура запроса
             body = {
                 "date_from": date_from,
                 "date_to": date_to,
@@ -367,9 +366,9 @@ class OzonDataSync:
                 
                 # ИСПРАВЛЕНО: используем правильные колонки F, H, J
                 updates += [
-                    (f"F{row_index}", [[stock]]),      # БЕЗ "marketplaces!" - только адрес ячейки
-                    (f"H{row_index}", [[sales]]),      # БЕЗ "marketplaces!" - только адрес ячейки  
-                    (f"J{row_index}", [[revenue]])     # БЕЗ "marketplaces!" - только адрес ячейки
+                    (f"F{row_index}", [[stock]]),      # ТОЛЬКО адрес ячейки без имени листа
+                    (f"H{row_index}", [[sales]]),      # ТОЛЬКО адрес ячейки без имени листа  
+                    (f"J{row_index}", [[revenue]])     # ТОЛЬКО адрес ячейки без имени листа
                 ]
                 
                 results.append({"offer_id": offer_id, "success": True, "stock": stock, "sales": sales, "revenue": revenue})

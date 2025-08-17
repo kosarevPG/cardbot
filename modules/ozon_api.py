@@ -16,9 +16,9 @@ class OzonAPI:
         self.client_id = os.getenv("OZON_CLIENT_ID", "")  # Client ID для Ozon
         self.base_url = "https://api-seller.ozon.ru"
         
-        # Правильные эндпоинты для Ozon API согласно официальной документации
+        # Правильные эндпоинты для Ozon API согласно актуальной документации
         self.endpoints = {
-            "product_list": "/v2/product/list",           # Получение product_id по offer_id (согласно документации)
+            "product_list": "/v3/product/list",           # Получение product_id по offer_id (v3 согласно документации)
             "analytics": "/v1/analytics/data",            # Аналитика (продажи, выручка) - v1 согласно документации
             "stocks": "/v3/product/info/stocks",          # Остатки на складе
             "product_info": "/v3/product/list"            # Общая информация о товарах
@@ -40,14 +40,15 @@ class OzonAPI:
     
     async def get_product_mapping(self, page_size: int = 1000, page: int = 1) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Получение product_id по offer_id - метод POST /v2/product/list
-        Строит словарь соответствия offer_id → product_id согласно документации
+        Получение product_id по offer_id - метод POST /v3/product/list
+        Строит словарь соответствия offer_id → product_id согласно документации v3
         """
         try:
-            # Согласно документации: получаем все товары и строим mapping
+            # Согласно документации v3: используем filter, limit, last_id
             payload = {
-                "page_size": page_size,
-                "page": page
+                "filter": {},
+                "limit": page_size,
+                "last_id": ""
             }
             
             async with httpx.AsyncClient(timeout=20.0) as client:
@@ -62,7 +63,12 @@ class OzonAPI:
                     products = data.get("result", {}).get("items", [])
                     
                     # Строим словарь offer_id → product_id
-                    mapping = {p["offer_id"]: p["product_id"] for p in products}
+                    mapping = {}
+                    for p in products:
+                        offer_id = p.get("offer_id")
+                        product_id = p.get("product_id")
+                        if offer_id and product_id:
+                            mapping[offer_id] = product_id
                     
                     logger.info(f"Получено {len(mapping)} соответствий offer_id → product_id")
                     
@@ -96,6 +102,7 @@ class OzonAPI:
             if not date_to:
                 date_to = datetime.now().strftime("%Y-%m-%d")
             
+            # Согласно документации v1: правильная структура запроса
             payload = {
                 "date_from": date_from,
                 "date_to": date_to,
