@@ -20,7 +20,7 @@ class OzonAPI:
         self.endpoints = {
             "product_list": "/v3/product/list",           # Получение product_id по offer_id (v3 согласно документации)
             "analytics": "/v1/analytics/data",            # Аналитика (продажи, выручка) - v1 согласно документации
-            "stocks": "/v3/product/info/stocks",          # Остатки на складе
+            "stocks": "/v2/product/info/stocks",          # Остатки на складе (v2 согласно документации)
             "product_info": "/v3/product/list"            # Общая информация о товарах
         }
         
@@ -102,7 +102,7 @@ class OzonAPI:
             if not date_to:
                 date_to = datetime.now().strftime("%Y-%m-%d")
             
-            # Согласно документации v1: правильная структура запроса
+            # Согласно документации v1: правильная структура запроса с product_id
             payload = {
                 "date_from": date_from,
                 "date_to": date_to,
@@ -149,10 +149,10 @@ class OzonAPI:
     
     async def get_stocks(self, product_id: int) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Остатки на складе - метод POST /v3/product/info/stocks согласно документации
+        Остатки на складе - метод POST /v2/product/info/stocks согласно документации
         """
         try:
-            # Согласно документации: передаем массив product_id
+            # Согласно документации v2: передаем массив product_id
             payload = {
                 "product_id": [product_id]
             }
@@ -166,7 +166,7 @@ class OzonAPI:
                 
                 if response.status_code == 200:
                     data = response.json()
-                    # Согласно документации: result содержит массив с данными по каждому product_id
+                    # Согласно документации v2: result содержит массив с данными по каждому product_id
                     result_items = data.get("result", [])
                     
                     if result_items and len(result_items) > 0:

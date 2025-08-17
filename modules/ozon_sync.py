@@ -32,54 +32,45 @@ class OzonDataSync:
     async def get_ozon_stock(self, offer_id: str, offer_map: dict[str, int]) -> Optional[int]:
         """Получает остаток товара по offer_id"""
         try:
-            # Пробуем сначала с product_id, потом fallback на offer_id
+            # Согласно документации: используем ТОЛЬКО product_id для API
             if offer_id in offer_map:
-                body = {"product_id": offer_map[offer_id]}
-                logger.debug(f"Using product_id {offer_map[offer_id]} for {offer_id}")
+                product_id = offer_map[offer_id]
+                body = {"product_id": [product_id]}  # Массив согласно документации
+                logger.debug(f"Using product_id {product_id} for {offer_id}")
             else:
-                body = {"offer_id": offer_id}
-                logger.debug(f"Fallback to offer_id {offer_id} (not in map)")
+                logger.warning(f"Offer_id {offer_id} не найден в mapping, пропускаем")
+                return None
             
-            # Пробуем разные endpoints - Ozon иногда мигрирует между версиями
-            paths = [
-                "/v3/product/info/stocks",      # текущий (может не работать)
-                "/v2/product/info/stocks",      # старая версия (часто работает)
-                "/v3/product/info/stocks-by-warehouse",  # альтернативный
-            ]
+            # Используем только рабочий эндпоинт v2 согласно документации
+            path = "/v2/product/info/stocks"
             
-            for path in paths:
-                for attempt in range(3):
-                    async with httpx.AsyncClient(timeout=15.0) as client:
-                        r = await client.post(
-                            f"{self.ozon_api.base_url}{path}",
-                            headers=self.ozon_api.headers,
-                            json=body
-                        )
-                        
-                        if r.status_code in (429, 500, 502, 503, 504):
-                            await asyncio.sleep((2** attempt) + random.random())
-                            continue
-                        
-                        if r.status_code == 404:
-                            logger.warning(f"Stocks 404 for {offer_id} (path={path}, body={body}, resp={r.text[:200]})")
-                            break  # пробуем следующий path
-                        
-                        if r.status_code == 200:
-                            res = r.json().get("result", {})
-                            logger.debug(f"stocks for {offer_id} via {path}: {res.get('stocks', [])}")
-                            
-                            total_present = sum(int(wh.get("present", 0)) for wh in res.get("stocks", []))
-                            return total_present
-                        
-                        r.raise_for_status()
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.post(
+                    f"{self.ozon_api.base_url}{path}",
+                    headers=self.ozon_api.headers,
+                    json=body
+                )
                 
-                # Если этот path не сработал, пробуем следующий
-                continue
-            
-            # Если ни один path не сработал
-            logger.warning(f"All stock endpoints failed for {offer_id}")
-            return None
-                
+                if r.status_code == 200:
+                    res = r.json().get("result", [])
+                    logger.debug(f"stocks for {offer_id} via {path}: {res}")
+                    
+                    if res and len(res) > 0:
+                        # Берем первый элемент (наш product_id)
+                        item = res[0]
+                        stocks = item.get("stocks", [])
+                        total_present = sum(int(wh.get("present", 0)) for wh in stocks)
+                        return total_present
+                    else:
+                        return 0
+                        
+                elif r.status_code == 404:
+                    logger.warning(f"Stocks 404 for {offer_id} (path={path}, body={body}, resp={r.text[:200]})")
+                    return None
+                else:
+                    logger.warning(f"Stocks {r.status_code} for {offer_id}: {r.text[:200]}")
+                    return None
+                    
         except Exception as e:
             logger.error(f"Ошибка получения остатка для {offer_id}: {e}")
             return None
@@ -131,13 +122,22 @@ class OzonDataSync:
     async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
         """Получает аналитику продаж и выручки по offer_id согласно документации v1 API"""
         try:
-            # Согласно документации v1: правильная структура запроса
+            # Согласно документации v1: правильная структура запроса с product_id
+            # Но сначала нужно получить product_id по offer_id
+            offer_map = await self.build_offer_map()
+            
+            if offer_id not in offer_map:
+                logger.warning(f"Offer_id {offer_id} не найден в mapping для аналитики")
+                return {"ordered_units": 0, "revenue": 0.0}
+            
+            product_id = offer_map[offer_id]
+            
             body = {
                 "date_from": date_from,
                 "date_to": date_to,
                 "metrics": ["ordered_units", "revenue"],
-                "dimension": "offer_id",
-                "filters": [{"key": "offer_id", "op": "IN", "value": [offer_id]}],
+                "dimension": "product_id",
+                "filters": [{"key": "product_id", "op": "IN", "value": [product_id]}],
                 "limit": 1000
             }
             
@@ -153,20 +153,20 @@ class OzonDataSync:
                 
                 if r.status_code == 200:
                     data = r.json()
-                    logger.debug(f"analytics for {offer_id} via {path}: {data}")
+                    logger.debug(f"analytics for {offer_id} (product_id: {product_id}) via {path}: {data}")
                     
                     # Парсим результат согласно документации v1
                     result = data.get("result", {})
                     if "data" in result:
                         # Стандартная структура v1
                         for row in result["data"]:
-                            if row.get("offer_id") == offer_id:
+                            if row.get("product_id") == product_id:
                                 return {
                                     "ordered_units": int(row.get("ordered_units", 0)),
                                     "revenue": float(row.get("revenue", 0.0))
                                 }
                     
-                    # Если не нашли конкретный offer_id, возвращаем 0
+                    # Если не нашли конкретный product_id, возвращаем 0
                     return {"ordered_units": 0, "revenue": 0.0}
                 else:
                     logger.warning(f"Analytics {r.status_code} for {offer_id}: {r.text[:200]}")
