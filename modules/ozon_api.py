@@ -327,3 +327,109 @@ async def test_ozon_connection() -> str:
             
     except Exception as e:
         return f"❌ Критическая ошибка: {str(e)}"
+
+async def get_ozon_summary() -> str:
+    """Получает краткую сводку по Ozon для использования в командах бота"""
+    try:
+        ozon_api = OzonAPI()
+        
+        # Получаем соответствие offer_id → product_id
+        mapping_result = await ozon_api.get_product_mapping(page_size=100, page=1)
+        
+        if not mapping_result["success"]:
+            return f"❌ Ошибка получения данных: {mapping_result.get('error', 'Неизвестная ошибка')}"
+        
+        mapping = mapping_result["mapping"]
+        total_products = len(mapping)
+        
+        if total_products == 0:
+            return "📭 **Сводка Ozon**\n\n⚠️ Товары не найдены (возможно, нет товаров в аккаунте)"
+        
+        # Формируем краткую сводку
+        summary = f"📊 **Сводка Ozon**\n\n"
+        summary += f"📦 **Всего товаров:** {total_products}\n"
+        
+        # Показываем первые 5 товаров
+        summary += f"\n📋 **Первые товары:**\n"
+        for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
+            summary += f"{i}. `{offer_id}` → ID: `{product_id}`\n"
+        
+        if total_products > 5:
+            summary += f"\n... и еще {total_products - 5} товаров"
+        
+        # Пытаемся получить аналитику за последние 7 дней для первых 3 товаров
+        if total_products >= 3:
+            try:
+                first_product_ids = list(mapping.values())[:3]
+                analytics_result = await ozon_api.get_analytics(first_product_ids, days=7)
+                
+                if analytics_result["success"]:
+                    summary += f"\n\n📈 **Аналитика за 7 дней:**\n"
+                    summary += f"✅ Данные получены для {analytics_result['product_count']} товаров\n"
+                    summary += f"📅 Период: {analytics_result['period']}"
+                else:
+                    summary += f"\n\n📈 **Аналитика:** ❌ Ошибка получения"
+            except Exception as e:
+                summary += f"\n\n📈 **Аналитика:** ⚠️ Не удалось получить"
+        
+        return summary
+        
+    except Exception as e:
+        return f"❌ Ошибка получения сводки: {str(e)}"
+
+async def get_ozon_products() -> Dict:
+    """Получает список товаров Ozon для использования в командах бота"""
+    try:
+        ozon_api = OzonAPI()
+        return await ozon_api.get_product_mapping(page_size=100, page=1)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+async def get_ozon_stocks() -> Dict:
+    """Получает остатки товаров Ozon для использования в командах бота"""
+    try:
+        ozon_api = OzonAPI()
+        
+        # Сначала получаем список товаров
+        products_result = await ozon_api.get_product_mapping(page_size=100, page=1)
+        if not products_result["success"]:
+            return products_result
+        
+        mapping = products_result["mapping"]
+        if not mapping:
+            return {"success": True, "data": {"result": {"items": [], "total": 0}}}
+        
+        # Получаем остатки для первых 10 товаров
+        first_product_ids = list(mapping.values())[:10]
+        stocks_result = await ozon_api.get_stocks_batch(first_product_ids)
+        
+        if not stocks_result["success"]:
+            return stocks_result
+        
+        # Формируем ответ в том же формате, что ожидает marketplace_commands
+        items = []
+        for offer_id, product_id in list(mapping.items())[:10]:
+            stock_info = stocks_result["stocks"].get(product_id, {})
+            total_stock = stock_info.get("total_stock", 0) if stock_info else 0
+            
+            items.append({
+                "offer_id": offer_id,
+                "product_id": product_id,
+                "has_fbo_stocks": total_stock > 0,
+                "has_fbs_stocks": total_stock > 0,
+                "archived": False,
+                "stock": total_stock
+            })
+        
+        return {
+            "success": True,
+            "data": {
+                "result": {
+                    "items": items,
+                    "total": len(items)
+                }
+            }
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
