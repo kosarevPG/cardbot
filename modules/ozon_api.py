@@ -17,7 +17,7 @@ class OzonAPI:
         self.base_url = "https://api-seller.ozon.ru"
         # Правильные эндпоинты для Ozon API (v3)
         self.endpoints = {
-            "info": "/v2/info/list",
+            "info": "/v3/product/list",  # Используем рабочий эндпоинт для теста
             "products": "/v3/product/list",
             "orders": "/v3/posting/fbs/list",
             "stocks": "/v3/product/info/stocks"
@@ -40,8 +40,12 @@ class OzonAPI:
     async def test_connection(self) -> Dict[str, Union[bool, str]]:
         """Тестирует подключение к Ozon API"""
         try:
-            # Простой тест - получаем информацию о продавце
-            payload = {}
+            # Простой тест - получаем список товаров (рабочий эндпоинт)
+            payload = {
+                "filter": {},
+                "last_id": "",
+                "limit": 1
+            }
             
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
@@ -121,7 +125,8 @@ class OzonAPI:
             payload = {
                 "filter": {
                     "since": date_from,
-                    "to": date_to
+                    "to": date_to,
+                    "status": "awaiting_packaging"
                 },
                 "limit": 100,
                 "offset": 0
@@ -163,7 +168,7 @@ class OzonAPI:
             
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
-                    f"{self.base_url}/v2/product/list",
+                    f"{self.base_url}{self.endpoints['products']}",
                     headers=self.headers,
                     json=payload
                 )
