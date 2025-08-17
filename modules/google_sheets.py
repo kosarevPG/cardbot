@@ -38,7 +38,16 @@ class GoogleSheetsAPI:
     def _get_service_account_info(self) -> Optional[Dict]:
         """Получает информацию о сервисном аккаунте из переменной окружения"""
         try:
-            # Пытаемся получить из переменной окружения GOOGLE_SERVICE_ACCOUNT
+            # Пытаемся получить из переменной окружения GOOGLE_SERVICE_ACCOUNT_BASE64
+            service_account_base64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_BASE64")
+            
+            if service_account_base64:
+                # Декодируем base64 и парсим JSON
+                import base64
+                service_account_json = base64.b64decode(service_account_base64).decode('utf-8')
+                return json.loads(service_account_json)
+            
+            # Пытаемся получить из переменной окружения GOOGLE_SERVICE_ACCOUNT (обычный JSON)
             service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT")
             
             if service_account_json:
@@ -51,7 +60,7 @@ class GoogleSheetsAPI:
                 with open(service_account_path, 'r', encoding='utf-8') as f:
                     return json.load(f)
             
-            logger.error("Переменная GOOGLE_SERVICE_ACCOUNT не настроена")
+            logger.error("Переменные GOOGLE_SERVICE_ACCOUNT_BASE64, GOOGLE_SERVICE_ACCOUNT или GOOGLE_SERVICE_ACCOUNT_PATH не настроены")
             return None
             
         except Exception as e:
