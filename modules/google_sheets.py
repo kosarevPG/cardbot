@@ -204,7 +204,7 @@ class GoogleSheetsAPI:
             logger.error(f"Ошибка получения информации о таблице: {e}")
             return {"success": False, "error": str(e)}
     
-    async def batch_update_values(self, spreadsheet_id: str, sheet_name: str = None, updates: List[tuple]) -> Dict:
+    async def batch_update_values(self, spreadsheet_id: str, updates: List[tuple], sheet_name: str = None) -> Dict:
         """Пакетное обновление значений в таблице
         
         Args:

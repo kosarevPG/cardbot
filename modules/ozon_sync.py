@@ -362,7 +362,7 @@ class OzonDataSync:
                 await asyncio.sleep(0.2)  # чуть разгрузим RPS
             
             # единым batch-запросом
-            ok = await self.sheets_api.batch_update_values(self.spreadsheet_id, None, updates)
+            ok = await self.sheets_api.batch_update_values(self.spreadsheet_id, updates, None)
             if not ok["success"]:
                 logger.error(f"Ошибка записи данных в таблицу: {ok.get('error')}")
                 # можно fallback'ом писать по одной ячейке
