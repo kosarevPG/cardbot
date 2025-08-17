@@ -4,6 +4,7 @@ import logging
 from .wb_api import test_wb_connection, get_wb_summary
 from .ozon_api import test_ozon_connection, get_ozon_summary
 from .google_sheets import test_google_sheets_connection, get_sheets_info, read_sheet_data
+from .ozon_sync import sync_ozon_data, sync_single_ozon_offer
 
 # ID администраторов (замените на ваши)
 ADMIN_IDS = [123456789, 987654321]  # Добавьте сюда ваши ID
@@ -64,6 +65,8 @@ async def cmd_marketplace_help(message: types.Message):
 • `/ozon_stats` - Статистика продаж и заказов
 • `/ozon_products` - Список товаров
 • `/ozon_stocks` - Остатки товаров
+• `/ozon_sync_all` - Синхронизация всех данных с Google таблицей
+• `/ozon_sync_single OFFER_ID` - Синхронизация одного товара
 
 **Google Sheets:**
 • `/sheets_test` - Тест подключения к Google Sheets API
@@ -341,6 +344,47 @@ async def cmd_google_sheets_read(message: types.Message):
         logger.error(f"Ошибка в команде google_sheets_read: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
+async def cmd_ozon_sync_all(message: types.Message):
+    """Команда для синхронизации всех данных Ozon с Google таблицей"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        await message.answer("🔄 Начинаю синхронизацию всех данных Ozon с Google таблицей...\n\n⚠️ Это может занять несколько минут.")
+        
+        result = await sync_ozon_data()
+        await message.answer(result, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде ozon_sync_all: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
+async def cmd_ozon_sync_single(message: types.Message):
+    """Команда для синхронизации одного offer_id Ozon с Google таблицей"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        # Парсим команду: /ozon_sync_single OFFER_ID
+        command_parts = message.text.split()
+        if len(command_parts) < 2:
+            await message.answer("❌ Укажите offer_id: `/ozon_sync_single OFFER_ID`")
+            return
+        
+        offer_id = command_parts[1]
+        await message.answer(f"🔄 Синхронизирую данные для {offer_id}...")
+        
+        result = await sync_single_ozon_offer(offer_id)
+        await message.answer(result, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде ozon_sync_single: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
 def register_marketplace_handlers(dp):
     """Регистрирует обработчики команд маркетплейсов"""
     
@@ -358,6 +402,8 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_ozon_stats, Command("ozon_stats"))
     dp.message.register(cmd_ozon_products, Command("ozon_products"))
     dp.message.register(cmd_ozon_stocks, Command("ozon_stocks"))
+    dp.message.register(cmd_ozon_sync_all, Command("ozon_sync_all"))
+    dp.message.register(cmd_ozon_sync_single, Command("ozon_sync_single"))
     
     # Команды Google Sheets
     dp.message.register(cmd_google_sheets_test, Command("sheets_test"))
