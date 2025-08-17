@@ -1,6 +1,8 @@
 # Модуль автоматической синхронизации Ozon с Google таблицами
 import logging
 import asyncio
+import httpx
+import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Union
 from .ozon_api import OzonAPI
@@ -140,64 +142,36 @@ class OzonDataSync:
                 "limit": 1000
             }
             
-            # Пробуем разные endpoints - Ozon иногда мигрирует между версиями
-            paths = [
-                "/v3/analytics/data",           # текущий (может не работать)
-                "/v2/analytics/data",           # старая версия (часто работает)
-                "/v3/analytics/aggregate",      # альтернативный
-            ]
+            # Используем только рабочий эндпоинт v2
+            path = "/v2/analytics/data"
             
-            for path in paths:
-                for attempt in range(3):
-                    async with httpx.AsyncClient(timeout=20.0) as client:
-                        r = await client.post(
-                            f"{self.ozon_api.base_url}{path}",
-                            headers=self.ozon_api.headers,
-                            json=body
-                        )
-                        
-                        if r.status_code in (429, 500, 502, 503, 504):
-                            await asyncio.sleep((2** attempt) + random.random())
-                            continue
-                        
-                        if r.status_code == 404:
-                            logger.warning(f"Analytics 404 for {offer_id} (path={path}, body={body}, resp={r.text[:200]})")
-                            break  # пробуем следующий path
-                        
-                        if r.status_code == 200:
-                            data = r.json()
-                            logger.debug(f"analytics for {offer_id} via {path}: {data}")
-                            
-                            # Парсим результат в зависимости от структуры ответа
-                            result = data.get("result", {})
-                            if "data" in result:
-                                # Стандартная структура v3
-                                for row in result["data"]:
-                                    if row.get("offer_id") == offer_id:
-                                        return {
-                                            "ordered_units": int(row.get("ordered_units", 0)),
-                                            "revenue": float(row.get("revenue", 0.0))
-                                        }
-                            elif "rows" in result:
-                                # Альтернативная структура v2
-                                for row in result["rows"]:
-                                    if row.get("offer_id") == offer_id:
-                                        return {
-                                            "ordered_units": int(row.get("ordered_units", 0)),
-                                            "revenue": float(row.get("revenue", 0.0))
-                                        }
-                            
-                            # Если не нашли конкретный offer_id, возвращаем 0
-                            return {"ordered_units": 0, "revenue": 0.0}
-                        
-                        r.raise_for_status()
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(
+                    f"{self.ozon_api.base_url}{path}",
+                    headers=self.ozon_api.headers,
+                    json=body
+                )
                 
-                # Если этот path не сработал, пробуем следующий
-                continue
-            
-            # Если ни один path не сработал
-            logger.warning(f"All analytics endpoints failed for {offer_id}")
-            return {"ordered_units": 0, "revenue": 0.0}
+                if r.status_code == 200:
+                    data = r.json()
+                    logger.debug(f"analytics for {offer_id} via {path}: {data}")
+                    
+                    # Парсим результат
+                    result = data.get("result", {})
+                    if "data" in result:
+                        # Стандартная структура
+                        for row in result["data"]:
+                            if row.get("offer_id") == offer_id:
+                                return {
+                                    "ordered_units": int(row.get("ordered_units", 0)),
+                                    "revenue": float(row.get("revenue", 0.0))
+                                }
+                    
+                    # Если не нашли конкретный offer_id, возвращаем 0
+                    return {"ordered_units": 0, "revenue": 0.0}
+                else:
+                    logger.warning(f"Analytics {r.status_code} for {offer_id}: {r.text[:200]}")
+                    return {"ordered_units": 0, "revenue": 0.0}
             
         except Exception as e:
             logger.error(f"Ошибка получения аналитики для {offer_id}: {e}")

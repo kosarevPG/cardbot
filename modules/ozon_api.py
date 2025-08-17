@@ -18,8 +18,8 @@ class OzonAPI:
         
         # Правильные эндпоинты для Ozon API согласно документации
         self.endpoints = {
-            "product_list": "/v2/product/list",           # Получение product_id по offer_id
-            "analytics": "/v1/analytics/data",            # Аналитика (продажи, выручка)
+            "product_list": "/v3/product/list",           # Получение product_id по offer_id (v3 вместо v2)
+            "analytics": "/v2/analytics/data",            # Аналитика (продажи, выручка) - v2 вместо v1
             "stocks": "/v3/product/info/stocks",          # Остатки на складе
             "product_info": "/v3/product/list"            # Общая информация о товарах
         }
@@ -40,13 +40,14 @@ class OzonAPI:
     
     async def get_product_mapping(self, page_size: int = 1000, page: int = 1) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Получение product_id по offer_id - метод POST /v2/product/list
+        Получение product_id по offer_id - метод POST /v3/product/list
         Строит словарь соответствия offer_id → product_id
         """
         try:
             payload = {
-                "page_size": page_size,
-                "page": page
+                "filter": {},
+                "limit": page_size,
+                "last_id": ""
             }
             
             async with httpx.AsyncClient(timeout=20.0) as client:
@@ -86,7 +87,7 @@ class OzonAPI:
     
     async def get_analytics(self, product_ids: List[int], date_from: str = None, date_to: str = None) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Получение аналитики (продажи, выручка) - метод POST /v1/analytics/data
+        Получение аналитики (продажи, выручка) - метод POST /v2/analytics/data
         """
         try:
             # Если даты не указаны, берем последние 7 дней
