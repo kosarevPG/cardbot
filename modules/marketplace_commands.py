@@ -4,10 +4,22 @@ import logging
 from .wb_api import test_wb_connection, get_wb_summary
 from .ozon_api import test_ozon_connection, get_ozon_summary
 
+# ID администраторов (замените на ваши)
+ADMIN_IDS = [123456789, 987654321]  # Добавьте сюда ваши ID
+
 logger = logging.getLogger(__name__)
+
+def is_admin(user_id: int) -> bool:
+    """Проверяет, является ли пользователь администратором"""
+    return user_id in ADMIN_IDS
 
 async def cmd_wb_test(message: types.Message):
     """Команда для тестирования подключения к WB API"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
     try:
         await message.answer("🔄 Тестирую подключение к Wildberries API...")
         
@@ -20,6 +32,11 @@ async def cmd_wb_test(message: types.Message):
 
 async def cmd_wb_stats(message: types.Message):
     """Команда для получения статистики WB"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
     try:
         await message.answer("📊 Получаю статистику Wildberries...")
         
@@ -51,6 +68,7 @@ async def cmd_marketplace_help(message: types.Message):
 • `/marketplace_help` - Эта справка
 
 ---
+🔒 *Все команды доступны только администраторам*
 💡 *Для использования команд нужны настроенные API ключи в Amvera*
     """
     
@@ -58,6 +76,11 @@ async def cmd_marketplace_help(message: types.Message):
 
 async def cmd_wb_products(message: types.Message):
     """Команда для получения списка товаров WB"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
     try:
         await message.answer("📦 Получаю список товаров Wildberries...")
         
@@ -70,6 +93,11 @@ async def cmd_wb_products(message: types.Message):
 
 async def cmd_wb_stocks(message: types.Message):
     """Команда для получения остатков WB"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
     try:
         await message.answer("📊 Получаю остатки товаров Wildberries...")
         
@@ -82,6 +110,11 @@ async def cmd_wb_stocks(message: types.Message):
 
 async def cmd_ozon_test(message: types.Message):
     """Команда для тестирования подключения к Ozon API"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
     try:
         await message.answer("🔄 Тестирую подключение к Ozon API...")
         
@@ -94,6 +127,11 @@ async def cmd_ozon_test(message: types.Message):
 
 async def cmd_ozon_stats(message: types.Message):
     """Команда для получения статистики Ozon"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
     try:
         await message.answer("📊 Получаю статистику Ozon...")
         
@@ -106,6 +144,11 @@ async def cmd_ozon_stats(message: types.Message):
 
 async def cmd_ozon_products(message: types.Message):
     """Команда для получения списка товаров Ozon"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
     try:
         await message.answer("📦 Получаю список товаров Ozon...")
         
@@ -142,6 +185,11 @@ async def cmd_ozon_products(message: types.Message):
 
 async def cmd_ozon_stocks(message: types.Message):
     """Команда для получения остатков Ozon"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
     try:
         await message.answer("📊 Получаю остатки товаров Ozon...")
         
