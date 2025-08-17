@@ -204,12 +204,12 @@ class GoogleSheetsAPI:
             logger.error(f"Ошибка получения информации о таблице: {e}")
             return {"success": False, "error": str(e)}
     
-    async def batch_update_values(self, spreadsheet_id: str, sheet_name: str, updates: List[tuple]) -> Dict:
+    async def batch_update_values(self, spreadsheet_id: str, sheet_name: str = None, updates: List[tuple]) -> Dict:
         """Пакетное обновление значений в таблице
         
         Args:
             spreadsheet_id: ID таблицы
-            sheet_name: Имя листа
+            sheet_name: Имя листа (если None, то range должен содержать полный путь)
             updates: Список кортежей (range, [[value]])
         
         Returns:
@@ -220,7 +220,12 @@ class GoogleSheetsAPI:
             if not spreadsheet:
                 return {"success": False, "error": "Не удалось открыть таблицу"}
             
-            worksheet = spreadsheet.worksheet(sheet_name)
+            # Если sheet_name не указан, берем первый лист
+            if sheet_name is None:
+                worksheet = spreadsheet.worksheet(0)
+                sheet_name = worksheet.title
+            else:
+                worksheet = spreadsheet.worksheet(sheet_name)
             
             # Подготавливаем данные для batch update
             batch_data = []
