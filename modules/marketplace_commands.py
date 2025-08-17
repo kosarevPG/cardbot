@@ -3,6 +3,7 @@ from aiogram import types
 import logging
 from .wb_api import test_wb_connection, get_wb_summary
 from .ozon_api import test_ozon_connection, get_ozon_summary
+from .google_sheets import test_google_sheets_connection, get_sheets_info, read_sheet_data
 
 # ID администраторов (замените на ваши)
 ADMIN_IDS = [123456789, 987654321]  # Добавьте сюда ваши ID
@@ -64,12 +65,18 @@ async def cmd_marketplace_help(message: types.Message):
 • `/ozon_products` - Список товаров
 • `/ozon_stocks` - Остатки товаров
 
+**Google Sheets:**
+• `/sheets_test` - Тест подключения к Google Sheets API
+• `/sheets_info SPREADSHEET_ID` - Информация о таблице
+• `/sheets_read SPREADSHEET_ID [SHEET_NAME]` - Чтение данных
+
 **Общие:**
 • `/marketplace_help` - Эта справка
 
 ---
 🔒 *Все команды доступны только администраторам*
 💡 *Для использования команд нужны настроенные API ключи в Amvera*
+📊 *Для Google Sheets нужен сервисный аккаунт*
     """
     
     await message.answer(help_text, parse_mode="Markdown")
@@ -227,6 +234,113 @@ async def cmd_ozon_stocks(message: types.Message):
         logger.error(f"Ошибка в команде ozon_stocks: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
+async def cmd_google_sheets_test(message: types.Message):
+    """Команда для тестирования подключения к Google Sheets API"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        await message.answer("🔄 Тестирую подключение к Google Sheets API...")
+        
+        result = await test_google_sheets_connection()
+        await message.answer(result)
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде google_sheets_test: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
+async def cmd_google_sheets_info(message: types.Message):
+    """Команда для получения информации о Google таблице"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        # Парсим команду: /sheets_info SPREADSHEET_ID
+        command_parts = message.text.split()
+        if len(command_parts) < 2:
+            await message.answer("❌ Укажите ID таблицы: `/sheets_info SPREADSHEET_ID`")
+            return
+        
+        spreadsheet_id = command_parts[1]
+        await message.answer(f"📊 Получаю информацию о таблице {spreadsheet_id}...")
+        
+        result = await get_sheets_info(spreadsheet_id)
+        if result["success"]:
+            info = result
+            response = f"📋 **Информация о таблице:**\n\n"
+            response += f"**Название:** {info['spreadsheet_title']}\n"
+            response += f"**ID:** `{info['spreadsheet_id']}`\n"
+            response += f"**Количество листов:** {info['sheets_count']}\n\n"
+            
+            if info['sheets']:
+                response += "**Листы:**\n"
+                for i, sheet in enumerate(info['sheets'][:5], 1):  # Показываем первые 5
+                    response += f"{i}. {sheet['title']} ({sheet['row_count']}×{sheet['col_count']})\n"
+                
+                if len(info['sheets']) > 5:
+                    response += f"\n... и еще {len(info['sheets']) - 5} листов"
+            
+            await message.answer(response, parse_mode="Markdown")
+        else:
+            await message.answer(f"❌ Ошибка получения информации: {result.get('error', 'Неизвестная ошибка')}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде google_sheets_info: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
+async def cmd_google_sheets_read(message: types.Message):
+    """Команда для чтения данных из Google таблицы"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        # Парсим команду: /sheets_read SPREADSHEET_ID [SHEET_NAME]
+        command_parts = message.text.split()
+        if len(command_parts) < 2:
+            await message.answer("❌ Укажите ID таблицы: `/sheets_read SPREADSHEET_ID [SHEET_NAME]`")
+            return
+        
+        spreadsheet_id = command_parts[1]
+        sheet_name = command_parts[2] if len(command_parts) > 2 else None
+        
+        await message.answer(f"📖 Читаю данные из таблицы {spreadsheet_id}...")
+        
+        result = await read_sheet_data(spreadsheet_id, sheet_name)
+        if result["success"]:
+            data = result["data"]
+            response = f"📊 **Данные из таблицы:**\n\n"
+            response += f"**Таблица:** {result['spreadsheet_title']}\n"
+            response += f"**Лист:** {result['sheet_name']}\n"
+            response += f"**Размер:** {result['rows']}×{result['columns']}\n\n"
+            
+            if data and len(data) > 0:
+                # Показываем первые 5 строк
+                response += "**Первые строки:**\n"
+                for i, row in enumerate(data[:5], 1):
+                    row_text = " | ".join(str(cell) for cell in row[:5])  # Первые 5 ячеек
+                    if len(row) > 5:
+                        row_text += " ..."
+                    response += f"{i}. {row_text}\n"
+                
+                if len(data) > 5:
+                    response += f"\n... и еще {len(data) - 5} строк"
+            else:
+                response += "📭 Данные не найдены"
+            
+            await message.answer(response, parse_mode="Markdown")
+        else:
+            await message.answer(f"❌ Ошибка чтения данных: {result.get('error', 'Неизвестная ошибка')}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде google_sheets_read: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
 def register_marketplace_handlers(dp):
     """Регистрирует обработчики команд маркетплейсов"""
     
@@ -244,6 +358,11 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_ozon_stats, Command("ozon_stats"))
     dp.message.register(cmd_ozon_products, Command("ozon_products"))
     dp.message.register(cmd_ozon_stocks, Command("ozon_stocks"))
+    
+    # Команды Google Sheets
+    dp.message.register(cmd_google_sheets_test, Command("sheets_test"))
+    dp.message.register(cmd_google_sheets_info, Command("sheets_info"))
+    dp.message.register(cmd_google_sheets_read, Command("sheets_read"))
     
     # Общие команды
     dp.message.register(cmd_marketplace_help, Command("marketplace_help"))
