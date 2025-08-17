@@ -94,13 +94,6 @@ class OzonAPI:
                     "page": page,
                     "page_size": page_size
                 }
-                else:
-                    logger.error(f"Ошибка API при получении product_mapping: {response.status_code} - {response.text}")
-                    return {
-                        "success": False,
-                        "error": f"Ошибка API: {response.status_code}",
-                        "details": response.text
-                    }
                     
         except Exception as e:
             logger.error(f"Ошибка получения product_mapping: {e}")
