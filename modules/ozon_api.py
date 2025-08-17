@@ -20,7 +20,7 @@ class OzonAPI:
         self.endpoints = {
             "product_list": "/v3/product/list",           # Получение product_id по offer_id (v3 согласно документации)
             "analytics": "/v1/analytics/data",            # Аналитика (продажи, выручка) - v1 согласно документации
-            "stocks": "/v3/product/info/stocks",          # Остатки на складе (v3 согласно документации)
+            "stocks": "/v2/product/info/stocks",          # Остатки на складе (v2 согласно документации)
             "product_info": "/v3/product/list"            # Общая информация о товарах
         }
         
@@ -157,12 +157,12 @@ class OzonAPI:
     
     async def get_stocks(self, product_id: int) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Остатки на складе - метод POST /v3/product/info/stocks согласно документации
+        Остатки на складе - метод POST /v2/product/info/stocks согласно документации
         """
         try:
-            # Согласно документации v3: передаем массив product_id
+            # Согласно документации v2: передаем offer_id, а не product_id
             payload = {
-                "product_id": [product_id]
+                "offer_id": str(product_id)  # v2 API использует offer_id
             }
             
             async with httpx.AsyncClient(timeout=15.0) as client:

@@ -32,17 +32,17 @@ class OzonDataSync:
     async def get_ozon_stock(self, offer_id: str, offer_map: dict[str, int]) -> Optional[int]:
         """Получает остаток товара по offer_id"""
         try:
-            # Согласно документации: используем ТОЛЬКО product_id для API
+            # Согласно документации v2: используем offer_id напрямую
             if offer_id in offer_map:
-                product_id = offer_map[offer_id]
-                body = {"product_id": [product_id]}  # Массив согласно документации
-                logger.debug(f"Using product_id {product_id} for {offer_id}")
+                # Для v2 API используем offer_id, а не product_id
+                body = {"offer_id": offer_id}
+                logger.debug(f"Using offer_id {offer_id} for stocks")
             else:
                 logger.warning(f"Offer_id {offer_id} не найден в mapping, пропускаем")
                 return None
             
-            # Используем эндпоинт v3 согласно документации
-            path = "/v3/product/info/stocks"
+            # Используем эндпоинт v2 согласно документации
+            path = "/v2/product/info/stocks"
             
             async with httpx.AsyncClient(timeout=15.0) as client:
                 r = await client.post(
@@ -124,15 +124,23 @@ class OzonDataSync:
     async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
         """Получает аналитику продаж и выручки по offer_id согласно документации v1 API"""
         try:
-            # Согласно документации v1: используем offer_id напрямую, НЕ product_id
-            # Метод /v1/analytics/data работает с offer_id, а не с product_id
+            # Согласно документации v1: используем product_id, а не offer_id
+            # Метод /v1/analytics/data работает с product_id
+            
+            # Сначала получаем product_id по offer_id
+            offer_map = await self.build_offer_map()
+            if offer_id not in offer_map:
+                logger.warning(f"Offer_id {offer_id} не найден в mapping")
+                return {"ordered_units": 0, "revenue": 0.0}
+            
+            product_id = offer_map[offer_id]
             
             body = {
                 "date_from": date_from,
                 "date_to": date_to,
                 "metrics": ["ordered_units", "revenue"],
-                "dimension": "offer_id",
-                "filters": [{"key": "offer_id", "op": "IN", "value": [offer_id]}],
+                "dimension": "product_id",
+                "filters": [{"key": "product_id", "op": "IN", "value": [product_id]}],
                 "limit": 1000
             }
             

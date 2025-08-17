@@ -166,26 +166,19 @@ async def cmd_ozon_products(message: types.Message):
         
         result = await get_ozon_products()
         if result["success"]:
-            data = result["data"]
-            if isinstance(data, dict) and "result" in data:
-                items = data["result"].get("items", [])
-                total = data["result"].get("total", 0)
-                await message.answer(f"✅ Получено товаров: {len(items)} из {total}")
+            mapping = result["mapping"]
+            total = result["total_count"]
+            await message.answer(f"✅ Получено товаров: {len(mapping)} из {total}")
+            
+            if mapping:
+                # Показываем первые 3 товара
+                preview = "📋 **Первые товары:**\n\n"
+                for i, (offer_id, product_id) in enumerate(list(mapping.items())[:3], 1):
+                    preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
                 
-                if items:
-                    # Показываем первые 3 товара
-                    preview = "📋 **Первые товары:**\n\n"
-                    for i, item in enumerate(items[:3], 1):
-                        offer_id = item.get("offer_id", "N/A")
-                        product_id = item.get("product_id", "N/A")
-                        archived = "📦" if not item.get("archived") else "🗄️"
-                        preview += f"{i}. {archived} {offer_id} (ID: {product_id})\n"
-                    
-                    await message.answer(preview, parse_mode="Markdown")
-                else:
-                    await message.answer("📭 Товары не найдены")
+                await message.answer(preview, parse_mode="Markdown")
             else:
-                await message.answer("❌ Неожиданный формат данных")
+                await message.answer("📭 Товары не найдены")
         else:
             await message.answer(f"❌ Ошибка получения товаров: {result.get('error', 'Неизвестная ошибка')}")
         
