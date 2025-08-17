@@ -15,11 +15,11 @@ class OzonAPI:
         self.api_key = os.getenv("O", "")  # API ключ из переменной окружения
         self.client_id = os.getenv("OZON_CLIENT_ID", "")  # Client ID для Ozon
         self.base_url = "https://api-seller.ozon.ru"
-        # Правильные эндпоинты для Ozon API
+        # Правильные эндпоинты для Ozon API (v3)
         self.endpoints = {
             "info": "/v2/info/list",
-            "products": "/v2/product/list",
-            "orders": "/v3/order/list",
+            "products": "/v3/product/list",
+            "orders": "/v3/posting/fbs/list",
             "stocks": "/v3/product/info/stocks"
         }
         self.headers = {
@@ -41,9 +41,7 @@ class OzonAPI:
         """Тестирует подключение к Ozon API"""
         try:
             # Простой тест - получаем информацию о продавце
-            payload = {
-                "method": "v2/info/list"
-            }
+            payload = {}
             
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
@@ -79,18 +77,17 @@ class OzonAPI:
                 date_to = datetime.now().strftime("%Y-%m-%d")
             
             payload = {
-                "method": "v3/product/info/list",
-                "params": {
-                    "filter": {
-                        "date_from": date_from,
-                        "date_to": date_to
-                    }
-                }
+                "filter": {
+                    "since": date_from,
+                    "to": date_to
+                },
+                "limit": 100,
+                "offset": 0
             }
             
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
-                    f"{self.base_url}/v3/product/info/list",
+                    f"{self.base_url}{self.endpoints['products']}",
                     headers=self.headers,
                     json=payload
                 )
@@ -122,18 +119,17 @@ class OzonAPI:
                 date_to = datetime.now().strftime("%Y-%m-%d")
             
             payload = {
-                "method": "v3/order/list",
-                "params": {
-                    "filter": {
-                        "date_from": date_from,
-                        "date_to": date_to
-                    }
-                }
+                "filter": {
+                    "since": date_from,
+                    "to": date_to
+                },
+                "limit": 100,
+                "offset": 0
             }
             
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
-                    f"{self.base_url}/v3/order/list",
+                    f"{self.base_url}{self.endpoints['orders']}",
                     headers=self.headers,
                     json=payload
                 )
@@ -160,11 +156,9 @@ class OzonAPI:
         """Получает список товаров"""
         try:
             payload = {
-                "method": "v2/product/list",
-                "params": {
-                    "limit": 100,
-                    "offset": 0
-                }
+                "filter": {},
+                "last_id": "",
+                "limit": 100
             }
             
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -195,15 +189,14 @@ class OzonAPI:
         """Получает остатки товаров"""
         try:
             payload = {
-                "method": "v3/product/info/stocks",
-                "params": {
-                    "filter": {}
-                }
+                "filter": {},
+                "limit": 100,
+                "offset": 0
             }
             
             async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.post(
-                    f"{self.base_url}/v3/product/info/stocks",
+                    f"{self.base_url}{self.endpoints['stocks']}",
                     headers=self.headers,
                     json=payload
                 )
