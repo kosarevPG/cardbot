@@ -101,6 +101,7 @@ from modules.evening_reflection import (
 # Модули для работы с постами
 from modules.post_management import PostManager
 from modules.scheduler import MailingScheduler, ReflectionAnalysisScheduler  # Добавляем новый планировщик
+from modules.marketplace_commands import register_marketplace_handlers  # Команды маркетплейсов
 
 # --- Стандартные импорты ---
 import random
@@ -2572,6 +2573,9 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.message.register(partial(process_recharge_method, db=db, logger_service=logging_service), UserState.waiting_for_recharge_method)
     dp.callback_query.register(partial(process_card_feedback, db=db, logger_service=logging_service), F.data.startswith("feedback_v2_"), StateFilter("*"))
     dp.callback_query.register(partial(process_recharge_method_choice, db=db, logger_service=logging_service), StateFilter(UserState.waiting_for_recharge_method_choice))
+
+    # Регистрируем команды маркетплейсов
+    register_marketplace_handlers(dp)
 
     dp.message.register(partial(process_good_moments, db=db, logger_service=logger_service), UserState.waiting_for_good_moments)
     dp.message.register(partial(process_gratitude, db=db, logger_service=logger_service), UserState.waiting_for_gratitude)
