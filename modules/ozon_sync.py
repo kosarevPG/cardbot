@@ -28,10 +28,8 @@ class OzonDataSync:
         }
     
     async def get_ozon_stock(self, offer_id: str, offer_map: dict[str, int]) -> Optional[int]:
-        """Получает остаток товара по offer_id используя настоящий эндпоинт"""
+        """Получает остаток товара по offer_id"""
         try:
-            import httpx, asyncio, random
-            
             # Пробуем сначала с product_id, потом fallback на offer_id
             if offer_id in offer_map:
                 body = {"product_id": offer_map[offer_id]}
@@ -40,31 +38,44 @@ class OzonDataSync:
                 body = {"offer_id": offer_id}
                 logger.debug(f"Fallback to offer_id {offer_id} (not in map)")
             
-            for attempt in range(3):
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    r = await client.post(
-                        f"{self.ozon_api.base_url}/v3/product/info/stocks",
-                        headers=self.ozon_api.headers,
-                        json=body
-                    )
-                    
-                    if r.status_code in (429, 500, 502, 503, 504):
-                        await asyncio.sleep((2** attempt) + random.random())
-                        continue
-                    
-                    if r.status_code == 404:
-                        logger.warning(f"Stocks 404 for {offer_id} (body={body})")
-                        return None
-                    
-                    r.raise_for_status()
-                    
-                    res = r.json().get("result", {})
-                    # ДОБАВЛЯЕМ ЛОГ для отладки
-                    logger.debug(f"stocks for {offer_id}: {res.get('stocks', [])}")
-                    
-                    total_present = sum(int(wh.get("present", 0)) for wh in res.get("stocks", []))
-                    return total_present
+            # Пробуем разные endpoints - Ozon иногда мигрирует между версиями
+            paths = [
+                "/v3/product/info/stocks",      # текущий (может не работать)
+                "/v2/product/info/stocks",      # старая версия (часто работает)
+                "/v3/product/info/stocks-by-warehouse",  # альтернативный
+            ]
             
+            for path in paths:
+                for attempt in range(3):
+                    async with httpx.AsyncClient(timeout=15.0) as client:
+                        r = await client.post(
+                            f"{self.ozon_api.base_url}{path}",
+                            headers=self.ozon_api.headers,
+                            json=body
+                        )
+                        
+                        if r.status_code in (429, 500, 502, 503, 504):
+                            await asyncio.sleep((2** attempt) + random.random())
+                            continue
+                        
+                        if r.status_code == 404:
+                            logger.warning(f"Stocks 404 for {offer_id} (path={path}, body={body}, resp={r.text[:200]})")
+                            break  # пробуем следующий path
+                        
+                        if r.status_code == 200:
+                            res = r.json().get("result", {})
+                            logger.debug(f"stocks for {offer_id} via {path}: {res.get('stocks', [])}")
+                            
+                            total_present = sum(int(wh.get("present", 0)) for wh in res.get("stocks", []))
+                            return total_present
+                        
+                        r.raise_for_status()
+                
+                # Если этот path не сработал, пробуем следующий
+                continue
+            
+            # Если ни один path не сработал
+            logger.warning(f"All stock endpoints failed for {offer_id}")
             return None
                 
         except Exception as e:
@@ -129,36 +140,65 @@ class OzonDataSync:
                 "limit": 1000
             }
             
-            for attempt in range(3):
-                async with httpx.AsyncClient(timeout=20.0) as client:
-                    r = await client.post(
-                        f"{self.ozon_api.base_url}/v3/analytics/data",
-                        headers=self.ozon_api.headers,
-                        json=body
-                    )
-                    
-                    if r.status_code in (429, 500, 502, 503, 504):
-                        await asyncio.sleep((2** attempt) + random.random())
-                        continue
-                    
-                    if r.status_code == 404:
-                        logger.warning(f"Analytics 404 for {offer_id} (body={body})")
-                        return {"ordered_units": 0, "revenue": 0.0}
-                    
-                    r.raise_for_status()
-                    
-                    rows = r.json().get("result", [])
-                    if not rows:
-                        return {"ordered_units": 0, "revenue": 0.0}
-                    
-                    row = rows[0]
-                    return {
-                        "ordered_units": int(row.get("ordered_units", 0)),
-                        "revenue": float(row.get("revenue", 0.0))
-                    }
+            # Пробуем разные endpoints - Ozon иногда мигрирует между версиями
+            paths = [
+                "/v3/analytics/data",           # текущий (может не работать)
+                "/v2/analytics/data",           # старая версия (часто работает)
+                "/v3/analytics/aggregate",      # альтернативный
+            ]
             
-            return {"ordered_units": 0, "revenue": 0.0}
+            for path in paths:
+                for attempt in range(3):
+                    async with httpx.AsyncClient(timeout=20.0) as client:
+                        r = await client.post(
+                            f"{self.ozon_api.base_url}{path}",
+                            headers=self.ozon_api.headers,
+                            json=body
+                        )
+                        
+                        if r.status_code in (429, 500, 502, 503, 504):
+                            await asyncio.sleep((2** attempt) + random.random())
+                            continue
+                        
+                        if r.status_code == 404:
+                            logger.warning(f"Analytics 404 for {offer_id} (path={path}, body={body}, resp={r.text[:200]})")
+                            break  # пробуем следующий path
+                        
+                        if r.status_code == 200:
+                            data = r.json()
+                            logger.debug(f"analytics for {offer_id} via {path}: {data}")
+                            
+                            # Парсим результат в зависимости от структуры ответа
+                            result = data.get("result", {})
+                            if "data" in result:
+                                # Стандартная структура v3
+                                for row in result["data"]:
+                                    if row.get("offer_id") == offer_id:
+                                        return {
+                                            "ordered_units": int(row.get("ordered_units", 0)),
+                                            "revenue": float(row.get("revenue", 0.0))
+                                        }
+                            elif "rows" in result:
+                                # Альтернативная структура v2
+                                for row in result["rows"]:
+                                    if row.get("offer_id") == offer_id:
+                                        return {
+                                            "ordered_units": int(row.get("ordered_units", 0)),
+                                            "revenue": float(row.get("revenue", 0.0))
+                                        }
+                            
+                            # Если не нашли конкретный offer_id, возвращаем 0
+                            return {"ordered_units": 0, "revenue": 0.0}
+                        
+                        r.raise_for_status()
                 
+                # Если этот path не сработал, пробуем следующий
+                continue
+            
+            # Если ни один path не сработал
+            logger.warning(f"All analytics endpoints failed for {offer_id}")
+            return {"ordered_units": 0, "revenue": 0.0}
+            
         except Exception as e:
             logger.error(f"Ошибка получения аналитики для {offer_id}: {e}")
             return {"ordered_units": 0, "revenue": 0.0}
@@ -353,16 +393,16 @@ class OzonDataSync:
                 
                 # ИСПРАВЛЕНО: используем правильные колонки F, H, J
                 updates += [
-                    (f"F{row_index}", [[stock]]),
-                    (f"H{row_index}", [[sales]]),
-                    (f"J{row_index}", [[revenue]])
+                    (f"F{row_index}", [[stock]]),      # БЕЗ "marketplaces!" - только адрес ячейки
+                    (f"H{row_index}", [[sales]]),      # БЕЗ "marketplaces!" - только адрес ячейки  
+                    (f"J{row_index}", [[revenue]])     # БЕЗ "marketplaces!" - только адрес ячейки
                 ]
                 
                 results.append({"offer_id": offer_id, "success": True, "stock": stock, "sales": sales, "revenue": revenue})
                 await asyncio.sleep(0.2)  # чуть разгрузим RPS
             
             # единым batch-запросом
-            ok = await self.sheets_api.batch_update_values(self.spreadsheet_id, updates, None)
+            ok = await self.sheets_api.batch_update_values(self.spreadsheet_id, updates, self.sheet_name)
             if not ok["success"]:
                 logger.error(f"Ошибка записи данных в таблицу: {ok.get('error')}")
                 # можно fallback'ом писать по одной ячейке
