@@ -34,6 +34,8 @@ config/*.toml
 .env
 # не пушим локальные конфиги с dev-токенами
 config_local.py
+# не пушим основной конфиг с реальными токенами
+config.py
 # IDE‑мусор
 .idea/
 .vscode/

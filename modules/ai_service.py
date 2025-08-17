@@ -21,6 +21,105 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# --- НОВЫЙ БЛОК: ФУНКЦИИ БЕЗОПАСНОСТИ ---
+def validate_input_text(text: str, max_length: int = 1000) -> tuple[bool, str]:
+    """
+    Валидирует входной текст на безопасность.
+    
+    Args:
+        text: Текст для валидации
+        max_length: Максимальная длина текста
+        
+    Returns:
+        tuple[bool, str]: (валиден ли текст, сообщение об ошибке)
+    """
+    if not isinstance(text, str):
+        return False, "Текст должен быть строкой"
+    
+    if len(text) > max_length:
+        return False, f"Текст слишком длинный (максимум {max_length} символов)"
+    
+    if len(text.strip()) == 0:
+        return False, "Текст не может быть пустым"
+    
+    # Проверяем на потенциально опасные паттерны
+    dangerous_patterns = [
+        r'<script', r'javascript:', r'vbscript:', r'onload=', r'onerror=',
+        r'<iframe', r'<object', r'<embed', r'<form', r'<input',
+        r'http://', r'https://', r'ftp://', r'file://',
+        r'\\', r'../', r'..\\', r'%00', r'%0d', r'%0a'
+    ]
+    
+    for pattern in dangerous_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            return False, f"Текст содержит запрещенные символы: {pattern}"
+    
+    return True, ""
+
+def sanitize_text_for_ai(text: str) -> str:
+    """
+    Очищает текст для безопасной передачи в AI промпты.
+    
+    Args:
+        text: Исходный текст
+        
+    Returns:
+        str: Очищенный текст
+    """
+    if not isinstance(text, str):
+        return ""
+    
+    # Убираем потенциально опасные символы
+    text = re.sub(r'[<>"\']', '', text)
+    text = re.sub(r'javascript:|vbscript:|onload=|onerror=', '', text, flags=re.IGNORECASE)
+    
+    # Ограничиваем длину
+    if len(text) > 500:
+        text = text[:500] + "..."
+    
+    return text.strip()
+
+def validate_user_id(user_id) -> bool:
+    """
+    Валидирует ID пользователя.
+    
+    Args:
+        user_id: ID для проверки
+        
+    Returns:
+        bool: Валиден ли ID
+    """
+    try:
+        user_id_int = int(user_id)
+        return 0 < user_id_int < 2**63  # Разумные границы для Telegram ID
+    except (ValueError, TypeError):
+        return False
+
+def validate_reflection_data(reflection_data: dict) -> tuple[bool, str]:
+    """
+    Валидирует данные рефлексии.
+    
+    Args:
+        reflection_data: Данные для валидации
+        
+    Returns:
+        tuple[bool, str]: (валидны ли данные, сообщение об ошибке)
+    """
+    if not isinstance(reflection_data, dict):
+        return False, "Данные должны быть словарем"
+    
+    required_fields = ['good_moments', 'gratitude', 'hard_moments']
+    for field in required_fields:
+        if field not in reflection_data:
+            return False, f"Отсутствует обязательное поле: {field}"
+        
+        is_valid, error_msg = validate_input_text(str(reflection_data[field]), 500)
+        if not is_valid:
+            return False, f"Ошибка в поле {field}: {error_msg}"
+    
+    return True, ""
+
+# --- КОНЕЦ БЛОКА БЕЗОПАСНОСТИ ---
 
 # --- Блок функций анализа текста (без изменений) ---
 def analyze_mood(text):
@@ -82,6 +181,20 @@ async def get_grok_question(user_id, user_request, user_response, feedback_type,
     Генерирует углубляющий вопрос от Grok с механизмом повторных попыток.
     NOTE: Эта функция теперь использует YandexGPT, несмотря на название.
     """
+    # --- НОВЫЙ БЛОК: ВАЛИДАЦИЯ ВХОДНЫХ ДАННЫХ ---
+    if not validate_user_id(user_id):
+        logger.error(f"Invalid user_id: {user_id}")
+        return "Ошибка: неверный ID пользователя"
+    
+    if not validate_input_text(user_response, 500):
+        logger.error(f"Invalid user_response for user {user_id}")
+        return "Ошибка: неверный формат ответа"
+    
+    if user_request and not validate_input_text(user_request, 200):
+        logger.error(f"Invalid user_request for user {user_id}")
+        return "Ошибка: неверный формат запроса"
+    # --- КОНЕЦ БЛОКА ВАЛИДАЦИИ ---
+    
     if db is None:
         logger.error("Database object 'db' is required for get_grok_question")
         universal_questions = {
@@ -723,6 +836,17 @@ async def get_reflection_summary(user_id: int, reflection_data: dict, db: Databa
     Генерирует AI-резюме для вечерней рефлексии.
     NOTE: Эта функция теперь использует YandexGPT, несмотря на название.
     """
+    # --- НОВЫЙ БЛОК: ВАЛИДАЦИЯ ВХОДНЫХ ДАННЫХ ---
+    if not validate_user_id(user_id):
+        logger.error(f"Invalid user_id: {user_id}")
+        return "Ошибка: неверный ID пользователя"
+    
+    is_valid, error_msg = validate_reflection_data(reflection_data)
+    if not is_valid:
+        logger.error(f"Invalid reflection_data for user {user_id}: {error_msg}")
+        return f"Ошибка: {error_msg}"
+    # --- КОНЕЦ БЛОКА ВАЛИДАЦИИ ---
+    
     logger.info(f"Starting evening reflection summary generation for user {user_id}")
     headers = {
         "Authorization": f"Api-Key {YANDEX_API_KEY}",
@@ -1326,6 +1450,17 @@ async def get_integrated_reflection_summary(user_id: int, reflection_data: dict,
     Returns:
         str | None: Интегрированное резюме дня или None в случае ошибки
     """
+    # --- НОВЫЙ БЛОК: ВАЛИДАЦИЯ ВХОДНЫХ ДАННЫХ ---
+    if not validate_user_id(user_id):
+        logger.error(f"Invalid user_id: {user_id}")
+        return "Ошибка: неверный ID пользователя"
+    
+    is_valid, error_msg = validate_reflection_data(reflection_data)
+    if not is_valid:
+        logger.error(f"Invalid reflection_data for user {user_id}: {error_msg}")
+        return f"Ошибка: {error_msg}"
+    # --- КОНЕЦ БЛОКА ВАЛИДАЦИИ ---
+    
     logger.info(f"Starting integrated evening reflection summary for user {user_id}")
     headers = {
         "Authorization": f"Api-Key {YANDEX_API_KEY}",
