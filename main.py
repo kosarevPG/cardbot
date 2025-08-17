@@ -2527,30 +2527,30 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     admin_handler = make_admin_handler(db, logger_service)
     admin_callback_handler = make_admin_callback_handler(db, logger_service)
 
-    dp.message.register(start_handler, Command("start"), StateFilter("*"))
-    dp.message.register(share_handler, Command("share"), StateFilter("*"))
-    dp.message.register(remind_handler, Command("remind"), StateFilter("*"))
-    dp.message.register(remind_off_handler, Command("remind_off"), StateFilter("*"))
-    dp.message.register(name_handler, Command("name"), StateFilter("*"))
-    dp.message.register(feedback_handler, Command("feedback"), StateFilter("*"))
-    dp.message.register(user_profile_handler, Command("user_profile"), StateFilter("*"))
-    dp.message.register(users_handler, Command("users"), StateFilter("*"))
-    dp.message.register(logs_handler, Command("logs"), StateFilter("*"))
-    dp.message.register(admin_user_profile_handler, Command("admin_user_profile"), StateFilter("*"))
-    dp.message.register(scenario_stats_handler, Command("scenario_stats"), StateFilter("*"))
-    dp.message.register(broadcast_handler, Command("broadcast"), StateFilter("*"))
-    dp.message.register(create_post_handler, Command("create_post"), StateFilter("*"))
-    dp.message.register(list_posts_handler, Command("list_posts"), StateFilter("*"))
-    dp.message.register(send_post_handler, Command("send_post"), StateFilter("*"))
-    dp.message.register(process_mailings_handler, Command("process_mailings"), StateFilter("*"))
-    dp.message.register(admin_handler, Command("admin"), StateFilter("*"))
+    dp.message.register(start_handler, Command("start"))
+    dp.message.register(share_handler, Command("share"))
+    dp.message.register(remind_handler, Command("remind"))
+    dp.message.register(remind_off_handler, Command("remind_off"))
+    dp.message.register(name_handler, Command("name"))
+    dp.message.register(feedback_handler, Command("feedback"))
+    dp.message.register(user_profile_handler, Command("user_profile"))
+    dp.message.register(users_handler, Command("users"))
+    dp.message.register(logs_handler, Command("logs"))
+    dp.message.register(admin_user_profile_handler, Command("admin_user_profile"))
+    dp.message.register(scenario_stats_handler, Command("scenario_stats"))
+    dp.message.register(broadcast_handler, Command("broadcast"))
+    dp.message.register(create_post_handler, Command("create_post"))
+    dp.message.register(list_posts_handler, Command("list_posts"))
+    dp.message.register(send_post_handler, Command("send_post"))
+    dp.message.register(process_mailings_handler, Command("process_mailings"))
+    dp.message.register(admin_handler, Command("admin"))
     
     # Регистрируем callback-обработчики для админ-панели
     dp.callback_query.register(admin_callback_handler, F.data.startswith("admin_"))
 
-    dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной", StateFilter("*"))
-    dp.message.register(partial(handle_card_request, db=db, logger_service=logger_service), F.text == "✨ Карта дня", StateFilter("*"))
-    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logger_service), F.text == "🌙 Итог дня", StateFilter("*"))
+    dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной")
+    dp.message.register(partial(handle_card_request, db=db, logger_service=logger_service), F.text == "✨ Карта дня")
+    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logger_service), F.text == "🌙 Итог дня")
     
     dp.message.register(process_name_handler, UserState.waiting_for_name)
     dp.callback_query.register(process_skip_name_handler, F.data == "skip_name", UserState.waiting_for_name)
@@ -2571,8 +2571,8 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.message.register(partial(process_third_grok_response, db=db, logger_service=logging_service), UserState.waiting_for_third_grok_response)
     dp.callback_query.register(partial(process_final_resource_callback, db=db, logger_service=logging_service), UserState.waiting_for_final_resource, F.data.startswith("resource_"))
     dp.message.register(partial(process_recharge_method, db=db, logger_service=logging_service), UserState.waiting_for_recharge_method)
-    dp.callback_query.register(partial(process_card_feedback, db=db, logger_service=logging_service), F.data.startswith("feedback_v2_"), StateFilter("*"))
-    dp.callback_query.register(partial(process_recharge_method_choice, db=db, logger_service=logging_service), StateFilter(UserState.waiting_for_recharge_method_choice))
+    dp.callback_query.register(partial(process_card_feedback, db=db, logger_service=logging_service), F.data.startswith("feedback_v2_"))
+    dp.callback_query.register(partial(process_recharge_method_choice, db=db, logger_service=logging_service), UserState.waiting_for_recharge_method_choice)
 
     # Регистрируем команды маркетплейсов
     register_marketplace_handlers(dp)
@@ -2591,13 +2591,13 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
         logger.warning(f"User {callback.from_user.id} sent callback '{callback.data}' while in state {current_state}, expected text.")
         await callback.answer("Пожалуйста, отправь ответ текстом...", show_alert=True)
 
-    dp.message.register(handle_text_when_waiting_callback, StateFilter(
+    dp.message.register(handle_text_when_waiting_callback, 
         UserState.waiting_for_initial_resource,
         UserState.waiting_for_request_type_choice,
         UserState.waiting_for_exploration_choice,
         UserState.waiting_for_final_resource
-    ))
-    dp.callback_query.register(handle_callback_when_waiting_text, StateFilter(
+    )
+    dp.callback_query.register(handle_callback_when_waiting_text, 
         UserState.waiting_for_name,
         UserState.waiting_for_request_text_input,
         UserState.waiting_for_initial_response,
@@ -2612,10 +2612,10 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
         UserState.waiting_for_good_moments,
         UserState.waiting_for_gratitude,
         UserState.waiting_for_hard_moments
-    ))
+    )
 
     # --- ИЗМЕНЕНИЕ: Доработанный обработчик для логгирования "отвалов" ---
-    @dp.message(StateFilter("*"))
+    @dp.message()
     async def handle_unknown_message_state(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
         current_state_str = await state.get_state()
