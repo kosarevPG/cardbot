@@ -7,7 +7,7 @@ from .google_sheets import test_google_sheets_connection, get_sheets_info, read_
 from .ozon_sync import sync_ozon_data, sync_single_ozon_offer
 
 # ID администраторов (замените на ваши)
-ADMIN_IDS = [123456789, 987654321]  # Добавьте сюда ваши ID
+ADMIN_IDS = [6682555021]  # ID пользователя для доступа к командам маркетплейсов
 
 logger = logging.getLogger(__name__)
 
