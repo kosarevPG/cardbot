@@ -14,8 +14,12 @@ class WildberriesAPI:
     def __init__(self):
         self.api_key = os.getenv("W", "")  # API ключ из переменной окружения
         self.base_url = "https://suppliers-api.wildberries.ru"
-        # Альтернативный URL если основной не работает
-        self.fallback_url = "https://suppliers-api.wildberries.ru"
+        # Альтернативные URL если основной не работает
+        self.fallback_urls = [
+            "https://suppliers-api.wildberries.ru",
+            "https://suppliers-api.wildberries.ru:443",
+            "https://suppliers-api.wildberries.ru/api"
+        ]
         self.headers = {
             "Authorization": self.api_key,
             "Content-Type": "application/json"
@@ -27,6 +31,7 @@ class WildberriesAPI:
     
     async def test_connection(self) -> Dict[str, Union[bool, str]]:
         """Тестирует подключение к WB API"""
+        # Сначала пробуем основной URL
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
@@ -40,15 +45,38 @@ class WildberriesAPI:
                     return {"success": False, "message": f"Ошибка API: {response.status_code}"}
                     
         except Exception as e:
-            logger.error(f"Ошибка подключения к WB API: {e}")
+            logger.error(f"Ошибка подключения к WB API (основной URL): {e}")
             
-            # Проверяем, может ли быть проблема с DNS
+            # Если основная ошибка DNS, пробуем fallback URL
             if "Name or service not known" in str(e):
-                return {"success": False, "message": "Ошибка DNS: не удается разрешить домен suppliers-api.wildberries.ru. Проверьте интернет-соединение."}
+                logger.info("Пробуем fallback URL для WB API...")
+                return await self._test_fallback_connection()
             elif "401" in str(e):
                 return {"success": False, "message": "Ошибка авторизации: проверьте API ключ в переменной W"}
             else:
                 return {"success": False, "message": f"Ошибка подключения: {str(e)}"}
+    
+    async def _test_fallback_connection(self) -> Dict[str, Union[bool, str]]:
+        """Тестирует подключение с fallback URL"""
+        for fallback_url in self.fallback_urls:
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    response = await client.get(
+                        f"{fallback_url}/api/v1/supplies",
+                        headers=self.headers
+                    )
+                    
+                    if response.status_code == 200:
+                        logger.info(f"Успешное подключение через fallback URL: {fallback_url}")
+                        return {"success": True, "message": f"Подключение к WB API успешно через {fallback_url}"}
+                    else:
+                        logger.warning(f"Fallback URL {fallback_url} вернул статус {response.status_code}")
+                        
+            except Exception as e:
+                logger.warning(f"Fallback URL {fallback_url} не сработал: {e}")
+                continue
+        
+        return {"success": False, "message": "Ошибка DNS: не удается подключиться ни к одному URL. Проверьте интернет-соединение и доступность WB API."}
     
     async def get_sales_stats(self, date_from: str = None, date_to: str = None) -> Dict:
         """Получает статистику продаж"""

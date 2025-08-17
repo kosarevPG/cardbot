@@ -15,6 +15,13 @@ class OzonAPI:
         self.api_key = os.getenv("O", "")  # API ключ из переменной окружения
         self.client_id = os.getenv("OZON_CLIENT_ID", "")  # Client ID для Ozon
         self.base_url = "https://api-seller.ozon.ru"
+        # Правильные эндпоинты для Ozon API
+        self.endpoints = {
+            "info": "/v2/info/list",
+            "products": "/v2/product/list",
+            "orders": "/v3/order/list",
+            "stocks": "/v3/product/info/stocks"
+        }
         self.headers = {
             "Client-Id": self.client_id,
             "Api-Key": self.api_key,
@@ -40,7 +47,7 @@ class OzonAPI:
             
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.post(
-                    f"{self.base_url}/v2/info/list",
+                    f"{self.base_url}{self.endpoints['info']}",
                     headers=self.headers,
                     json=payload
                 )
@@ -51,6 +58,10 @@ class OzonAPI:
                     return {"success": False, "message": "Ошибка авторизации (401): проверьте API ключ и Client ID в переменных O и OZON_CLIENT_ID"}
                 elif response.status_code == 403:
                     return {"success": False, "message": "Ошибка доступа (403): недостаточно прав для доступа к API"}
+                elif response.status_code == 404:
+                    return {"success": False, "message": "Ошибка API (404): эндпоинт не найден. Возможно, API изменился или у вас нет доступа к этому методу."}
+                elif response.status_code == 400:
+                    return {"success": False, "message": "Ошибка API (400): неправильный запрос. Проверьте формат данных."}
                 else:
                     return {"success": False, "message": f"Ошибка API: {response.status_code} - {response.text[:100]}"}
                     
