@@ -32,7 +32,13 @@ class OzonDataSync:
         try:
             import httpx, asyncio, random
             
-            body = {"product_id": offer_map[offer_id]} if offer_id in offer_map else {"offer_id": offer_id}
+            # Пробуем сначала с product_id, потом fallback на offer_id
+            if offer_id in offer_map:
+                body = {"product_id": offer_map[offer_id]}
+                logger.debug(f"Using product_id {offer_map[offer_id]} for {offer_id}")
+            else:
+                body = {"offer_id": offer_id}
+                logger.debug(f"Fallback to offer_id {offer_id} (not in map)")
             
             for attempt in range(3):
                 async with httpx.AsyncClient(timeout=15.0) as client:
@@ -347,9 +353,9 @@ class OzonDataSync:
                 
                 # ИСПРАВЛЕНО: используем правильные колонки F, H, J
                 updates += [
-                    (f"{self.columns['stock']}{row_index}", [[stock]]),
-                    (f"{self.columns['sales']}{row_index}", [[sales]]),
-                    (f"{self.columns['revenue']}{row_index}", [[revenue]])
+                    (f"F{row_index}", [[stock]]),
+                    (f"H{row_index}", [[sales]]),
+                    (f"J{row_index}", [[revenue]])
                 ]
                 
                 results.append({"offer_id": offer_id, "success": True, "stock": stock, "sales": sales, "revenue": revenue})
