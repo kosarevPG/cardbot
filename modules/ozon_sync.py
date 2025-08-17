@@ -19,12 +19,12 @@ class OzonDataSync:
         self.spreadsheet_id = "1RoWWv9BgiwlSu9H-KJNsFItQxlUVhG1WMbyB0eFxzYM"
         self.sheet_name = "marketplaces"
         
-        # Структура таблицы
+        # Структура таблицы - ИСПРАВЛЕНО: правильные колонки для Ozon
         self.columns = {
             "offer_id": "D",      # Арт. Ozon (колонка D)
-            "stock": "E",         # Остаток Ozon (колонка E)
-            "sales": "F",         # Продажи Ozon (колонка F)
-            "revenue": "G"        # Выручка Ozon (колонка G)
+            "stock": "F",         # Остаток Ozon → F (не E!)
+            "sales": "H",         # Продажи Ozon → H (не F!)
+            "revenue": "J"        # Выручка Ozon → J (не G!)
         }
     
     async def get_ozon_stock(self, offer_id: str, offer_map: dict[str, int]) -> Optional[int]:
@@ -53,6 +53,9 @@ class OzonDataSync:
                     r.raise_for_status()
                     
                     res = r.json().get("result", {})
+                    # ДОБАВЛЯЕМ ЛОГ для отладки
+                    logger.debug(f"stocks for {offer_id}: {res.get('stocks', [])}")
+                    
                     total_present = sum(int(wh.get("present", 0)) for wh in res.get("stocks", []))
                     return total_present
             
@@ -168,11 +171,11 @@ class OzonDataSync:
             
             if result["success"]:
                 data = result["data"]
-                # Извлекаем offer_id из данных, убираем пустые строки и нормализуем
+                # ИСПРАВЛЕНО: НЕ нормализуем в верхний регистр для Ozon API!
                 offer_ids = []
                 for row in data:
                     if row and row[0] and row[0].strip():  # Проверяем, что ячейка не пустая
-                        normalized_id = row[0].strip().upper()  # Нормализуем через .strip() и .upper()
+                        normalized_id = row[0].strip()  # БЕЗ .upper() для Ozon API!
                         offer_ids.append(normalized_id)
                 
                 logger.info(f"Прочитано {len(offer_ids)} offer_id из таблицы")
@@ -214,13 +217,13 @@ class OzonDataSync:
             # Обновляем данные в соответствующих колонках
             # Google Sheets требует двумерный массив [[value]]
             updates = [
-                (stock if stock is not None else 0),      # Колонка E - остаток
-                (sales if sales is not None else 0),      # Колонка F - продажи
-                (revenue if revenue is not None else 0.0) # Колонка G - выручка
+                (stock if stock is not None else 0),      # Колонка F - остаток
+                (sales if sales is not None else 0),      # Колонка H - продажи
+                (revenue if revenue is not None else 0.0) # Колонка J - выручка
             ]
             
             # Обновляем каждую колонку отдельно
-            for i, (col, value) in enumerate(zip(['E', 'F', 'G'], updates)):
+            for i, (col, value) in enumerate(zip(['F', 'H', 'J'], updates)):  # ИСПРАВЛЕНО: F, H, J
                 cell_range = f"{col}{row_index}"
                 # Форматируем значение как двумерный массив [[value]]
                 formatted_value = [[value]]
@@ -313,11 +316,11 @@ class OzonDataSync:
                 }
             
             data = sheet_rows["data"]
-            # индекс строки по offer_id (D-колонка) - нормализуем для поиска
+            # индекс строки по offer_id (D-колонка) - нормализуем для поиска в листе
             row_by_offer: dict[str, int] = {}
             for i, row in enumerate(data, start=1):
                 if len(row) > 3 and row[3]:
-                    normalized_id = row[3].strip().upper()  # Нормализуем для поиска
+                    normalized_id = row[3].strip().upper()  # Нормализуем для поиска в листе
                     row_by_offer[normalized_id] = i
             
             updates = []  # (range, [[value]])
@@ -326,7 +329,7 @@ class OzonDataSync:
             date_from = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
             
             for offer_id in offer_ids:
-                # Нормализуем offer_id для поиска в таблице
+                # Нормализуем offer_id для поиска в таблице (но НЕ для Ozon API!)
                 normalized_offer_id = offer_id.upper()
                 row_index = row_by_offer.get(normalized_offer_id)
                 if not row_index:
@@ -334,18 +337,19 @@ class OzonDataSync:
                     results.append({"offer_id": offer_id, "success": False, "error": "not in sheet"})
                     continue
                 
-                stock = await self.get_ozon_stock(offer_id, offer_map)
+                stock = await self.get_ozon_stock(offer_id, offer_map)  # ИСПРАВЛЕНО: используем оригинальный offer_id
                 if stock is None:
                     stock = 0
                 
-                analytics = await self.get_ozon_analytics(offer_id, date_from, date_to)
+                analytics = await self.get_ozon_analytics(offer_id, date_from, date_to)  # ИСПРАВЛЕНО: используем оригинальный offer_id
                 sales = analytics["ordered_units"]
                 revenue = analytics["revenue"]
                 
+                # ИСПРАВЛЕНО: используем правильные колонки F, H, J
                 updates += [
-                    (f"E{row_index}", [[stock]]),
-                    (f"F{row_index}", [[sales]]),
-                    (f"G{row_index}", [[revenue]])
+                    (f"{self.columns['stock']}{row_index}", [[stock]]),
+                    (f"{self.columns['sales']}{row_index}", [[sales]]),
+                    (f"{self.columns['revenue']}{row_index}", [[revenue]])
                 ]
                 
                 results.append({"offer_id": offer_id, "success": True, "stock": stock, "sales": sales, "revenue": revenue})
