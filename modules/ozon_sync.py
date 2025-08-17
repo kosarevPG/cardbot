@@ -27,60 +27,114 @@ class OzonDataSync:
             "revenue": "G"        # Выручка Ozon (колонка G)
         }
     
-    async def get_ozon_stock(self, offer_id: str) -> Optional[int]:
-        """Получает остаток товара по offer_id используя /v3/product/list"""
+    async def get_ozon_stock(self, offer_id: str, offer_map: dict[str, int]) -> Optional[int]:
+        """Получает остаток товара по offer_id используя настоящий эндпоинт"""
         try:
-            # Используем тот же эндпоинт, что и в ozon_api.py
-            payload = {
-                "filter": {
-                    "offer_id": [offer_id]
-                },
-                "limit": 1
-            }
+            body = {}
+            if offer_id in offer_map:
+                body = {"product_id": offer_map[offer_id]}
+            else:
+                # fallback, если вдруг offer_id валиден
+                body = {"offer_id": offer_id, "product_id": 0, "sku": 0}
             
             import httpx
             async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(
-                    f"{self.ozon_api.base_url}/v3/product/list",
+                r = await client.post(
+                    f"{self.ozon_api.base_url}/v3/product/info/stocks",
                     headers=self.ozon_api.headers,
-                    json=payload
+                    json=body
                 )
                 
-                if response.status_code == 200:
-                    data = response.json()
-                    if "result" in data and "items" in data["result"]:
-                        items = data["result"]["items"]
-                        if items:
-                            item = items[0]
-                            # Проверяем наличие остатков
-                            has_fbo = item.get("has_fbo_stocks", False)
-                            has_fbs = item.get("has_fbs_stocks", False)
-                            
-                            if has_fbo or has_fbs:
-                                # Если есть остатки, возвращаем 1 (есть в наличии)
-                                return 1
-                            else:
-                                return 0
+                if r.status_code == 404:
+                    logger.warning(f"Stocks 404 for {offer_id} (body={body})")
+                    return None
                 
-                logger.warning(f"Не удалось получить остаток для {offer_id}")
-                return None
+                r.raise_for_status()
+                
+                res = r.json().get("result", {})
+                total_present = 0
+                for wh in res.get("stocks", []):
+                    total_present += int(wh.get("present", 0))
+                
+                return total_present
                 
         except Exception as e:
             logger.error(f"Ошибка получения остатка для {offer_id}: {e}")
             return None
     
-    async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
-        """Получает аналитику продаж и выручки по offer_id (упрощенная версия)"""
+    async def build_offer_map(self) -> dict[str, int]:
+        """Строит карту offer_id -> product_id"""
         try:
-            # Временно возвращаем тестовые данные, так как /v3/analytics/data не работает
-            # TODO: Найти рабочий эндпоинт для аналитики
-            logger.info(f"Получение аналитики для {offer_id} - используем тестовые данные")
+            # Берём все товары — пагинация при необходимости
+            payload = {"filter": {}, "limit": 1000, "last_id": ""}
+            offer_map = {}
             
-            # Возвращаем базовые значения
-            return {
-                "ordered_units": 0,  # Продажи
-                "revenue": 0.0       # Выручка
+            import httpx
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                while True:
+                    r = await client.post(
+                        f"{self.ozon_api.base_url}/v3/product/list",
+                        headers=self.ozon_api.headers,
+                        json=payload
+                    )
+                    r.raise_for_status()
+                    
+                    data = r.json()["result"]
+                    for it in data.get("items", []):
+                        # иногда приходит массив, иногда строка
+                        for offer in it.get("offer_id", []):
+                            offer_map[str(offer)] = it["product_id"]
+                        
+                        if isinstance(it.get("offer_id"), str):
+                            offer_map[it["offer_id"]] = it["product_id"]
+                    
+                    last_id = data.get("last_id")
+                    if not last_id:
+                        break
+                    payload["last_id"] = last_id
+            
+            logger.info(f"Построена карта для {len(offer_map)} товаров")
+            return offer_map
+            
+        except Exception as e:
+            logger.error(f"Ошибка построения карты offer_id: {e}")
+            return {}
+
+    async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
+        """Получает аналитику продаж и выручки по offer_id"""
+        try:
+            body = {
+                "date_from": date_from,
+                "date_to": date_to,
+                "metrics": ["ordered_units", "revenue"],
+                "dimension": "offer_id",
+                "filters": [{"key": "offer_id", "op": "IN", "value": [offer_id]}],
+                "limit": 1000
             }
+            
+            import httpx
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(
+                    f"{self.ozon_api.base_url}/v3/analytics/data",
+                    headers=self.ozon_api.headers,
+                    json=body
+                )
+                
+                if r.status_code == 404:
+                    logger.warning(f"Analytics 404 for {offer_id} (body={body})")
+                    return {"ordered_units": 0, "revenue": 0.0}
+                
+                r.raise_for_status()
+                
+                rows = r.json().get("result", [])
+                if not rows:
+                    return {"ordered_units": 0, "revenue": 0.0}
+                
+                row = rows[0]
+                return {
+                    "ordered_units": int(row.get("ordered_units", 0)),
+                    "revenue": float(row.get("revenue", 0.0))
+                }
                 
         except Exception as e:
             logger.error(f"Ошибка получения аналитики для {offer_id}: {e}")
@@ -179,8 +233,11 @@ class OzonDataSync:
         try:
             logger.info(f"Синхронизация данных для {offer_id}")
             
+            # Строим карту offer_id -> product_id
+            offer_map = await self.build_offer_map()
+            
             # Получаем остаток
-            stock = await self.get_ozon_stock(offer_id)
+            stock = await self.get_ozon_stock(offer_id, offer_map)
             if stock is None:
                 stock = 0
             
@@ -212,7 +269,7 @@ class OzonDataSync:
             }
     
     async def sync_all_offers(self) -> Dict:
-        """Синхронизирует данные для всех offer_id из таблицы"""
+        """Синхронизирует данные для всех offer_id из таблицы (оптимизированная версия)"""
         try:
             logger.info("Начинаю синхронизацию всех offer_id")
             
@@ -225,16 +282,63 @@ class OzonDataSync:
                     "error": "Не удалось прочитать offer_id из таблицы"
                 }
             
-            # Синхронизируем каждый offer_id
-            results = []
-            for offer_id in offer_ids:
-                result = await self.sync_single_offer(offer_id)
-                results.append(result)
-                
-                # Небольшая задержка между запросами
-                await asyncio.sleep(0.5)
+            # карта offer_id -> product_id
+            offer_map = await self.build_offer_map()
             
-            # Подсчитываем статистику
+            # распарсим все строки разом (чтобы знать, в каких строках писать)
+            sheet_rows = await self.sheets_api.get_sheet_data(
+                self.spreadsheet_id, 
+                self.sheet_name
+            )
+            
+            if not sheet_rows["success"]:
+                return {
+                    "success": False,
+                    "error": "Не удалось прочитать лист целиком"
+                }
+            
+            data = sheet_rows["data"]
+            # индекс строки по offer_id (D-колонка)
+            row_by_offer: dict[str, int] = {}
+            for i, row in enumerate(data, start=1):
+                if len(row) > 3 and row[3]:
+                    row_by_offer[row[3].strip()] = i
+            
+            updates = []  # (range, [[value]])
+            results = []
+            date_to = datetime.now().strftime("%Y-%m-%d")
+            date_from = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            
+            for offer_id in offer_ids:
+                row_index = row_by_offer.get(offer_id)
+                if not row_index:
+                    logger.warning(f"{offer_id} нет в листе - пропускаю")
+                    results.append({"offer_id": offer_id, "success": False, "error": "not in sheet"})
+                    continue
+                
+                stock = await self.get_ozon_stock(offer_id, offer_map)
+                if stock is None:
+                    stock = 0
+                
+                analytics = await self.get_ozon_analytics(offer_id, date_from, date_to)
+                sales = analytics["ordered_units"]
+                revenue = analytics["revenue"]
+                
+                updates += [
+                    (f"E{row_index}", [[stock]]),
+                    (f"F{row_index}", [[sales]]),
+                    (f"G{row_index}", [[revenue]])
+                ]
+                
+                results.append({"offer_id": offer_id, "success": True, "stock": stock, "sales": sales, "revenue": revenue})
+                await asyncio.sleep(0.2)  # чуть разгрузим RPS
+            
+            # единым batch-запросом
+            ok = await self.sheets_api.batch_update_values(self.spreadsheet_id, self.sheet_name, updates)
+            if not ok["success"]:
+                logger.error(f"Ошибка записи данных в таблицу: {ok.get('error')}")
+                # можно fallback'ом писать по одной ячейке
+            
             successful = sum(1 for r in results if r["success"])
             failed = len(results) - successful
             

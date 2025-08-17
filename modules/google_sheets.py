@@ -203,6 +203,45 @@ class GoogleSheetsAPI:
         except Exception as e:
             logger.error(f"Ошибка получения информации о таблице: {e}")
             return {"success": False, "error": str(e)}
+    
+    async def batch_update_values(self, spreadsheet_id: str, sheet_name: str, updates: List[tuple]) -> Dict:
+        """Пакетное обновление значений в таблице
+        
+        Args:
+            spreadsheet_id: ID таблицы
+            sheet_name: Имя листа
+            updates: Список кортежей (range, [[value]])
+        
+        Returns:
+            Dict с результатом операции
+        """
+        try:
+            spreadsheet = await self.open_spreadsheet(spreadsheet_id)
+            if not spreadsheet:
+                return {"success": False, "error": "Не удалось открыть таблицу"}
+            
+            worksheet = spreadsheet.worksheet(sheet_name)
+            
+            # Подготавливаем данные для batch update
+            batch_data = []
+            for range_name, values in updates:
+                batch_data.append({
+                    "range": f"{sheet_name}!{range_name}",
+                    "values": values
+                })
+            
+            # Выполняем пакетное обновление
+            worksheet.batch_update(batch_data)
+            
+            return {
+                "success": True,
+                "message": f"Пакетное обновление выполнено для {len(updates)} ячеек",
+                "cells_updated": len(updates)
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка пакетного обновления: {e}")
+            return {"success": False, "error": str(e)}
 
 # Функции для удобного использования
 async def test_google_sheets_connection() -> str:
