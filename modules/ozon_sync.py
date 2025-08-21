@@ -363,19 +363,19 @@ class OzonDataSync:
                 sales = analytics["ordered_units"]
                 revenue = analytics["revenue"]
                 
-                # ИСПРАВЛЕНО: используем правильные колонки F, H, J
+                # ИСПРАВЛЕНО: используем полные адреса ячеек с именем листа
                 updates += [
-                    (f"F{row_index}", [[stock]]),      # ТОЛЬКО адрес ячейки без имени листа
-                    (f"H{row_index}", [[sales]]),      # ТОЛЬКО адрес ячейки без имени листа  
-                    (f"J{row_index}", [[revenue]])     # ТОЛЬКО адрес ячейки без имени листа
+                    (f"{self.sheet_name}!F{row_index}", [[stock]]),      # Полный адрес: marketplaces!F2
+                    (f"{self.sheet_name}!H{row_index}", [[sales]]),      # Полный адрес: marketplaces!H2
+                    (f"{self.sheet_name}!J{row_index}", [[revenue]])     # Полный адрес: marketplaces!J2
                 ]
                 
                 results.append({"offer_id": offer_id, "success": True, "stock": stock, "sales": sales, "revenue": revenue})
                 await asyncio.sleep(0.2)  # чуть разгрузим RPS
             
             # единым batch-запросом
-            # ИСПРАВЛЕНО: передаем sheet_name для правильной работы batch_update
-            ok = await self.sheets_api.batch_update_values(self.spreadsheet_id, updates, self.sheet_name)
+            # ИСПРАВЛЕНО: НЕ передаем sheet_name, чтобы избежать дублирования
+            ok = await self.sheets_api.batch_update_values(self.spreadsheet_id, updates, None)
             if not ok["success"]:
                 logger.error(f"Ошибка записи данных в таблицу: {ok.get('error')}")
                 # можно fallback'ом писать по одной ячейке
