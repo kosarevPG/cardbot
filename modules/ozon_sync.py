@@ -32,13 +32,13 @@ class OzonDataSync:
     async def get_ozon_stock(self, offer_id: str, offer_map: dict[str, int]) -> Optional[int]:
         """Получает остаток товара по offer_id"""
         try:
-            # Согласно документации v3: используем product_id
+            # ИСПРАВЛЕНО: используем product_id для stocks API
             if offer_id in offer_map:
                 product_id = offer_map[offer_id]
-                body = {"product_id": [product_id]}  # v3 API использует массив product_id
+                body = {"product_id": [product_id]}  # Правильный формат для v3 API
                 logger.debug(f"Using product_id {product_id} for stocks")
             else:
-                logger.warning(f"Offer_id {offer_id} не найден в mapping, пропускаем")
+                logger.warning(f"Product ID не найден для offer_id {offer_id}")
                 return None
             
             # Используем эндпоинт v3 согласно документации
@@ -124,15 +124,19 @@ class OzonDataSync:
     async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
         """Получает аналитику продаж и выручки по offer_id согласно документации v1 API"""
         try:
-            # Согласно документации v1: используем offer_id напрямую
-            # Метод /v1/analytics/data работает с offer_id
-            
+            # ИСПРАВЛЕНО: используем правильный формат для v1 analytics API
             body = {
                 "date_from": date_from,
                 "date_to": date_to,
                 "metrics": ["ordered_units", "revenue"],
                 "dimension": "offer_id",
-                "filters": [{"key": "offer_id", "op": "IN", "value": [offer_id]}],
+                "filters": [
+                    {
+                        "key": "offer_id",
+                        "value": [offer_id],
+                        "op": "IN"
+                    }
+                ],
                 "limit": 1000
             }
             
@@ -155,10 +159,10 @@ class OzonDataSync:
                     if "data" in result:
                         # Стандартная структура v1 - ищем по offer_id
                         for row in result["data"]:
-                            if row.get("offer_id") == offer_id:
+                            if row.get("dimensions", {}).get("offer_id") == offer_id:
                                 return {
-                                    "ordered_units": int(row.get("ordered_units", 0)),
-                                    "revenue": float(row.get("revenue", 0.0))
+                                    "ordered_units": int(row.get("metrics", {}).get("ordered_units", 0)),
+                                    "revenue": float(row.get("metrics", {}).get("revenue", 0.0))
                                 }
                     
                     # Если не нашли конкретный offer_id, возвращаем 0
@@ -314,7 +318,7 @@ class OzonDataSync:
                     "error": "Не удалось прочитать offer_id из таблицы"
                 }
             
-            # карта offer_id -> product_id
+            # Строим карту offer_id -> product_id для stocks API
             offer_map = await self.build_offer_map()
             
             # распарсим все строки разом (чтобы знать, в каких строках писать)
@@ -351,7 +355,7 @@ class OzonDataSync:
                     results.append({"offer_id": offer_id, "success": False, "error": "not in sheet"})
                     continue
                 
-                stock = await self.get_ozon_stock(offer_id, offer_map)  # ИСПРАВЛЕНО: используем оригинальный offer_id
+                stock = await self.get_ozon_stock(offer_id, offer_map)  # Убираем зависимость от offer_map
                 if stock is None:
                     stock = 0
                 
@@ -370,7 +374,8 @@ class OzonDataSync:
                 await asyncio.sleep(0.2)  # чуть разгрузим RPS
             
             # единым batch-запросом
-            ok = await self.sheets_api.batch_update_values(self.spreadsheet_id, updates, None)  # Не передаем sheet_name, чтобы избежать дублирования
+            # ИСПРАВЛЕНО: передаем sheet_name для правильной работы batch_update
+            ok = await self.sheets_api.batch_update_values(self.spreadsheet_id, updates, self.sheet_name)
             if not ok["success"]:
                 logger.error(f"Ошибка записи данных в таблицу: {ok.get('error')}")
                 # можно fallback'ом писать по одной ячейке
