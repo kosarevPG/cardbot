@@ -234,6 +234,7 @@ class GoogleSheetsAPI:
                 if "!" in range_name:
                     final_range = range_name
                 else:
+                    # Если sheet_name передан и range_name не содержит имя листа, добавляем его
                     final_range = f"{sheet_name}!{range_name}"
                 
                 batch_data.append({

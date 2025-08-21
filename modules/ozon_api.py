@@ -123,7 +123,13 @@ class OzonAPI:
                         "value": product_ids
                     }
                 ],
-                "limit": 1000
+                "limit": 1000,
+                "sort": [
+                    {
+                        "key": "date",
+                        "order": "desc"
+                    }
+                ]
             }
             
             async with httpx.AsyncClient(timeout=20.0) as client:
@@ -157,12 +163,12 @@ class OzonAPI:
     
     async def get_stocks(self, product_id: int) -> Dict[str, Union[bool, str, Dict]]:
         """
-        Остатки на складе - метод POST /v3/product/info/stocks согласно документации
+        Остатки на складе - метод POST /v4/product/info/stocks согласно документации
         """
         try:
-            # Согласно документации v3: передаем массив product_id
+            # Согласно документации v4: передаем массив product_id
             payload = {
-                "product_id": [product_id]  # v3 API использует массив product_id
+                "product_id": [product_id]  # v4 API использует массив product_id
             }
             
             async with httpx.AsyncClient(timeout=15.0) as client:
