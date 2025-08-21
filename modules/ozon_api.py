@@ -20,7 +20,7 @@ class OzonAPI:
         self.endpoints = {
             "product_list": "/v3/product/list",           # Получение product_id по offer_id (v3 согласно документации)
             "analytics": "/v1/analytics/data",            # Аналитика (продажи, выручка) - v1 согласно документации
-            "stocks": "/v3/product/info/stocks",          # Остатки на складе (v3 согласно документации)
+            "stocks": "/v4/product/info/stocks",          # Остатки на складе (v4 - актуальная версия)
             "product_info": "/v3/product/list"            # Общая информация о товарах
         }
         

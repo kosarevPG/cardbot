@@ -121,24 +121,30 @@ class OzonDataSync:
             logger.error(f"Ошибка построения карты offer_id: {e}")
             return {}
 
-    async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str) -> Dict:
+    async def get_ozon_analytics(self, offer_id: str, date_from: str, date_to: str, offer_map: dict[str, int]) -> Dict:
         """Получает аналитику продаж и выручки по offer_id согласно документации v1 API"""
         try:
-            # ИСПРАВЛЕНО: используем правильный формат для v1 analytics API
-            body = {
-                "date_from": date_from,
-                "date_to": date_to,
-                "metrics": ["ordered_units", "revenue"],
-                "dimension": "offer_id",
-                "filters": [
-                    {
-                        "key": "offer_id",
-                        "value": [offer_id],
-                        "op": "IN"
-                    }
-                ],
-                "limit": 1000
-            }
+            # ИСПРАВЛЕНО: используем product_id для analytics API
+            if offer_id in offer_map:
+                product_id = offer_map[offer_id]
+                body = {
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "metrics": ["ordered_units", "revenue"],
+                    "dimension": "product_id",
+                    "filters": [
+                        {
+                            "key": "product_id",
+                            "value": [product_id],
+                            "op": "IN"
+                        }
+                    ],
+                    "limit": 1000
+                }
+                logger.debug(f"Using product_id {product_id} for analytics")
+            else:
+                logger.warning(f"Product ID не найден для offer_id {offer_id}")
+                return {"ordered_units": 0, "revenue": 0.0}
             
             # Используем эндпоинт v1 согласно документации
             path = "/v1/analytics/data"
@@ -157,15 +163,15 @@ class OzonDataSync:
                     # Парсим результат согласно документации v1
                     result = data.get("result", {})
                     if "data" in result:
-                        # Стандартная структура v1 - ищем по offer_id
+                        # Стандартная структура v1 - ищем по product_id
                         for row in result["data"]:
-                            if row.get("dimensions", {}).get("offer_id") == offer_id:
+                            if row.get("dimensions", {}).get("product_id") == product_id:
                                 return {
                                     "ordered_units": int(row.get("metrics", {}).get("ordered_units", 0)),
                                     "revenue": float(row.get("metrics", {}).get("revenue", 0.0))
                                 }
                     
-                    # Если не нашли конкретный offer_id, возвращаем 0
+                    # Если не нашли конкретный product_id, возвращаем 0
                     return {"ordered_units": 0, "revenue": 0.0}
                 else:
                     logger.warning(f"Analytics {r.status_code} for {offer_id}: {r.text[:200]}")
@@ -281,7 +287,7 @@ class OzonDataSync:
             date_to = datetime.now().strftime("%Y-%m-%d")
             date_from = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
             
-            analytics = await self.get_ozon_analytics(offer_id, date_from, date_to)
+            analytics = await self.get_ozon_analytics(offer_id, date_from, date_to, offer_map)
             sales = analytics["ordered_units"]
             revenue = analytics["revenue"]
             
@@ -359,7 +365,7 @@ class OzonDataSync:
                 if stock is None:
                     stock = 0
                 
-                analytics = await self.get_ozon_analytics(offer_id, date_from, date_to)  # ИСПРАВЛЕНО: используем оригинальный offer_id
+                analytics = await self.get_ozon_analytics(offer_id, date_from, date_to, offer_map)  # ИСПРАВЛЕНО: передаем offer_map
                 sales = analytics["ordered_units"]
                 revenue = analytics["revenue"]
                 
