@@ -42,7 +42,8 @@ class OzonDataSync:
                 return None
             
             # Используем эндпоинт v3 согласно документации
-            path = "/v3/product/info/stocks"
+            # Используем эндпоинт v4 согласно документации
+            path = "/v4/product/info/stocks"
             
             async with httpx.AsyncClient(timeout=15.0) as client:
                 r = await client.post(
