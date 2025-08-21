@@ -230,15 +230,9 @@ class GoogleSheetsAPI:
             # Подготавливаем данные для batch update
             batch_data = []
             for range_name, values in updates:
-                # Если range_name уже содержит имя листа, используем как есть
-                if "!" in range_name:
-                    final_range = range_name
-                else:
-                    # Если sheet_name передан и range_name не содержит имя листа, добавляем его
-                    final_range = f"{sheet_name}!{range_name}"
-                
+                # Передаем диапазон как есть, не модифицируя его
                 batch_data.append({
-                    "range": final_range,
+                    "range": range_name,
                     "values": values
                 })
             
