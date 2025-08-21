@@ -186,3 +186,6 @@ database/bot*.db
 # Backup directories - НЕ включаем в деплой
 backup_*/
 backup_pre_deploy_*/
+
+# Git directory - НЕ включаем в деплой на Amvera
+.git/
