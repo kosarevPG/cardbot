@@ -115,7 +115,7 @@ class OzonAPI:
                 "date_from": date_from,
                 "date_to": date_to,
                 "metrics": ["ordered_units", "revenue"],
-                "dimension": "product_id",
+                "dimension": ["product_id"],
                 "filters": [
                     {
                         "key": "product_id",
@@ -123,13 +123,7 @@ class OzonAPI:
                         "value": product_ids
                     }
                 ],
-                "limit": 1000,
-                "sort": [
-                    {
-                        "key": "date",
-                        "order": "desc"
-                    }
-                ]
+                "limit": 1000
             }
             
             async with httpx.AsyncClient(timeout=20.0) as client:
