@@ -132,7 +132,7 @@ class OzonDataSync:
                     "date_from": date_from,
                     "date_to": date_to,
                     "metrics": ["ordered_units", "revenue"],
-                    "dimension": "product_id",
+                    "dimension": ["product_id"],
                     "filters": [
                         {
                             "key": "product_id",
