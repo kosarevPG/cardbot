@@ -137,7 +137,7 @@ class OzonDataSync:
                     "filters": [
                         {
                             "key": "product_id",
-                            "value": [product_id],
+                            "value": product_id,
                             "op": "IN"
                         }
                     ],
