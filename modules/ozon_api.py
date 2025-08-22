@@ -1,3 +1,4 @@
+# DEPLOY_TRIGGER 2025-08-22
 # Ozon API модуль
 import httpx
 import json
