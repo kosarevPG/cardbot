@@ -1,3 +1,4 @@
+# DEPLOY_TRIGGER 2025-08-22
 # Модуль автоматической синхронизации Ozon с Google таблицами
 import logging
 import asyncio
