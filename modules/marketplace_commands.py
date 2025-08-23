@@ -432,7 +432,7 @@ async def cmd_ozon_products(message: types.Message):
                 else:
                     # Fallback к базовой информации
                     for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
-                    preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                        preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
                 
                 # Добавляем информацию о пагинации
                 if len(mapping) > 5:
@@ -669,7 +669,7 @@ async def cmd_ozon_stocks(message: types.Message):
             
             if stocks:
                 # Показываем первые 5 товаров с информацией о наличии
-                    preview = "📋 **Информация о товарах:**\n\n"
+                preview = "📋 **Информация о товарах:**\n\n"
                 # Получаем детальную информацию для названий
                 product_ids = list(mapping.values())
                 detailed_result = await manager.get_ozon_products_detailed(product_ids)
@@ -732,9 +732,9 @@ async def cmd_ozon_stocks(message: types.Message):
                     
                     await message.answer(preview, parse_mode="Markdown")
                 else:
-                await message.answer("📭 Остатки не найдены")
+                    await message.answer("📭 Остатки не найдены")
             else:
-            await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
+                await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_stocks: {e}")
