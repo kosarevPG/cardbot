@@ -260,7 +260,11 @@ async def cmd_ozon_products(message: types.Message):
                         fbs_status = "✅" if product_info.get("has_fbs_stocks") else "❌"
                         discount = "🏷️" if product_info.get("is_discounted") else ""
                         
+                        # Получаем название продукта
+                        product_name = product_info.get("name", "Без названия")
+                        
                         preview += f"{i}. {archived} **{offer_id}** (ID: {product_id})\n"
+                        preview += f"   📝 **{product_name}**\n"
                         preview += f"   📊 FBO: {fbo_status} | FBS: {fbs_status} {discount}\n"
                         
                         # Информация о размерах
@@ -312,8 +316,22 @@ async def cmd_ozon_products_all(message: types.Message):
                 full_list = f"📋 **Полный список товаров Ozon**\n\n"
                 full_list += f"Всего товаров: {total}\n\n"
                 
-                for i, (offer_id, product_id) in enumerate(mapping.items(), 1):
-                    full_list += f"{i:2d}. 📦 {offer_id} (ID: {product_id})\n"
+                # Получаем детальную информацию для названий
+                product_ids = list(mapping.values())
+                detailed_result = await manager.get_ozon_products_detailed(product_ids)
+                
+                if detailed_result["success"]:
+                    products = detailed_result["products"]
+                    
+                    for i, (offer_id, product_id) in enumerate(mapping.items(), 1):
+                        product_info = products.get(str(product_id), {})
+                        product_name = product_info.get("name", "Без названия")
+                        full_list += f"{i:2d}. 📦 {offer_id} (ID: {product_id})\n"
+                        full_list += f"      📝 {product_name}\n"
+                else:
+                    # Fallback к базовой информации
+                    for i, (offer_id, product_id) in enumerate(mapping.items(), 1):
+                        full_list += f"{i:2d}. 📦 {offer_id} (ID: {product_id})\n"
                 
                 # Разбиваем на части, если сообщение слишком длинное
                 if len(full_list) > 4000:  # Telegram лимит ~4096 символов
@@ -404,7 +422,11 @@ async def cmd_ozon_products_detailed(message: types.Message):
                         fbs_status = "✅ ЕСТЬ" if product_info.get("has_fbs_stocks") else "❌ НЕТ"
                         discount = "🏷️ СКИДКА" if product_info.get("is_discounted") else ""
                         
+                        # Получаем название продукта
+                        product_name = product_info.get("name", "Без названия")
+                        
                         detailed_report += f"**{i:2d}. {offer_id}** (ID: {product_id})\n"
+                        detailed_report += f"   📝 **{product_name}**\n"
                         detailed_report += f"   📊 Статус: {archived}\n"
                         detailed_report += f"   🏪 FBO склады: {fbo_status}\n"
                         detailed_report += f"   🏪 FBS склады: {fbs_status}\n"
@@ -492,10 +514,27 @@ async def cmd_ozon_stocks(message: types.Message):
             if stocks:
                 # Показываем первые 5 товаров с информацией о наличии
                 preview = "📋 **Информация о товарах:**\n\n"
-                for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
-                    stock_count = stocks.get(str(product_id), 0)
-                    preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
-                    preview += f"   Остаток: {stock_count} шт.\n\n"
+                # Получаем детальную информацию для названий
+                product_ids = list(mapping.values())
+                detailed_result = await manager.get_ozon_products_detailed(product_ids)
+                
+                if detailed_result["success"]:
+                    products = detailed_result["products"]
+                    
+                    for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
+                        stock_count = stocks.get(str(product_id), 0)
+                        product_info = products.get(str(product_id), {})
+                        product_name = product_info.get("name", "Без названия")
+                        
+                        preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                        preview += f"   📝 {product_name}\n"
+                        preview += f"   Остаток: {stock_count} шт.\n\n"
+                else:
+                    # Fallback к базовой информации
+                    for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
+                        stock_count = stocks.get(str(product_id), 0)
+                        preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                        preview += f"   Остаток: {stock_count} шт.\n\n"
                 
                 # Добавляем информацию о пагинации
                 if len(mapping) > 5:

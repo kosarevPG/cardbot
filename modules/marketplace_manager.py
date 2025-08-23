@@ -507,6 +507,7 @@ class MarketplaceManager:
                                 "is_discounted": item.get("is_discounted", False),
                                 "offer_id": item.get("offer_id", ""),
                                 "product_id": item.get("product_id", 0),
+                                "name": item.get("name", "Без названия"),  # Добавляем название продукта
                                 "quants": item.get("quants", [])
                             }
                         else:
