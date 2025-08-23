@@ -662,9 +662,12 @@ async def cmd_ozon_stocks(message: types.Message):
         
         # Получаем остатки
         stocks_result = await manager.get_ozon_stocks(product_ids)
+        logger.info(f"Результат получения остатков: {stocks_result}")
+        
         if stocks_result["success"]:
             stocks = stocks_result["stocks"]
             total = len(mapping)
+            logger.info(f"Получено остатков для {len(stocks)} товаров из {total}")
             await message.answer(f"✅ Получено товаров: {len(stocks)} из {total}")
             
             if stocks:
@@ -729,12 +732,12 @@ async def cmd_ozon_stocks(message: types.Message):
                 if len(mapping) > 5:
                     preview += f"📄 Показано: 5 из {len(mapping)} товаров"
                     preview += f"\n💡 Используйте `/ozon_stocks_all` для полного списка"
-                    
-                    await message.answer(preview, parse_mode="Markdown")
-                else:
-                    await message.answer("📭 Остатки не найдены")
+                
+                await message.answer(preview, parse_mode="Markdown")
             else:
-                await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
+                await message.answer("📭 Остатки не найдены")
+        else:
+            await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_stocks: {e}")
