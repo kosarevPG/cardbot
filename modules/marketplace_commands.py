@@ -92,8 +92,9 @@ async def cmd_marketplace_help(message: types.Message):
 **Ozon:**
 • `/ozon_test` - Тест подключения к Ozon API
 • `/ozon_stats` - Статистика продаж и заказов
-• `/ozon_products` - Список товаров (первые 5)
+• `/ozon_products` - Список товаров (первые 5, расширенная информация)
 • `/ozon_products_all` - Полный список всех товаров
+• `/ozon_products_detailed` - Детальная информация о всех товарах
 • `/ozon_stocks` - Остатки товаров
 • `/ozon_sync_all` - Синхронизация всех данных с Google таблицей
 • `/ozon_sync_single OFFER_ID` - Синхронизация одного товара
@@ -240,15 +241,44 @@ async def cmd_ozon_products(message: types.Message):
             await message.answer(f"✅ Получено товаров: {len(mapping)} из {total}")
             
             if mapping:
-                # Показываем первые 5 товаров (увеличили с 3 до 5)
-                preview = "📋 **Первые товары:**\n\n"
-                for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
-                    preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                # Показываем первые 5 товаров с расширенной информацией
+                preview = "📋 **Первые товары (расширенная информация):**\n\n"
+                
+                # Получаем детальную информацию о продуктах
+                product_ids = list(mapping.values())
+                detailed_result = await manager.get_ozon_products_detailed(product_ids)
+                
+                if detailed_result["success"]:
+                    products = detailed_result["products"]
+                    
+                    for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
+                        product_info = products.get(str(product_id), {})
+                        
+                        # Статус продукта
+                        archived = "🗄️" if product_info.get("archived") else "📦"
+                        fbo_status = "✅" if product_info.get("has_fbo_stocks") else "❌"
+                        fbs_status = "✅" if product_info.get("has_fbs_stocks") else "❌"
+                        discount = "🏷️" if product_info.get("is_discounted") else ""
+                        
+                        preview += f"{i}. {archived} **{offer_id}** (ID: {product_id})\n"
+                        preview += f"   📊 FBO: {fbo_status} | FBS: {fbs_status} {discount}\n"
+                        
+                        # Информация о размерах
+                        quants = product_info.get("quants", [])
+                        if quants:
+                            preview += f"   📏 Размеры: {len(quants)} шт.\n"
+                        
+                        preview += "\n"
+                else:
+                    # Fallback к базовой информации
+                    for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
+                        preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
                 
                 # Добавляем информацию о пагинации
                 if len(mapping) > 5:
-                    preview += f"\n📄 Показано: 5 из {len(mapping)} товаров"
+                    preview += f"📄 Показано: 5 из {len(mapping)} товаров"
                     preview += f"\n💡 Используйте `/ozon_products_all` для полного списка"
+                    preview += f"\n💡 Используйте `/ozon_products_detailed` для детальной информации"
                 
                 await message.answer(preview, parse_mode="Markdown")
             else:
@@ -321,6 +351,114 @@ async def cmd_ozon_products_all(message: types.Message):
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_products_all: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
+async def cmd_ozon_products_detailed(message: types.Message):
+    """Команда для получения детальной информации о всех товарах Ozon"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        await message.answer("📦 Получаю детальную информацию о всех товарах Ozon...")
+        
+        manager = MarketplaceManager()
+        
+        result = await manager.get_ozon_product_mapping()
+        if result["success"]:
+            mapping = result["mapping"]
+            total = result["total_count"]
+            
+            if mapping:
+                # Получаем детальную информацию
+                product_ids = list(mapping.values())
+                detailed_result = await manager.get_ozon_products_detailed(product_ids)
+                
+                if detailed_result["success"]:
+                    products = detailed_result["products"]
+                    
+                    # Формируем детальный отчет
+                    detailed_report = f"📋 **Детальная информация о товарах Ozon**\n\n"
+                    detailed_report += f"Всего товаров: {total}\n\n"
+                    
+                    # Статистика по статусам
+                    archived_count = sum(1 for p in products.values() if p.get("archived"))
+                    fbo_count = sum(1 for p in products.values() if p.get("has_fbo_stocks"))
+                    fbs_count = sum(1 for p in products.values() if p.get("has_fbs_stocks"))
+                    discounted_count = sum(1 for p in products.values() if p.get("is_discounted"))
+                    
+                    detailed_report += f"📊 **Статистика:**\n"
+                    detailed_report += f"• Архивных: {archived_count}\n"
+                    detailed_report += f"• С FBO остатками: {fbo_count}\n"
+                    detailed_report += f"• С FBS остатками: {fbs_count}\n"
+                    detailed_report += f"• Со скидками: {discounted_count}\n\n"
+                    
+                    # Детальная информация по каждому товару
+                    for i, (offer_id, product_id) in enumerate(mapping.items(), 1):
+                        product_info = products.get(str(product_id), {})
+                        
+                        # Статус продукта
+                        archived = "🗄️ АРХИВ" if product_info.get("archived") else "📦 АКТИВЕН"
+                        fbo_status = "✅ ЕСТЬ" if product_info.get("has_fbo_stocks") else "❌ НЕТ"
+                        fbs_status = "✅ ЕСТЬ" if product_info.get("has_fbs_stocks") else "❌ НЕТ"
+                        discount = "🏷️ СКИДКА" if product_info.get("is_discounted") else ""
+                        
+                        detailed_report += f"**{i:2d}. {offer_id}** (ID: {product_id})\n"
+                        detailed_report += f"   📊 Статус: {archived}\n"
+                        detailed_report += f"   🏪 FBO склады: {fbo_status}\n"
+                        detailed_report += f"   🏪 FBS склады: {fbs_status}\n"
+                        
+                        if discount:
+                            detailed_report += f"   {discount}\n"
+                        
+                        # Информация о размерах
+                        quants = product_info.get("quants", [])
+                        if quants:
+                            detailed_report += f"   📏 Размеры ({len(quants)} шт.):\n"
+                            for quant in quants[:3]:  # Показываем первые 3 размера
+                                quant_code = quant.get("quant_code", "N/A")
+                                quant_size = quant.get("quant_size", 0)
+                                detailed_report += f"      • {quant_code}: {quant_size}\n"
+                            
+                            if len(quants) > 3:
+                                detailed_report += f"      ... и еще {len(quants) - 3} размеров\n"
+                        
+                        detailed_report += "\n"
+                    
+                    # Разбиваем на части, если сообщение слишком длинное
+                    if len(detailed_report) > 4000:
+                        parts = []
+                        current_part = ""
+                        
+                        lines = detailed_report.split('\n')
+                        for line in lines:
+                            if len(current_part) + len(line) + 1 > 3500:
+                                parts.append(current_part.strip())
+                                current_part = line + '\n'
+                            else:
+                                current_part += line + '\n'
+                        
+                        if current_part:
+                            parts.append(current_part.strip())
+                        
+                        # Отправляем части
+                        for i, part in enumerate(parts):
+                            if i == 0:
+                                await message.answer(f"✅ Получено товаров: {total}\n\n{part}", parse_mode="Markdown")
+                            else:
+                                await message.answer(f"📋 **Товары Ozon (часть {i + 1})**\n\n{part}", parse_mode="Markdown")
+                    else:
+                        await message.answer(f"✅ Получено товаров: {total}\n\n{detailed_report}", parse_mode="Markdown")
+                else:
+                    await message.answer(f"❌ Ошибка получения детальной информации: {detailed_result.get('error', 'Неизвестная ошибка')}")
+            else:
+                await message.answer("📭 Товары не найдены")
+        else:
+            await message.answer(f"❌ Ошибка получения товаров: {result.get('error', 'Неизвестная ошибка')}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде ozon_products_detailed: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
 async def cmd_ozon_stocks(message: types.Message):
@@ -551,6 +689,7 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_ozon_stats, Command("ozon_stats"))
     dp.message.register(cmd_ozon_products, Command("ozon_products"))
     dp.message.register(cmd_ozon_products_all, Command("ozon_products_all"))
+    dp.message.register(cmd_ozon_products_detailed, Command("ozon_products_detailed"))
     dp.message.register(cmd_ozon_stocks, Command("ozon_stocks"))
     dp.message.register(cmd_ozon_sync_all, Command("ozon_sync_all"))
     dp.message.register(cmd_ozon_sync_single, Command("ozon_sync_single"))

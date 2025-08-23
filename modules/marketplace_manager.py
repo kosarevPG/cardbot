@@ -469,6 +469,62 @@ class MarketplaceManager:
     
     # ==================== УТИЛИТЫ ====================
     
+    async def get_ozon_products_detailed(self, product_ids: List[int]) -> Dict[str, Union[bool, str, Dict]]:
+        """Получение детальной информации о продуктах Ozon"""
+        if not self.ozon_api_key or not self.ozon_client_id:
+            return {"success": False, "error": "Ozon API не настроен"}
+        
+        if not product_ids:
+            return {"success": False, "error": "Список product_id пуст"}
+        
+        try:
+            products = {}
+            
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                # Получаем детальную информацию о каждом продукте
+                for product_id in product_ids:
+                    payload = {
+                        "filter": {
+                            "product_id": [product_id]
+                        },
+                        "limit": 1000
+                    }
+                    
+                    response = await client.post(
+                        f"{self.ozon_base_url}{self.ozon_endpoints['product_list']}",
+                        headers=self._get_ozon_headers(),
+                        json=payload
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get("result", {}).get("items"):
+                            item = data["result"]["items"][0]  # Берем первый (и единственный) продукт
+                            products[str(product_id)] = {
+                                "archived": item.get("archived", False),
+                                "has_fbo_stocks": item.get("has_fbo_stocks", False),
+                                "has_fbs_stocks": item.get("has_fbs_stocks", False),
+                                "is_discounted": item.get("is_discounted", False),
+                                "offer_id": item.get("offer_id", ""),
+                                "product_id": item.get("product_id", 0),
+                                "quants": item.get("quants", [])
+                            }
+                        else:
+                            products[str(product_id)] = {}
+                    else:
+                        logger.warning(f"Ошибка API для product_id {product_id}: {response.status_code}")
+                        products[str(product_id)] = {}
+                
+                return {
+                    "success": True,
+                    "products": products,
+                    "total": len(products)
+                }
+                
+        except Exception as e:
+            logger.error(f"Ошибка получения детальной информации о продуктах: {e}")
+            return {"success": False, "error": str(e)}
+    
     def get_status(self) -> Dict[str, Any]:
         """Возвращает статус всех API"""
         return {
