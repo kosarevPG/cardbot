@@ -1,12 +1,15 @@
-# DEPLOY_TRIGGER 2025-08-23 - FORCE RESTARTмяу
-# Единый модуль управления маркетплейсами (Ozon + Wildberries)
-import httpx
+# FORCE RESTART 2025-08-23 - ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПУСК
+# Управление маркетплейсами (Ozon, Wildberries) и Google Sheets
+import os
 import json
+import base64
 import logging
 import asyncio
+from typing import Dict, List, Union, Optional
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Union, Any
-import os
+import httpx
+import gspread
+from google.oauth2.service_account import Credentials
 from .google_sheets import GoogleSheetsAPI
 
 logger = logging.getLogger(__name__)
