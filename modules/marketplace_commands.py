@@ -1,5 +1,9 @@
+<<<<<<< HEAD
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ ozon_stocks_detailed - теперь использует правильный метод  
+=======
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА  3
+>>>>>>> 1c6d01f17c7fef673643a5fa6f67a78644b8fac5
 # Команды для работы с маркетплейсами
 from aiogram import types
 import logging
