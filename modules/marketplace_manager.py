@@ -293,28 +293,45 @@ class MarketplaceManager:
 
                         logger.info(f"Обрабатываем offer_id {offer_id} (product_id: {product_id}) с {len(stocks)} складами")
 
-                        # Общая сумма остатков
-                        total_present = sum(int(wh.get("present", 0)) for wh in stocks)
+                        # Фильтруем склады с остатками
+                        valid_stocks = [
+                            stock for stock in stocks
+                            if stock.get("present", 0) > 0 or stock.get("reserved", 0) > 0
+                        ]
+                        
+                        if valid_stocks:
+                            logger.info(f"Найдено {len(valid_stocks)} складов с остатками для {offer_id}")
+                            logger.info(f"Склады с остатками: {valid_stocks}")
+                            
+                            # Общая сумма остатков
+                            total_present = sum(int(wh.get("present", 0)) for wh in valid_stocks)
 
-                        # Детальная информация по складам
-                        warehouse_details = []
-                        for warehouse in stocks:
-                            warehouse_type = warehouse.get("type", "Неизвестный склад")
-                            present = int(warehouse.get("present", 0))
-                            reserved = int(warehouse.get("reserved", 0))
+                            # Детальная информация по складам
+                            warehouse_details = []
+                            for warehouse in valid_stocks:
+                                warehouse_type = warehouse.get("type", "Неизвестный склад")
+                                present = int(warehouse.get("present", 0))
+                                reserved = int(warehouse.get("reserved", 0))
 
-                            if present > 0:  # Показываем только склады с остатками
                                 warehouse_details.append({
                                     "name": warehouse_type,
                                     "stock": present,
                                     "reserved": reserved
                                 })
 
-                        stocks_data[str(offer_id)] = {
-                            "product_id": product_id,
-                            "total": total_present,
-                            "warehouses": warehouse_details
-                        }
+                            stocks_data[str(offer_id)] = {
+                                "product_id": product_id,
+                                "total": total_present,
+                                "warehouses": warehouse_details
+                            }
+                        else:
+                            logger.info(f"У товара {offer_id} нет складов с остатками")
+                            # Добавляем товар с нулевыми остатками
+                            stocks_data[str(offer_id)] = {
+                                "product_id": product_id,
+                                "total": 0,
+                                "warehouses": []
+                            }
 
                     logger.info(f"Обработано товаров (by offer_id): {len(stocks_data)}")
 
