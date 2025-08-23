@@ -1,3 +1,4 @@
+# DEPLOY_TRIGGER 2025-08-23
 # Команды для работы с маркетплейсами
 from aiogram import types
 import logging
