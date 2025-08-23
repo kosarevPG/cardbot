@@ -217,8 +217,8 @@ async def cmd_ozon_debug(message: types.Message):
         
         # Информация о переменных окружения
         debug_info += f"📋 **Переменные окружения:**\n"
-        debug_info += f"🔑 OZON_API_KEY: {'***' + ozon_api_key[-8:] if ozon_api_key else '❌ НЕ УСТАНОВЛЕНА'}\n"
-        debug_info += f"🆔 OZON_CLIENT_ID: {'***' + ozon_client_id[-8:] if ozon_client_id else '❌ НЕ УСТАНОВЛЕНА'}\n\n"
+        debug_info += f"🔑 OZON_API_KEY: {'\\*\\*\\*' + ozon_api_key[-8:] if ozon_api_key else '❌ НЕ УСТАНОВЛЕНА'}\n"
+        debug_info += f"🆔 OZON_CLIENT_ID: {'\\*\\*\\*' + ozon_client_id[-8:] if ozon_client_id else '❌ НЕ УСТАНОВЛЕНА'}\n\n"
         
         # Информация о конфигурации менеджера
         status = manager.get_status()
@@ -246,7 +246,7 @@ async def cmd_ozon_debug(message: types.Message):
                     if mapping:
                         debug_info += f"🔍 **Пример товара:**\n"
                         for offer_id, product_id in list(mapping.items())[:1]:
-                            debug_info += f"   • offer_id: {offer_id} → product_id: {product_id}\n"
+                            debug_info += f"   • offer_id: {offer_id} - product_id: {product_id}\n"
                     else:
                         debug_info += f"⚠️ **Проблема:** API вернул 0 товаров\n"
                         debug_info += f"💡 Возможные причины:\n"
@@ -355,7 +355,7 @@ async def cmd_ozon_stats(message: types.Message):
         if mapping:
             summary += "**Первые товары:**\n"
             for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
-                summary += f"{i}. {offer_id} → ID: {product_id}\n"
+                summary += f"{i}. {offer_id} - ID: {product_id}\n"
         
         # Пытаемся получить аналитику
         try:
