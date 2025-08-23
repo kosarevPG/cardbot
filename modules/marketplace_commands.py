@@ -217,8 +217,8 @@ async def cmd_ozon_debug(message: types.Message):
         
         # Информация о переменных окружения
         debug_info += f"📋 **Переменные окружения:**\n"
-        debug_info += f"🔑 OZON_API_KEY: {'\\*\\*\\*' + ozon_api_key[-8:] if ozon_api_key else '❌ НЕ УСТАНОВЛЕНА'}\n"
-        debug_info += f"🆔 OZON_CLIENT_ID: {'\\*\\*\\*' + ozon_client_id[-8:] if ozon_client_id else '❌ НЕ УСТАНОВЛЕНА'}\n\n"
+        debug_info += f"🔑 OZON_API_KEY: {'***' + ozon_api_key[-8:] if ozon_api_key else '❌ НЕ УСТАНОВЛЕНА'}\n"
+        debug_info += f"🆔 OZON_CLIENT_ID: {'***' + ozon_client_id[-8:] if ozon_client_id else '❌ НЕ УСТАНОВЛЕНА'}\n\n"
         
         # Информация о конфигурации менеджера
         status = manager.get_status()
@@ -483,7 +483,7 @@ async def cmd_ozon_products_all(message: types.Message):
                         product_info = products.get(str(product_id), {})
                         product_name = product_info.get("name", "Без названия")
                         full_list += f"{i:2d}. 📦 {offer_id} (ID: {product_id})\n"
-                        full_list += f"      📝 {product_name}\n"
+                        full_list += f"      �� {product_name}\n"
                 else:
                     # Fallback к базовой информации
                     for i, (offer_id, product_id) in enumerate(mapping.items(), 1):
