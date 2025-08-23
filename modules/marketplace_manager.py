@@ -217,7 +217,10 @@ class MarketplaceManager:
             }
     
     async def get_ozon_stocks(self, product_ids: List[int]) -> Dict[str, Union[bool, str, Dict]]:
-        """Получение остатков товаров Ozon по product_id"""
+        """
+        Получает остатки товаров по списку product_id из Ozon Seller API.
+        Возвращает словарь с данными или None при ошибке.
+        """
         if not self.ozon_api_key or not self.ozon_client_id:
             return {"success": False, "error": "Ozon API не настроен"}
         
@@ -225,36 +228,34 @@ class MarketplaceManager:
         if not product_ids:
             return {"success": False, "error": "Список product_ids пустой"}
         
+        url = f"{self.ozon_base_url}{self.ozon_endpoints['stocks']}"
+        headers = self._get_ozon_headers()
+        
+        payload = {
+            "cursor": "",
+            "filter": {
+                "product_id": product_ids,
+                "visibility": "ALL",
+                "with_quant": {
+                    "created": True,
+                    "exists": True
+                }
+            },
+            "limit": 100
+        }
+        
+        logger.info(f"Отправляем payload для /v4/product/info/stocks: {payload}")
+        
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                # Формируем правильный запрос согласно документации Ozon API v4
-                payload = {
-                    "cursor": "",
-                    "filter": {
-                        "product_id": product_ids,  # Массив product_id
-                        "visibility": "ALL",        # Обязательное поле
-                        "with_quant": {             # Обязательное поле
-                            "created": True,
-                            "exists": True
-                        }
-                    },
-                    "limit": 100
-                }
-                
-                logger.info(f"Отправляем payload для /v4/product/info/stocks: {payload}")
-                
-                response = await client.post(
-                    f"{self.ozon_base_url}{self.ozon_endpoints['stocks']}",
-                    headers=self._get_ozon_headers(),
-                    json=payload
-                )
+                response = await client.post(url, headers=headers, json=payload)
                 
                 if response.status_code == 200:
                     data = response.json()
                     logger.info(f"Получен ответ от /v4/product/info/stocks: {data}")
                     
                     stocks_data = {}
-                    items = data.get("items", [])  # В v4 API используется "items" вместо "result"
+                    items = data.get("items", [])
                     
                     logger.info(f"Найдено товаров в ответе: {len(items)}")
                     
