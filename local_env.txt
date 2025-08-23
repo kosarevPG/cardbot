@@ -1,0 +1,23 @@
+# ШАБЛОН локальных переменных окружения для Telegram бота
+# Скопируйте содержимое этого файла в .env и замените на реальные значения
+
+# Основные настройки бота
+BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+CHANNEL_ID=@YOUR_CHANNEL
+BOT_LINK=t.me/your_bot_name
+ADMIN_ID=YOUR_ADMIN_ID
+
+# Ozon API ключи
+OZON_API_KEY=YOUR_OZON_API_KEY
+OZON_CLIENT_ID=YOUR_OZON_CLIENT_ID
+
+# Google Sheets API (base64 encoded service account JSON)
+GOOGLE_SERVICE_ACCOUNT_BASE64=YOUR_GOOGLE_SERVICE_ACCOUNT_BASE64
+
+# YandexGPT
+YANDEX_API_KEY=YOUR_YANDEX_API_KEY
+YANDEX_FOLDER_ID=YOUR_YANDEX_FOLDER_ID
+
+# SQLite Web (опционально)
+SQLITE_WEB_USERNAME=admin
+SQLITE_WEB_PASSWORD=your_password

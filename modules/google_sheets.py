@@ -248,6 +248,79 @@ class GoogleSheetsAPI:
         except Exception as e:
             logger.error(f"Ошибка пакетного обновления: {e}")
             return {"success": False, "error": str(e)}
+    
+    async def read_data(self, spreadsheet_id: str, range_name: str) -> List[List]:
+        """Читает данные из указанного диапазона таблицы
+        
+        Args:
+            spreadsheet_id: ID таблицы
+            range_name: Диапазон (например, "Sheet1!A1:D10")
+        
+        Returns:
+            List[List] - данные из таблицы
+        """
+        try:
+            spreadsheet = await self.open_spreadsheet(spreadsheet_id)
+            if not spreadsheet:
+                return []
+            
+            # Парсим range_name для получения имени листа и диапазона
+            if '!' in range_name:
+                sheet_name, cell_range = range_name.split('!', 1)
+            else:
+                sheet_name = None
+                cell_range = range_name
+            
+            # Открываем лист
+            if sheet_name:
+                worksheet = spreadsheet.worksheet(sheet_name)
+            else:
+                worksheet = spreadsheet.worksheet(0)
+            
+            # Читаем данные
+            data = worksheet.get(cell_range)
+            return data
+            
+        except Exception as e:
+            logger.error(f"Ошибка чтения данных: {e}")
+            return []
+    
+    async def write_data(self, spreadsheet_id: str, range_name: str, data: List[List]) -> bool:
+        """Записывает данные в указанный диапазон таблицы
+        
+        Args:
+            spreadsheet_id: ID таблицы
+            range_name: Диапазон (например, "Sheet1!A1:D10")
+            data: Данные для записи
+        
+        Returns:
+            bool - успешность операции
+        """
+        try:
+            spreadsheet = await self.open_spreadsheet(spreadsheet_id)
+            if not spreadsheet:
+                return False
+            
+            # Парсим range_name для получения имени листа и диапазона
+            if '!' in range_name:
+                sheet_name, cell_range = range_name.split('!', 1)
+            else:
+                sheet_name = None
+                cell_range = range_name
+            
+            # Открываем лист
+            if sheet_name:
+                worksheet = spreadsheet.worksheet(sheet_name)
+            else:
+                worksheet = spreadsheet.worksheet(0)
+            
+            # Записываем данные
+            worksheet.update(cell_range, data)
+            return True
+            
+        except Exception as e:
+            logger.error(f"Ошибка записи данных: {e}")
+            return False
 
 # Функции для удобного использования
 async def test_google_sheets_connection() -> str:

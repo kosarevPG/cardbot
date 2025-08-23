@@ -163,7 +163,8 @@ class OzonAPI:
         try:
             # Согласно документации v4: передаем массив product_id
             payload = {
-                "product_id": [product_id]  # v4 API использует массив product_id
+                "product_id": [product_id],  # v4 API использует массив product_id
+                "limit": 1000  # Устанавливаем максимальный лимит
             }
             
             async with httpx.AsyncClient(timeout=15.0) as client:

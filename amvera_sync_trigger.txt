@@ -1,1 +1,2 @@
-git reset --hard HEAD
+Deploy: 2025-08-23 15:32:25
+ MarketplaceManager: Fixed API errors + Ready for production
