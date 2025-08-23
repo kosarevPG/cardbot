@@ -1,4 +1,4 @@
-# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА  
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА  3
 # Команды для работы с маркетплейсами
 from aiogram import types
 import logging
