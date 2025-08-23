@@ -638,7 +638,7 @@ async def cmd_ozon_stocks(message: types.Message):
                             if warehouses:
                                 preview += f"   🏪 **По складам:**\n"
                                 for warehouse in warehouses[:3]:  # Показываем первые 3 склада
-                                    preview += f"      • {warehouse['name']}: {warehouse['stock']} шт.\n"
+                                    preview += f"      • {warehouse['name']}: {warehouse['stock']} шт. (резерв: {warehouse['reserved']})\n"
                                 
                                 if len(warehouses) > 3:
                                     preview += f"      ... и еще {len(warehouses) - 3} складов\n"
@@ -921,7 +921,7 @@ async def cmd_ozon_stocks_detailed(message: types.Message):
                             if warehouses:
                                 detailed_report += f"   🏪 **По складам:**\n"
                                 for warehouse in warehouses:
-                                    detailed_report += f"      • {warehouse['name']}: {warehouse['stock']} шт.\n"
+                                    detailed_report += f"      • {warehouse['name']}: {warehouse['stock']} шт. (резерв: {warehouse['reserved']})\n"
                             else:
                                 detailed_report += f"   🏪 **Склады:** Нет данных\n"
                         else:

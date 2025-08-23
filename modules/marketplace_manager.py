@@ -153,12 +153,22 @@ class MarketplaceManager:
         
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                # Формируем правильный запрос согласно документации Ozon API
+                # Формируем правильный запрос согласно документации Ozon API v4
                 payload = {
-                    "product_id": product_ids,
-                    "limit": 1000,  # Добавляем обязательное поле limit
-                    "filter": {}     # Добавляем обязательное поле filter
+                    "cursor": "",
+                    "filter": {
+                        "product_id": product_ids,  # Массив product_id
+                        "visibility": "ALL",        # Обязательное поле
+                        "with_quant": {             # Обязательное поле
+                            "created": true,
+                            "exists": true
+                        }
+                    },
+                    "limit": 100
                 }
+                
+                logger.info(f"Отправляем payload для /v4/product/info/stocks: {payload}")
+                
                 response = await client.post(
                     f"{self.ozon_base_url}{self.ozon_endpoints['stocks']}",
                     headers=self._get_ozon_headers(),
@@ -167,11 +177,18 @@ class MarketplaceManager:
                 
                 if response.status_code == 200:
                     data = response.json()
-                    stocks_data = {}
+                    logger.info(f"Получен ответ от /v4/product/info/stocks: {data}")
                     
-                    for item in data.get("result", []):
+                    stocks_data = {}
+                    items = data.get("items", [])  # В v4 API используется "items" вместо "result"
+                    
+                    logger.info(f"Найдено товаров в ответе: {len(items)}")
+                    
+                    for item in items:
                         product_id = item.get("product_id")
                         stocks = item.get("stocks", [])
+                        
+                        logger.info(f"Обрабатываем product_id {product_id} с {len(stocks)} складами")
                         
                         # Общая сумма остатков
                         total_present = sum(int(wh.get("present", 0)) for wh in stocks)
@@ -179,18 +196,23 @@ class MarketplaceManager:
                         # Детальная информация по складам
                         warehouse_details = []
                         for warehouse in stocks:
-                            warehouse_name = warehouse.get("warehouse_name", "Неизвестный склад")
+                            warehouse_type = warehouse.get("type", "Неизвестный склад")
                             present = int(warehouse.get("present", 0))
+                            reserved = int(warehouse.get("reserved", 0))
+                            
                             if present > 0:  # Показываем только склады с остатками
                                 warehouse_details.append({
-                                    "name": warehouse_name,
-                                    "stock": present
+                                    "name": warehouse_type,
+                                    "stock": present,
+                                    "reserved": reserved
                                 })
                         
                         stocks_data[str(product_id)] = {
                             "total": total_present,
                             "warehouses": warehouse_details
                         }
+                    
+                    logger.info(f"Обработано товаров: {len(stocks_data)}")
                     
                     return {
                         "success": True,
