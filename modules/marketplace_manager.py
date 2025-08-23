@@ -77,11 +77,17 @@ class MarketplaceManager:
     async def get_ozon_product_mapping(self, page_size: int = 1000) -> Dict[str, Union[bool, str, Dict]]:
         """Получение соответствия offer_id → product_id для Ozon"""
         if not self.ozon_api_key or not self.ozon_client_id:
+            logger.error(f"Ozon API не настроен: api_key={bool(self.ozon_api_key)}, client_id={bool(self.ozon_client_id)}")
             return {"success": False, "error": "Ozon API не настроен"}
         
         try:
             last_id = ""
             mapping = {}
+            
+            # Логируем детали запроса
+            logger.info(f"Запрос к Ozon API: {self.ozon_base_url}{self.ozon_endpoints['product_list']}")
+            logger.info(f"API ключ: {'***' + self.ozon_api_key[-4:] if self.ozon_api_key else 'НЕТ'}")
+            logger.info(f"Client ID: {'***' + self.ozon_client_id[-4:] if self.ozon_client_id else 'НЕТ'}")
             
             async with httpx.AsyncClient(timeout=20.0) as client:
                 while True:
@@ -91,15 +97,22 @@ class MarketplaceManager:
                         "last_id": last_id
                     }
                     
+                    logger.info(f"Отправляем payload: {payload}")
+                    
                     response = await client.post(
                         f"{self.ozon_base_url}{self.ozon_endpoints['product_list']}",
                         headers=self._get_ozon_headers(),
                         json=payload
                     )
                     
+                    logger.info(f"Ответ Ozon API: статус {response.status_code}")
+                    
                     if response.status_code == 200:
                         data = response.json()
+                        logger.info(f"Получен ответ: {data}")
+                        
                         products = data.get("result", {}).get("items", [])
+                        logger.info(f"Найдено товаров в ответе: {len(products)}")
                         
                         for product in products:
                             offer_id = product.get("offer_id")

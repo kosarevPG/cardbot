@@ -92,6 +92,7 @@ async def cmd_marketplace_help(message: types.Message):
 
 **Ozon:**
 • `/ozon_test` - Тест подключения к Ozon API
+• `/ozon_debug` - Детальная диагностика Ozon API
 • `/ozon_stats` - Статистика продаж и заказов
 • `/ozon_products` - Список товаров (первые 5, расширенная информация)
 • `/ozon_products_all` - Полный список всех товаров
@@ -162,15 +163,111 @@ async def cmd_ozon_test(message: types.Message):
         await message.answer("🔄 Тестирую подключение к Ozon API...")
         
         manager = MarketplaceManager()
-        result = await manager.test_connections()
         
-        if result["ozon"] is True:
-            await message.answer("✅ Подключение к Ozon API успешно установлено!")
+        # Показываем статус конфигурации
+        status = manager.get_status()
+        ozon_status = status["ozon"]
+        
+        config_info = f"📋 **Конфигурация Ozon API:**\n\n"
+        config_info += f"🔑 API ключ: {'✅ Настроен' if ozon_status['api_key'] else '❌ НЕ настроен'}\n"
+        config_info += f"🆔 Client ID: {'✅ Настроен' if ozon_status['client_id'] else '❌ НЕ настроен'}\n"
+        config_info += f"⚙️ Общий статус: {'✅ Настроен' if ozon_status['configured'] else '❌ НЕ настроен'}\n\n"
+        
+        if ozon_status['configured']:
+            # Тестируем подключение
+            result = await manager.test_connections()
+            
+            if result["ozon"] is True:
+                config_info += "🔄 **Тест подключения:** ✅ Успешно!\n\n"
+                config_info += "💡 API ключи корректны, но возможно проблема с правами доступа к эндпоинту `/v3/product/list`"
+            else:
+                config_info += f"🔄 **Тест подключения:** ❌ Ошибка: {result['ozon']}\n\n"
+                config_info += "💡 Проверьте правильность API ключей в переменных окружения Amvera"
         else:
-            await message.answer(f"❌ Ошибка подключения к Ozon API: {result['ozon']}")
+            config_info += "⚠️ **Проблема:** API ключи не настроены в переменных окружения\n\n"
+            config_info += "💡 Добавьте в Amvera:\n"
+            config_info += "• `OZON_API_KEY`\n"
+            config_info += "• `OZON_CLIENT_ID`"
+        
+        await message.answer(config_info, parse_mode="Markdown")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_test: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
+async def cmd_ozon_debug(message: types.Message):
+    """Команда для детальной диагностики Ozon API"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        await message.answer("🔍 Запускаю детальную диагностику Ozon API...")
+        
+        manager = MarketplaceManager()
+        
+        # Проверяем переменные окружения
+        import os
+        ozon_api_key = os.getenv("OZON_API_KEY", "")
+        ozon_client_id = os.getenv("OZON_CLIENT_ID", "")
+        
+        debug_info = f"🔍 **Детальная диагностика Ozon API**\n\n"
+        
+        # Информация о переменных окружения
+        debug_info += f"📋 **Переменные окружения:**\n"
+        debug_info += f"🔑 OZON_API_KEY: {'***' + ozon_api_key[-8:] if ozon_api_key else '❌ НЕ УСТАНОВЛЕНА'}\n"
+        debug_info += f"🆔 OZON_CLIENT_ID: {'***' + ozon_client_id[-8:] if ozon_client_id else '❌ НЕ УСТАНОВЛЕНА'}\n\n"
+        
+        # Информация о конфигурации менеджера
+        status = manager.get_status()
+        ozon_status = status["ozon"]
+        
+        debug_info += f"⚙️ **Конфигурация менеджера:**\n"
+        debug_info += f"🔑 API ключ: {'✅ Загружен' if ozon_status['api_key'] else '❌ НЕ загружен'}\n"
+        debug_info += f"🆔 Client ID: {'✅ Загружен' if ozon_status['client_id'] else '❌ НЕ загружен'}\n"
+        debug_info += f"🌐 Base URL: {manager.ozon_base_url}\n"
+        debug_info += f"🔗 Эндпоинт product_list: {manager.ozon_endpoints['product_list']}\n\n"
+        
+        if ozon_status['configured']:
+            # Пытаемся получить товары с детальным логированием
+            debug_info += f"🔄 **Тестируем API запрос...**\n"
+            
+            try:
+                result = await manager.get_ozon_product_mapping(page_size=1)
+                
+                if result["success"]:
+                    mapping = result["mapping"]
+                    total = result["total_count"]
+                    debug_info += f"✅ **API запрос успешен!**\n"
+                    debug_info += f"📦 Получено товаров: {len(mapping)} из {total}\n"
+                    
+                    if mapping:
+                        debug_info += f"🔍 **Пример товара:**\n"
+                        for offer_id, product_id in list(mapping.items())[:1]:
+                            debug_info += f"   • offer_id: {offer_id} → product_id: {product_id}\n"
+                    else:
+                        debug_info += f"⚠️ **Проблема:** API вернул 0 товаров\n"
+                        debug_info += f"💡 Возможные причины:\n"
+                        debug_info += f"   • Нет товаров в каталоге\n"
+                        debug_info += f"   • Недостаточно прав для доступа к эндпоинту\n"
+                        debug_info += f"   • Товары скрыты/архивированы\n"
+                else:
+                    debug_info += f"❌ **API запрос не удался:**\n"
+                    debug_info += f"   Ошибка: {result.get('error', 'Неизвестная ошибка')}\n"
+                    if 'details' in result:
+                        debug_info += f"   Детали: {result['details']}\n"
+                    
+            except Exception as e:
+                debug_info += f"❌ **Ошибка при тестировании API:**\n"
+                debug_info += f"   {str(e)}\n"
+        else:
+            debug_info += f"⚠️ **API не настроен** - пропускаем тестирование\n"
+        
+        await message.answer(debug_info, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде ozon_debug: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
 async def cmd_ozon_stats(message: types.Message):
@@ -883,6 +980,7 @@ def register_marketplace_handlers(dp):
     
     # Команды Ozon
     dp.message.register(cmd_ozon_test, Command("ozon_test"))
+    dp.message.register(cmd_ozon_debug, Command("ozon_debug"))
     dp.message.register(cmd_ozon_stats, Command("ozon_stats"))
     dp.message.register(cmd_ozon_products, Command("ozon_products"))
     dp.message.register(cmd_ozon_products_all, Command("ozon_products_all"))
