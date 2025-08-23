@@ -1,11 +1,13 @@
-# FORCE RESTART 2025-08-23 - ПРИНУДИТЕЛЬНЫЙ ПЕРЕЗАПУСК
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА
 # Управление маркетплейсами (Ozon, Wildberries) и Google Sheets
 import os
 import json
 import base64
 import logging
 import asyncio
-from typing import Dict, List, Union, Optional
+from typing import Dict, List, Union, Optional, Any
+# Дополнительный импорт для уверенности
+from typing import Any as TypeAny
 from datetime import datetime, timedelta
 import httpx
 import gspread
