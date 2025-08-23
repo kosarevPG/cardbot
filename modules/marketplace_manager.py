@@ -225,82 +225,31 @@ class MarketplaceManager:
         """
         if not self.ozon_api_key or not self.ozon_client_id:
             return {"success": False, "error": "Ozon API не настроен"}
-        
-        # Проверяем, что список product_ids не пустой
+
         if not product_ids:
             return {"success": False, "error": "Список product_ids пустой"}
+
+        # Сначала получаем offer_id для каждого product_id
+        mapping_result = await self.get_ozon_product_mapping()
+        if not mapping_result["success"]:
+            return {"success": False, "error": "Не удалось получить mapping товаров"}
+
+        mapping = mapping_result["mapping"]
+        # Инвертируем mapping: product_id -> offer_id
+        reverse_mapping = {str(v): k for k, v in mapping.items()}
         
-        url = f"{self.ozon_base_url}{self.ozon_endpoints['stocks']}"
-        headers = self._get_ozon_headers()
-        
-        payload = {
-            "cursor": "",
-            "filter": {
-                "product_id": product_ids
-            },
-            "limit": 100
-        }
-        
-        logger.info(f"Отправляем payload для /v4/product/info/stocks: {payload}")
-        
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(url, headers=headers, json=payload)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    logger.info(f"Получен ответ от /v4/product/info/stocks: {data}")
-                    
-                    stocks_data = {}
-                    items = data.get("items", [])
-                    
-                    logger.info(f"Найдено товаров в ответе: {len(items)}")
-                    
-                    for item in items:
-                        product_id = item.get("product_id")
-                        stocks = item.get("stocks", [])
-                        
-                        logger.info(f"Обрабатываем product_id {product_id} с {len(stocks)} складами")
-                        
-                        # Общая сумма остатков
-                        total_present = sum(int(wh.get("present", 0)) for wh in stocks)
-                        
-                        # Детальная информация по складам
-                        warehouse_details = []
-                        for warehouse in stocks:
-                            warehouse_type = warehouse.get("type", "Неизвестный склад")
-                            present = int(warehouse.get("present", 0))
-                            reserved = int(warehouse.get("reserved", 0))
-                            
-                            if present > 0:  # Показываем только склады с остатками
-                                warehouse_details.append({
-                                    "name": warehouse_type,
-                                    "stock": present,
-                                    "reserved": reserved
-                                })
-                        
-                        stocks_data[str(product_id)] = {
-                            "total": total_present,
-                            "warehouses": warehouse_details
-                        }
-                    
-                    logger.info(f"Обработано товаров: {len(stocks_data)}")
-                    
-                    return {
-                        "success": True,
-                        "stocks": stocks_data
-                    }
-                else:
-                    logger.error(f"Ошибка получения Ozon stocks: {response.status_code} - {response.text}")
-                    return {
-                        "success": False,
-                        "error": f"Ошибка API: {response.status_code}",
-                        "details": response.text
-                    }
-                    
-        except Exception as e:
-            logger.error(f"Ошибка получения Ozon stocks: {e}")
-            return {"success": False, "error": str(e)}
+        # Получаем offer_id для запрошенных product_id
+        offer_ids = []
+        for product_id in product_ids:
+            offer_id = reverse_mapping.get(str(product_id))
+            if offer_id:
+                offer_ids.append(offer_id)
+
+        if not offer_ids:
+            return {"success": False, "error": "Не найдены offer_id для указанных product_id"}
+
+        # Теперь используем offer_id для получения остатков
+        return await self.get_ozon_stocks_by_offer(offer_ids)
     
     async def get_ozon_stocks_by_offer(self, offer_ids: List[str]) -> Dict[str, Union[bool, str, Dict]]:
         """Получает остатки товаров по списку offer_id из Ozon Seller API"""
@@ -314,11 +263,12 @@ class MarketplaceManager:
         headers = self._get_ozon_headers()
 
         payload = {
-            "cursor": "",
             "filter": {
-                "offer_id": offer_ids
+                "offer_id": offer_ids,
+                "visibility": "ALL"
             },
-            "limit": 100
+            "limit": 100,
+            "cursor": ""
         }
 
         logger.info(f"Отправляем payload для /v4/product/info/stocks (by offer_id): {payload}")
