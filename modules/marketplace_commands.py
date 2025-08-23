@@ -93,6 +93,7 @@ async def cmd_marketplace_help(message: types.Message):
 **Ozon:**
 • `/ozon_test` - Тест подключения к Ozon API
 • `/ozon_debug` - Детальная диагностика Ozon API
+• `/ozon_simple_test` - Простой тест получения товаров
 • `/ozon_stats` - Статистика продаж и заказов
 • `/ozon_products` - Список товаров (первые 5, расширенная информация)
 • `/ozon_products_all` - Полный список всех товаров
@@ -268,6 +269,62 @@ async def cmd_ozon_debug(message: types.Message):
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_debug: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
+async def cmd_ozon_simple_test(message: types.Message):
+    """Команда для простого тестирования получения списка товаров Ozon"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        await message.answer("🔍 Тестирую простое получение списка товаров...")
+        
+        manager = MarketplaceManager()
+        
+        # Проверяем простое получение товаров из /v3/product/list
+        try:
+            result = await manager.get_ozon_products_simple(page_size=1)
+            
+            test_info = f"🔍 **Простой тест /v3/product/list**\n\n"
+            
+            if result["success"]:
+                products = result["products"]
+                total = result["total_count"]
+                test_info += f"✅ **API запрос успешен!**\n"
+                test_info += f"📦 Получено товаров: {len(products)}\n"
+                test_info += f"📊 Общее количество: {total}\n\n"
+                
+                if products:
+                    test_info += f"🔍 **Первый товар:**\n"
+                    first_product = products[0]
+                    test_info += f"   • offer_id: {first_product.get('offer_id', 'НЕТ')}\n"
+                    test_info += f"   • product_id: {first_product.get('product_id', 'НЕТ')}\n"
+                    test_info += f"   • archived: {first_product.get('archived', 'НЕТ')}\n"
+                    test_info += f"   • has_fbo_stocks: {first_product.get('has_fbo_stocks', 'НЕТ')}\n"
+                    test_info += f"   • has_fbs_stocks: {first_product.get('has_fbs_stocks', 'НЕТ')}\n"
+                    test_info += f"   • is_discounted: {first_product.get('is_discounted', 'НЕТ')}\n"
+                else:
+                    test_info += f"⚠️ **Проблема:** API вернул 0 товаров\n"
+                    test_info += f"💡 **Возможные причины:**\n"
+                    test_info += f"   • У вас нет товаров в каталоге Ozon\n"
+                    test_info += f"   • Все товары архивированы\n"
+                    test_info += f"   • Недостаточно прав API\n"
+            else:
+                test_info += f"❌ **API запрос не удался:**\n"
+                test_info += f"   Ошибка: {result.get('error', 'Неизвестная ошибка')}\n"
+                if 'details' in result:
+                    test_info += f"   Детали: {result['details']}\n"
+                    
+        except Exception as e:
+            test_info = f"❌ **Ошибка при тестировании:**\n"
+            test_info += f"   {str(e)}\n"
+        
+        await message.answer(test_info, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде ozon_simple_test: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
 async def cmd_ozon_stats(message: types.Message):
@@ -981,6 +1038,7 @@ def register_marketplace_handlers(dp):
     # Команды Ozon
     dp.message.register(cmd_ozon_test, Command("ozon_test"))
     dp.message.register(cmd_ozon_debug, Command("ozon_debug"))
+    dp.message.register(cmd_ozon_simple_test, Command("ozon_simple_test"))
     dp.message.register(cmd_ozon_stats, Command("ozon_stats"))
     dp.message.register(cmd_ozon_products, Command("ozon_products"))
     dp.message.register(cmd_ozon_products_all, Command("ozon_products_all"))

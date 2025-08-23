@@ -47,10 +47,10 @@ class MarketplaceManager:
         
         # Ozon API эндпоинты
         self.ozon_endpoints = {
-            "product_list": "/v3/product/list",
-            "analytics": "/v1/analytics/data",
-            "stocks": "/v4/product/info/stocks",
-            "product_info": "/v3/product/list"
+            "product_list": "/v3/product/list",     # ✅ Список товаров
+            "analytics": "/v1/analytics/data",      # ✅ Аналитика
+            "stocks": "/v4/product/info/stocks",    # ✅ Остатки конкретных товаров
+            "product_info": "/v3/product/list"      # ✅ Информация о товарах
         }
         
         # Проверка настроек
@@ -97,7 +97,7 @@ class MarketplaceManager:
                         "last_id": last_id
                     }
                     
-                    logger.info(f"Отправляем payload: {payload}")
+                    logger.info(f"Отправляем payload для /v3/product/list: {payload}")
                     
                     response = await client.post(
                         f"{self.ozon_base_url}{self.ozon_endpoints['product_list']}",
@@ -109,8 +109,9 @@ class MarketplaceManager:
                     
                     if response.status_code == 200:
                         data = response.json()
-                        logger.info(f"Получен ответ: {data}")
+                        logger.info(f"Получен ответ от /v3/product/list: {data}")
                         
+                        # Правильная структура для /v3/product/list
                         products = data.get("result", {}).get("items", [])
                         logger.info(f"Найдено товаров в ответе: {len(products)}")
                         
@@ -141,6 +142,71 @@ class MarketplaceManager:
         except Exception as e:
             logger.error(f"Ошибка получения Ozon product_mapping: {e}")
             return {"success": False, "error": str(e)}
+    
+    async def get_ozon_products_simple(self, page_size: int = 1000) -> Dict[str, Union[bool, str, List]]:
+        """Простое получение списка товаров Ozon без остатков (только для тестирования)"""
+        if not self.ozon_api_key or not self.ozon_client_id:
+            logger.error(f"Ozon API не настроен: api_key={bool(self.ozon_api_key)}, client_id={bool(self.ozon_client_id)}")
+            return {"success": False, "error": "Ozon API не настроен"}
+        
+        try:
+            last_id = ""
+            products = []
+            
+            # Логируем детали запроса
+            logger.info(f"Простой запрос к Ozon API: {self.ozon_base_url}{self.ozon_endpoints['product_list']}")
+            
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                while True:
+                    payload = {
+                        "filter": {},
+                        "limit": page_size,
+                        "last_id": last_id
+                    }
+                    
+                    logger.info(f"Отправляем простой payload: {payload}")
+                    
+                    response = await client.post(
+                        f"{self.ozon_base_url}{self.ozon_endpoints['product_list']}",
+                        headers=self._get_ozon_headers(),
+                        json=payload
+                    )
+                    
+                    logger.info(f"Простой ответ: статус {response.status_code}")
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        logger.info(f"Простой ответ от /v3/product/list: {data}")
+                        
+                        items = data.get("result", {}).get("items", [])
+                        logger.info(f"Найдено товаров в простом ответе: {len(items)}")
+                        
+                        products.extend(items)
+                        
+                        last_id = data.get("result", {}).get("last_id", "")
+                        if not last_id or len(items) < page_size:
+                            break
+                    else:
+                        logger.error(f"Ошибка простого запроса: {response.status_code} - {response.text}")
+                        return {
+                            "success": False,
+                            "error": f"Ошибка API: {response.status_code}",
+                            "details": response.text
+                        }
+                
+                logger.info(f"Получено {len(products)} товаров в простом запросе")
+                return {
+                    "success": True,
+                    "products": products,
+                    "total_count": len(products)
+                }
+                
+        except Exception as e:
+            logger.error(f"Ошибка при простом получении товаров Ozon: {e}")
+            return {
+                "success": False,
+                "error": f"Ошибка: {str(e)}"
+            }
     
     async def get_ozon_stocks(self, product_ids: List[int]) -> Dict[str, Union[bool, str, Dict]]:
         """Получение остатков товаров Ozon по product_id"""
