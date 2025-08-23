@@ -1,4 +1,4 @@
-# DEPLOY_TRIGGER 2025-08-23 - FORCE RESTART
+# DEPLOY_TRIGGER 2025-08-23 - FORCE RESTARTмяу
 # Единый модуль управления маркетплейсами (Ozon + Wildberries)
 import httpx
 import json
