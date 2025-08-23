@@ -1023,6 +1023,89 @@ async def cmd_ozon_stocks_detailed(message: types.Message):
         logger.error(f"Ошибка в команде ozon_stocks_detailed: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
+async def cmd_ozon_debug_stocks(message: types.Message):
+    """Команда для детальной диагностики проблемы с остатками Ozon"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        await message.answer("🔍 Запускаю детальную диагностику остатков Ozon...")
+        
+        manager = MarketplaceManager()
+        
+        # Шаг 1: Получаем список товаров
+        result = await manager.get_ozon_product_mapping()
+        if not result["success"]:
+            await message.answer(f"❌ Ошибка получения товаров: {result.get('error')}")
+            return
+        
+        mapping = result["mapping"]
+        total = result["total_count"]
+        
+        if not mapping:
+            await message.answer("📭 Товары не найдены")
+            return
+        
+        # Шаг 2: Анализируем каждый товар отдельно
+        debug_info = f"🔍 **Детальная диагностика остатков Ozon**\n\n"
+        debug_info += f"📊 Всего товаров: {total}\n\n"
+        
+        for i, (offer_id, product_id) in enumerate(list(mapping.items())[:3], 1):  # Анализируем первые 3
+            debug_info += f"**{i}. Товар {offer_id} (ID: {product_id})**\n"
+            
+            # Тестируем запрос остатков для одного товара
+            try:
+                # Пробуем разные варианты фильтров
+                test_payloads = [
+                    {
+                        "cursor": "",
+                        "filter": {
+                            "product_id": [product_id],
+                            "visibility": "ALL"
+                        },
+                        "limit": 100
+                    },
+                    {
+                        "cursor": "",
+                        "filter": {
+                            "product_id": [product_id]
+                        },
+                        "limit": 100
+                    },
+                    {
+                        "cursor": "",
+                        "filter": {
+                            "offer_id": [offer_id],
+                            "visibility": "ALL"
+                        },
+                        "limit": 100
+                    }
+                ]
+                
+                for j, payload in enumerate(test_payloads, 1):
+                    debug_info += f"   🔬 Тест {j}: {payload}\n"
+                    
+                    # Здесь можно добавить реальный API вызов для тестирования
+                    # Пока просто показываем payload
+                
+                debug_info += "\n"
+                
+            except Exception as e:
+                debug_info += f"   ❌ Ошибка анализа: {e}\n\n"
+        
+        debug_info += "💡 **Рекомендации:**\n"
+        debug_info += "• Проверьте права доступа к API остатков\n"
+        debug_info += "• Убедитесь, что товары имеют остатки на складах\n"
+        debug_info += "• Попробуйте использовать offer_id вместо product_id\n"
+        
+        await message.answer(debug_info, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде ozon_debug_stocks: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
 def register_marketplace_handlers(dp):
     """Регистрирует обработчики команд маркетплейсов"""
     
@@ -1047,6 +1130,7 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_ozon_stocks_detailed, Command("ozon_stocks_detailed"))
     dp.message.register(cmd_ozon_sync_all, Command("ozon_sync_all"))
     dp.message.register(cmd_ozon_sync_single, Command("ozon_sync_single"))
+    dp.message.register(cmd_ozon_debug_stocks, Command("ozon_debug_stocks"))
     
     # Команды Google Sheets
     dp.message.register(cmd_google_sheets_test, Command("sheets_test"))

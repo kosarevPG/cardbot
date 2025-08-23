@@ -236,12 +236,7 @@ class MarketplaceManager:
         payload = {
             "cursor": "",
             "filter": {
-                "product_id": product_ids,
-                "visibility": "ALL",
-                "with_quant": {
-                    "created": True,
-                    "exists": True
-                }
+                "product_id": product_ids
             },
             "limit": 100
         }
@@ -305,6 +300,88 @@ class MarketplaceManager:
                     
         except Exception as e:
             logger.error(f"Ошибка получения Ozon stocks: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def get_ozon_stocks_by_offer(self, offer_ids: List[str]) -> Dict[str, Union[bool, str, Dict]]:
+        """Получает остатки товаров по списку offer_id из Ozon Seller API"""
+        if not self.ozon_api_key or not self.ozon_client_id:
+            return {"success": False, "error": "Ozon API не настроен"}
+
+        if not offer_ids:
+            return {"success": False, "error": "Список offer_ids пустой"}
+
+        url = f"{self.ozon_base_url}{self.ozon_endpoints['stocks']}"
+        headers = self._get_ozon_headers()
+
+        payload = {
+            "cursor": "",
+            "filter": {
+                "offer_id": offer_ids
+            },
+            "limit": 100
+        }
+
+        logger.info(f"Отправляем payload для /v4/product/info/stocks (by offer_id): {payload}")
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    logger.info(f"Получен ответ от /v4/product/info/stocks (by offer_id): {data}")
+
+                    stocks_data = {}
+                    items = data.get("items", [])
+
+                    logger.info(f"Найдено товаров в ответе (by offer_id): {len(items)}")
+
+                    for item in items:
+                        offer_id = item.get("offer_id")
+                        product_id = item.get("product_id")
+                        stocks = item.get("stocks", [])
+
+                        logger.info(f"Обрабатываем offer_id {offer_id} (product_id: {product_id}) с {len(stocks)} складами")
+
+                        # Общая сумма остатков
+                        total_present = sum(int(wh.get("present", 0)) for wh in stocks)
+
+                        # Детальная информация по складам
+                        warehouse_details = []
+                        for warehouse in stocks:
+                            warehouse_type = warehouse.get("type", "Неизвестный склад")
+                            present = int(warehouse.get("present", 0))
+                            reserved = int(warehouse.get("reserved", 0))
+
+                            if present > 0:  # Показываем только склады с остатками
+                                warehouse_details.append({
+                                    "name": warehouse_type,
+                                    "stock": present,
+                                    "reserved": reserved
+                                })
+
+                        stocks_data[str(offer_id)] = {
+                            "product_id": product_id,
+                            "total": total_present,
+                            "warehouses": warehouse_details
+                        }
+
+                    logger.info(f"Обработано товаров (by offer_id): {len(stocks_data)}")
+
+                    return {
+                        "success": True,
+                        "stocks": stocks_data
+                    }
+                else:
+                    logger.error(f"Ошибка получения Ozon stocks (by offer_id): {response.status_code} - {response.text}")
+                    return {
+                        "success": False,
+                        "error": f"Ошибка API: {response.status_code}",
+                        "details": response.text
+                    }
+
+        except Exception as e:
+            logger.error(f"Ошибка получения Ozon stocks (by offer_id): {e}")
             return {"success": False, "error": str(e)}
     
     async def get_ozon_analytics(self, date_from: str, date_to: str) -> Dict[str, Union[bool, str, Dict]]:
