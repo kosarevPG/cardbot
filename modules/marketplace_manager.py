@@ -231,8 +231,8 @@ class MarketplaceManager:
                         "product_id": product_ids,  # Массив product_id
                         "visibility": "ALL",        # Обязательное поле
                         "with_quant": {             # Обязательное поле
-                            "created": true,
-                            "exists": true
+                            "created": True,
+                            "exists": True
                         }
                     },
                     "limit": 100
@@ -608,7 +608,8 @@ class MarketplaceManager:
                 for product_id in product_ids:
                     payload = {
                         "filter": {
-                            "product_id": [product_id]
+                            "product_id": [product_id],
+                            "visibility": "ALL"  # ✅ Обязательное поле согласно документации Ozon
                         },
                         "limit": 1000
                     }
