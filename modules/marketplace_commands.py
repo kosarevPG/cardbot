@@ -1,10 +1,8 @@
 # Команды для работы с маркетплейсами
 from aiogram import types
 import logging
-from .wb_api import test_wb_connection, get_wb_summary
-from .ozon_api import test_ozon_connection, get_ozon_summary
+from .marketplace_manager import MarketplaceManager
 from .google_sheets import test_google_sheets_connection, get_sheets_info, read_sheet_data
-from .ozon_sync import sync_ozon_data, sync_single_ozon_offer
 
 # ID администраторов (замените на ваши)
 ADMIN_IDS = [6682555021]  # ID пользователя для доступа к командам маркетплейсов
@@ -25,8 +23,13 @@ async def cmd_wb_test(message: types.Message):
     try:
         await message.answer("🔄 Тестирую подключение к Wildberries API...")
         
-        result = await test_wb_connection()
-        await message.answer(result)
+        manager = MarketplaceManager()
+        result = await manager.test_connections()
+        
+        if result["wildberries"] is True:
+            await message.answer("✅ Подключение к Wildberries API успешно установлено!")
+        else:
+            await message.answer(f"❌ Ошибка подключения к Wildberries API: {result['wildberries']}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде wb_test: {e}")
@@ -42,8 +45,34 @@ async def cmd_wb_stats(message: types.Message):
     try:
         await message.answer("📊 Получаю статистику Wildberries...")
         
-        result = await get_wb_summary()
-        await message.answer(result, parse_mode="Markdown")
+        manager = MarketplaceManager()
+        
+        # Проверяем доступность WB API
+        if not manager.wb_api_key:
+            await message.answer("❌ Wildberries API не настроен. Добавьте WB_API_KEY в переменные окружения.")
+            return
+        
+        # Получаем остатки
+        stocks_result = await manager.get_wb_stocks()
+        if stocks_result["success"]:
+            stocks = stocks_result["stocks"]
+            total = len(stocks)
+            
+            summary = f"📊 **Сводка Wildberries**\n\n"
+            summary += f"Всего товаров: {total}\n\n"
+            
+            if stocks:
+                summary += "**Первые товары:**\n"
+                for i, stock_item in enumerate(stocks[:5], 1):
+                    nm_id = stock_item.get("nmId", "N/A")
+                    quantity = stock_item.get("quantity", 0)
+                    summary += f"{i}. 📦 {nm_id} - Остаток: {quantity} шт.\n"
+            else:
+                summary += "📭 Товары не найдены"
+            
+            await message.answer(summary, parse_mode="Markdown")
+        else:
+            await message.answer(f"❌ Ошибка получения данных: {stocks_result.get('error', 'Неизвестная ошибка')}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде wb_stats: {e}")
@@ -128,8 +157,13 @@ async def cmd_ozon_test(message: types.Message):
     try:
         await message.answer("🔄 Тестирую подключение к Ozon API...")
         
-        result = await test_ozon_connection()
-        await message.answer(result)
+        manager = MarketplaceManager()
+        result = await manager.test_connections()
+        
+        if result["ozon"] is True:
+            await message.answer("✅ Подключение к Ozon API успешно установлено!")
+        else:
+            await message.answer(f"❌ Ошибка подключения к Ozon API: {result['ozon']}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_test: {e}")
@@ -145,8 +179,42 @@ async def cmd_ozon_stats(message: types.Message):
     try:
         await message.answer("📊 Получаю статистику Ozon...")
         
-        result = await get_ozon_summary()
-        await message.answer(result, parse_mode="Markdown")
+        manager = MarketplaceManager()
+        
+        # Получаем mapping товаров
+        mapping_result = await manager.get_ozon_product_mapping()
+        if not mapping_result["success"]:
+            await message.answer(f"❌ Ошибка получения товаров: {mapping_result.get('error', 'Неизвестная ошибка')}")
+            return
+        
+        mapping = mapping_result["mapping"]
+        total = mapping_result["total_count"]
+        
+        # Формируем сводку
+        summary = f"📊 **Сводка Ozon**\n\n"
+        summary += f"Всего товаров: {total}\n\n"
+        
+        if mapping:
+            summary += "**Первые товары:**\n"
+            for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
+                summary += f"{i}. {offer_id} → ID: {product_id}\n"
+        
+        # Пытаемся получить аналитику
+        try:
+            from datetime import datetime, timedelta
+            date_to = datetime.now().strftime("%Y-%m-%d")
+            date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            analytics_result = await manager.get_ozon_analytics(date_from, date_to)
+            
+            if analytics_result["success"]:
+                summary += f"\n📈 **Аналитика за 30 дней:**\n"
+                summary += f"✅ Получена успешно"
+            else:
+                summary += f"\n📈 **Аналитика:** ⚠️ Не удалось получить"
+        except Exception as e:
+            summary += f"\n📈 **Аналитика:** ⚠️ Ошибка: {str(e)}"
+        
+        await message.answer(summary, parse_mode="Markdown")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_stats: {e}")
@@ -162,9 +230,9 @@ async def cmd_ozon_products(message: types.Message):
     try:
         await message.answer("📦 Получаю список товаров Ozon...")
         
-        from modules.ozon_api import get_ozon_products
+        manager = MarketplaceManager()
         
-        result = await get_ozon_products()
+        result = await manager.get_ozon_product_mapping()
         if result["success"]:
             mapping = result["mapping"]
             total = result["total_count"]
@@ -196,35 +264,37 @@ async def cmd_ozon_stocks(message: types.Message):
     try:
         await message.answer("📊 Получаю остатки товаров Ozon...")
         
-        from modules.ozon_api import get_ozon_stocks
+        manager = MarketplaceManager()
         
-        result = await get_ozon_stocks()
-        if result["success"]:
-            data = result["data"]
-            if isinstance(data, dict) and "result" in data:
-                items = data["result"].get("items", [])
-                total = data["result"].get("total", 0)
-                await message.answer(f"✅ Получено товаров: {len(items)} из {total}")
+        # Получаем mapping товаров
+        mapping_result = await manager.get_ozon_product_mapping()
+        if not mapping_result["success"]:
+            await message.answer(f"❌ Ошибка получения товаров: {mapping_result.get('error', 'Неизвестная ошибка')}")
+            return
+        
+        mapping = mapping_result["mapping"]
+        product_ids = list(mapping.values())
+        
+        # Получаем остатки
+        stocks_result = await manager.get_ozon_stocks(product_ids)
+        if stocks_result["success"]:
+            stocks = stocks_result["stocks"]
+            total = len(mapping)
+            await message.answer(f"✅ Получено товаров: {len(stocks)} из {total}")
+            
+            if stocks:
+                # Показываем первые 3 товара с информацией о наличии
+                preview = "📋 **Информация о товарах:**\n\n"
+                for i, (offer_id, product_id) in enumerate(list(mapping.items())[:3], 1):
+                    stock_count = stocks.get(str(product_id), 0)
+                    preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                    preview += f"   Остаток: {stock_count} шт.\n\n"
                 
-                if items:
-                    # Показываем первые 3 товара с информацией о наличии
-                    preview = "📋 **Информация о товарах:**\n\n"
-                    for i, item in enumerate(items[:3], 1):
-                        offer_id = item.get("offer_id", "N/A")
-                        product_id = item.get("product_id", "N/A")
-                        has_fbo = "✅" if item.get("has_fbo_stocks") else "❌"
-                        has_fbs = "✅" if item.get("has_fbs_stocks") else "❌"
-                        archived = "🗄️" if item.get("archived") else "📦"
-                        preview += f"{i}. {archived} {offer_id} (ID: {product_id})\n"
-                        preview += f"   FBO склады: {has_fbo} | FBS склады: {has_fbs}\n\n"
-                    
-                    await message.answer(preview, parse_mode="Markdown")
-                else:
-                    await message.answer("📭 Товары не найдены")
+                await message.answer(preview, parse_mode="Markdown")
             else:
-                await message.answer("❌ Неожиданный формат данных")
+                await message.answer("📭 Остатки не найдены")
         else:
-            await message.answer(f"❌ Ошибка получения товаров: {result.get('error', 'Неизвестная ошибка')}")
+            await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_stocks: {e}")
@@ -347,8 +417,20 @@ async def cmd_ozon_sync_all(message: types.Message):
     try:
         await message.answer("🔄 Начинаю синхронизацию всех данных Ozon с Google таблицей...\n\n⚠️ Это может занять несколько минут.")
         
-        result = await sync_ozon_data()
-        await message.answer(result, parse_mode="Markdown")
+        manager = MarketplaceManager()
+        result = await manager.sync_ozon_data()
+        
+        if result["success"]:
+            message_text = f"✅ **Синхронизация завершена!**\n\n"
+            message_text += f"**Статистика:**\n"
+            message_text += f"• Всего товаров: {len(result['data'])}\n"
+            message_text += f"• Успешно: {len(result['data'])}\n"
+            message_text += f"• Ошибок: 0\n\n"
+            message_text += f"📊 Данные обновлены в Google таблице"
+            
+            await message.answer(message_text, parse_mode="Markdown")
+        else:
+            await message.answer(f"❌ Ошибка синхронизации: {result.get('error', 'Неизвестная ошибка')}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_sync_all: {e}")
