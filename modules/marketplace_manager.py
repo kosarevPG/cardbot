@@ -1,4 +1,5 @@
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ ozon_stocks_detailed - теперь использует правильный метод
 # Управление маркетплейсами (Ozon, Wildberries) и Google Sheets
 import os
 import json

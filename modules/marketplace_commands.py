@@ -1,4 +1,5 @@
-# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА  
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ ozon_stocks_detailed - теперь использует правильный метод  
 # Команды для работы с маркетплейсами
 from aiogram import types
 import logging
@@ -924,14 +925,19 @@ async def cmd_ozon_stocks_detailed(message: types.Message):
         mapping = mapping_result["mapping"]
         product_ids = list(mapping.values())
         
-        # Получаем остатки
-        stocks_result = await manager.get_ozon_stocks(product_ids)
+        # Получаем остатки через offer_id (правильный метод)
+        offer_ids = list(mapping.keys())
+        stocks_result = await manager.get_ozon_stocks_by_offer(offer_ids)
+        
         if stocks_result["success"]:
             stocks = stocks_result["stocks"]
             total = len(mapping)
+            logger.info(f"Результат получения остатков: {stocks_result}")
+            logger.info(f"stocks={stocks}")
+            
             await message.answer(f"✅ Получено товаров: {len(stocks)} из {total}")
             
-            if stocks:
+            if stocks and isinstance(stocks, dict):
                 # Получаем детальную информацию для названий
                 detailed_result = await manager.get_ozon_products_detailed(product_ids)
                 
@@ -947,8 +953,8 @@ async def cmd_ozon_stocks_detailed(message: types.Message):
                     products_with_stock = 0
                     products_without_stock = 0
                     
-                    for product_id in mapping.values():
-                        stock_info = stocks.get(str(product_id), {})
+                    for offer_id in mapping.keys():
+                        stock_info = stocks.get(offer_id, {})
                         if isinstance(stock_info, dict):
                             total_stock = stock_info.get("total", 0)
                             total_stock_sum += total_stock
@@ -964,7 +970,7 @@ async def cmd_ozon_stocks_detailed(message: types.Message):
                     
                     # Детальная информация по каждому товару
                     for i, (offer_id, product_id) in enumerate(mapping.items(), 1):
-                        stock_info = stocks.get(str(product_id), {})
+                        stock_info = stocks.get(offer_id, {})  # Используем offer_id
                         product_info = products.get(str(product_id), {})
                         product_name = product_info.get("name", "Без названия")
                         
@@ -1018,6 +1024,7 @@ async def cmd_ozon_stocks_detailed(message: types.Message):
                 else:
                     await message.answer(f"❌ Ошибка получения детальной информации: {detailed_result.get('error', 'Неизвестная ошибка')}")
             else:
+                logger.warning(f"stocks не является словарем или пустой: {type(stocks)} = {stocks}")
                 await message.answer("📭 Остатки не найдены")
         else:
             await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
