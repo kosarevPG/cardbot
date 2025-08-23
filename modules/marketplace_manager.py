@@ -1,5 +1,6 @@
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ ozon_stocks_detailed - теперь использует правильный метод
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ sync_ozon_data - теперь правильно записывает остатки в Google таблицу
 # Управление маркетплейсами (Ozon, Wildberries) и Google Sheets
 import os
 import json
@@ -478,9 +479,9 @@ class MarketplaceManager:
             
             offer_map = mapping_result["mapping"]
             
-            # Получаем остатки
-            product_ids = list(offer_map.values())
-            stocks_result = await self.get_ozon_stocks(product_ids)
+            # Получаем остатки через offer_id (правильный метод)
+            offer_ids = list(offer_map.keys())
+            stocks_result = await self.get_ozon_stocks_by_offer(offer_ids)
             if not stocks_result["success"]:
                 return stocks_result
             
@@ -494,7 +495,23 @@ class MarketplaceManager:
             # Подготавливаем данные для таблицы
             table_data = []
             for offer_id, product_id in offer_map.items():
-                stock = stocks.get(str(product_id), 0)
+                stock_info = stocks.get(offer_id, {})
+                
+                # Получаем остатки по типам складов
+                total_stock = 0
+                fbo_stock = 0
+                fbs_stock = 0
+                
+                if isinstance(stock_info, dict):
+                    total_stock = stock_info.get("total", 0)
+                    warehouses = stock_info.get("warehouses", [])
+                    
+                    # Разбиваем по типам складов
+                    for warehouse in warehouses:
+                        if warehouse.get("type") == "fbo":
+                            fbo_stock += warehouse.get("stock", 0)
+                        elif warehouse.get("type") == "fbs":
+                            fbs_stock += warehouse.get("stock", 0)
                 
                 # Здесь можно добавить логику получения продаж и выручки из analytics
                 # Пока оставляем пустыми
@@ -503,7 +520,9 @@ class MarketplaceManager:
                 
                 table_data.append({
                     "offer_id": offer_id,
-                    "stock": stock,
+                    "total_stock": total_stock,
+                    "fbo_stock": fbo_stock,
+                    "fbs_stock": fbs_stock,
                     "sales": sales,
                     "revenue": revenue
                 })
@@ -591,19 +610,17 @@ class MarketplaceManager:
             rows = []
             for item in data:
                 rows.append([
-                    item["offer_id"],  # Колонка D
-                    "",               # Колонка E (пустая)
-                    item["stock"],    # Колонка F
-                    "",               # Колонка G (пустая)
-                    item["sales"],    # Колонка H
-                    "",               # Колонка I (пустая)
-                    item["revenue"]   # Колонка J
+                    item["total_stock"],  # Колонка F: Остаток Ozon, всего
+                    item["fbo_stock"],    # Колонка G: Остаток Ozon, FBO
+                    item["fbs_stock"],    # Колонка H: Остаток Ozon, FBS
+                    item["sales"],        # Колонка I: Продажи Ozon
+                    item["revenue"]       # Колонка J: Выручка Ozon
                 ])
             
-            # Записываем в таблицу
+            # Записываем в таблицу (колонки F-J)
             await self.sheets_api.write_data(
                 self.spreadsheet_id,
-                f"{self.sheet_name}!D2:J{len(rows)+1}",
+                f"{self.sheet_name}!F2:J{len(rows)+1}",
                 rows
             )
             
@@ -619,21 +636,32 @@ class MarketplaceManager:
             rows = []
             for item in data:
                 rows.append([
-                    item["nm_id"],    # Колонка B
-                    "",               # Колонка C (пустая)
-                    "",               # Колонка D (пустая)
-                    item["stock"],    # Колонка E
-                    "",               # Колонка F (пустая)
-                    item["sales"],    # Колонка G
-                    "",               # Колонка H (пустая)
-                    item["revenue"]   # Колонка I
+                    item["nm_id"],    # Колонка C: Арт. WB
+                    item["stock"],    # Колонка E: Остаток WB
+                    item["sales"],    # Колонка I: Продажи WB
+                    item["revenue"]   # Колонка K: Выручка WB
                 ])
             
-            # Записываем в таблицу
+            # Записываем в таблицу (колонки C, E, I, K)
             await self.sheets_api.write_data(
                 self.spreadsheet_id,
-                f"{self.sheet_name}!B2:I{len(rows)+1}",
-                rows
+                f"{self.sheet_name}!C2:C{len(rows)+1}",
+                [[item["nm_id"]] for item in data]
+            )
+            await self.sheets_api.write_data(
+                self.spreadsheet_id,
+                f"{self.sheet_name}!E2:E{len(rows)+1}",
+                [[item["stock"]] for item in data]
+            )
+            await self.sheets_api.write_data(
+                self.spreadsheet_id,
+                f"{self.sheet_name}!I2:I{len(rows)+1}",
+                [[item["sales"]] for item in data]
+            )
+            await self.sheets_api.write_data(
+                self.spreadsheet_id,
+                f"{self.sheet_name}!K2:K{len(rows)+1}",
+                [[item["revenue"]] for item in data]
             )
             
             logger.info(f"Обновлен лист Wildberries: {len(rows)} строк")
