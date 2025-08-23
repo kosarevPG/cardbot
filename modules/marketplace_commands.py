@@ -1,4 +1,4 @@
-# DEPLOY_TRIGGER 2025-08-23
+# DEPLOY_TRIGGER 2025-08-23 - FORCE RESTART
 # Команды для работы с маркетплейсами
 from aiogram import types
 import logging
