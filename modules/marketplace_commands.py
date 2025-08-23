@@ -92,7 +92,8 @@ async def cmd_marketplace_help(message: types.Message):
 **Ozon:**
 • `/ozon_test` - Тест подключения к Ozon API
 • `/ozon_stats` - Статистика продаж и заказов
-• `/ozon_products` - Список товаров
+• `/ozon_products` - Список товаров (первые 5)
+• `/ozon_products_all` - Полный список всех товаров
 • `/ozon_stocks` - Остатки товаров
 • `/ozon_sync_all` - Синхронизация всех данных с Google таблицей
 • `/ozon_sync_single OFFER_ID` - Синхронизация одного товара
@@ -239,10 +240,15 @@ async def cmd_ozon_products(message: types.Message):
             await message.answer(f"✅ Получено товаров: {len(mapping)} из {total}")
             
             if mapping:
-                # Показываем первые 3 товара
+                # Показываем первые 5 товаров (увеличили с 3 до 5)
                 preview = "📋 **Первые товары:**\n\n"
-                for i, (offer_id, product_id) in enumerate(list(mapping.items())[:3], 1):
+                for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
                     preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                
+                # Добавляем информацию о пагинации
+                if len(mapping) > 5:
+                    preview += f"\n📄 Показано: 5 из {len(mapping)} товаров"
+                    preview += f"\n💡 Используйте `/ozon_products_all` для полного списка"
                 
                 await message.answer(preview, parse_mode="Markdown")
             else:
@@ -252,6 +258,69 @@ async def cmd_ozon_products(message: types.Message):
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_products: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
+async def cmd_ozon_products_all(message: types.Message):
+    """Команда для получения полного списка товаров Ozon"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        await message.answer("📦 Получаю полный список товаров Ozon...")
+        
+        manager = MarketplaceManager()
+        
+        result = await manager.get_ozon_product_mapping()
+        if result["success"]:
+            mapping = result["mapping"]
+            total = result["total_count"]
+            
+            if mapping:
+                # Показываем все товары
+                full_list = f"📋 **Полный список товаров Ozon**\n\n"
+                full_list += f"Всего товаров: {total}\n\n"
+                
+                for i, (offer_id, product_id) in enumerate(mapping.items(), 1):
+                    full_list += f"{i:2d}. 📦 {offer_id} (ID: {product_id})\n"
+                
+                # Разбиваем на части, если сообщение слишком длинное
+                if len(full_list) > 4000:  # Telegram лимит ~4096 символов
+                    parts = []
+                    current_part = ""
+                    current_count = 0
+                    
+                    for i, (offer_id, product_id) in enumerate(mapping.items(), 1):
+                        line = f"{i:2d}. 📦 {offer_id} (ID: {product_id})\n"
+                        
+                        if len(current_part) + len(line) > 3500:
+                            parts.append(f"📋 **Товары Ozon (часть {len(parts) + 1})**\n\n{current_part}")
+                            current_part = line
+                            current_count = 1
+                        else:
+                            current_part += line
+                            current_count += 1
+                    
+                    # Добавляем последнюю часть
+                    if current_part:
+                        parts.append(f"📋 **Товары Ozon (часть {len(parts) + 1})**\n\n{current_part}")
+                    
+                    # Отправляем части
+                    for i, part in enumerate(parts):
+                        if i == 0:
+                            await message.answer(f"✅ Получено товаров: {total}\n\n{part}", parse_mode="Markdown")
+                        else:
+                            await message.answer(part, parse_mode="Markdown")
+                else:
+                    await message.answer(f"✅ Получено товаров: {total}\n\n{full_list}", parse_mode="Markdown")
+            else:
+                await message.answer("📭 Товары не найдены")
+        else:
+            await message.answer(f"❌ Ошибка получения товаров: {result.get('error', 'Неизвестная ошибка')}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде ozon_products_all: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
 async def cmd_ozon_stocks(message: types.Message):
@@ -283,12 +352,17 @@ async def cmd_ozon_stocks(message: types.Message):
             await message.answer(f"✅ Получено товаров: {len(stocks)} из {total}")
             
             if stocks:
-                # Показываем первые 3 товара с информацией о наличии
+                # Показываем первые 5 товаров с информацией о наличии
                 preview = "📋 **Информация о товарах:**\n\n"
-                for i, (offer_id, product_id) in enumerate(list(mapping.items())[:3], 1):
+                for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
                     stock_count = stocks.get(str(product_id), 0)
                     preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
                     preview += f"   Остаток: {stock_count} шт.\n\n"
+                
+                # Добавляем информацию о пагинации
+                if len(mapping) > 5:
+                    preview += f"📄 Показано: 5 из {len(mapping)} товаров"
+                    preview += f"\n💡 Используйте `/ozon_stocks_all` для полного списка"
                 
                 await message.answer(preview, parse_mode="Markdown")
             else:
@@ -476,6 +550,7 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_ozon_test, Command("ozon_test"))
     dp.message.register(cmd_ozon_stats, Command("ozon_stats"))
     dp.message.register(cmd_ozon_products, Command("ozon_products"))
+    dp.message.register(cmd_ozon_products_all, Command("ozon_products_all"))
     dp.message.register(cmd_ozon_stocks, Command("ozon_stocks"))
     dp.message.register(cmd_ozon_sync_all, Command("ozon_sync_all"))
     dp.message.register(cmd_ozon_sync_single, Command("ozon_sync_single"))
