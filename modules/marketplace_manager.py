@@ -46,11 +46,12 @@ class MarketplaceManager:
         }
         
         # Ozon API эндпоинты
+        # ⚠️ ВАЖНО: filter.visibility обязателен для /v3/product/list
         self.ozon_endpoints = {
-            "product_list": "/v3/product/list",     # ✅ Список товаров
+            "product_list": "/v3/product/list",     # ✅ Список товаров (требует visibility)
             "analytics": "/v1/analytics/data",      # ✅ Аналитика
             "stocks": "/v4/product/info/stocks",    # ✅ Остатки конкретных товаров
-            "product_info": "/v3/product/list"      # ✅ Информация о товарах
+            "product_info": "/v3/product/list"      # ✅ Информация о товарах (требует visibility)
         }
         
         # Проверка настроек
@@ -92,7 +93,9 @@ class MarketplaceManager:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 while True:
                     payload = {
-                        "filter": {},
+                        "filter": {
+                            "visibility": "ALL"  # ✅ Обязательное поле согласно документации Ozon
+                        },
                         "limit": page_size,
                         "last_id": last_id
                     }
@@ -159,7 +162,9 @@ class MarketplaceManager:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 while True:
                     payload = {
-                        "filter": {},
+                        "filter": {
+                            "visibility": "ALL"  # ✅ Обязательное поле согласно документации Ozon
+                        },
                         "limit": page_size,
                         "last_id": last_id
                     }
