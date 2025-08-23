@@ -1,6 +1,7 @@
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ ozon_stocks_detailed - теперь использует правильный метод
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ sync_ozon_data - теперь правильно записывает остатки в Google таблицу
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ _update_ozon_sheet - теперь использует SKU для маппинга строк
 # Управление маркетплейсами (Ozon, Wildberries) и Google Sheets
 import os
 import json
@@ -493,7 +494,7 @@ class MarketplaceManager:
             analytics_result = await self.get_ozon_analytics(date_from, date_to)
             
             # Подготавливаем данные для таблицы
-            table_data = []
+            table_data = {}
             for offer_id, product_id in offer_map.items():
                 stock_info = stocks.get(offer_id, {})
                 
@@ -501,31 +502,36 @@ class MarketplaceManager:
                 total_stock = 0
                 fbo_stock = 0
                 fbs_stock = 0
+                sku = None
                 
                 if isinstance(stock_info, dict):
                     total_stock = stock_info.get("total", 0)
                     warehouses = stock_info.get("warehouses", [])
                     
-                    # Разбиваем по типам складов
+                    # Разбиваем по типам складов и получаем SKU
                     for warehouse in warehouses:
                         if warehouse.get("type") == "fbo":
                             fbo_stock += warehouse.get("stock", 0)
                         elif warehouse.get("type") == "fbs":
                             fbs_stock += warehouse.get("stock", 0)
+                        
+                        # Берем SKU из первого склада (он одинаковый для всех)
+                        if not sku:
+                            sku = warehouse.get("sku")
                 
                 # Здесь можно добавить логику получения продаж и выручки из analytics
                 # Пока оставляем пустыми
                 sales = 0
                 revenue = 0
                 
-                table_data.append({
-                    "offer_id": offer_id,
+                table_data[offer_id] = {
                     "total_stock": total_stock,
                     "fbo_stock": fbo_stock,
                     "fbs_stock": fbs_stock,
+                    "sku": sku,
                     "sales": sales,
                     "revenue": revenue
-                })
+                }
             
             # Обновляем Google таблицу
             await self._update_ozon_sheet(table_data)
@@ -606,25 +612,52 @@ class MarketplaceManager:
     async def _update_ozon_sheet(self, data: List[Dict[str, Any]]) -> None:
         """Обновляет лист Ozon в Google таблице"""
         try:
-            # Подготавливаем данные для записи
-            rows = []
-            for item in data:
-                rows.append([
-                    item["total_stock"],  # Колонка F: Остаток Ozon, всего
-                    item["fbo_stock"],    # Колонка G: Остаток Ozon, FBO
-                    item["fbs_stock"],    # Колонка H: Остаток Ozon, FBS
-                    item["sales"],        # Колонка I: Продажи Ozon
-                    item["revenue"]       # Колонка J: Выручка Ozon
-                ])
-            
-            # Записываем в таблицу (колонки F-J)
-            await self.sheets_api.write_data(
+            # Получаем текущие данные из таблицы для построения маппинга
+            sheet_data = await self.sheets_api.read_data(
                 self.spreadsheet_id,
-                f"{self.sheet_name}!F2:J{len(rows)+1}",
-                rows
+                f"{self.sheet_name}!A:Z"
             )
             
-            logger.info(f"Обновлен лист Ozon: {len(rows)} строк")
+            if not sheet_data:
+                logger.error("Не удалось прочитать данные из Google таблицы")
+                return
+            
+            # Построим маппинг: SKU (из колонки A) -> номер строки
+            sku_to_row = {str(row[0]): idx for idx, row in enumerate(sheet_data)}
+            
+            # Обновляем данные по SKU
+            for offer_id, info in data.items():
+                total = info.get('total_stock', 0)
+                fbo = info.get('fbo_stock', 0)
+                fbs = info.get('fbs_stock', 0)
+                
+                # Найдём SKU из данных
+                sku = info.get('sku')
+                
+                if not sku:
+                    logger.warning(f"Не найден SKU для offer_id={offer_id}")
+                    continue
+                
+                row_idx = sku_to_row.get(str(sku))
+                if row_idx is None:
+                    logger.warning(f"SKU {sku} не найден в таблице, пропускаем")
+                    continue
+                
+                logger.info(f"Обновляем строку SKU={sku} (offer_id={offer_id}): total={total}, fbo={fbo}, fbs={fbs}")
+                
+                # Обновляем данные в sheet_data
+                sheet_data[row_idx][5] = total  # F — всего
+                sheet_data[row_idx][6] = fbo    # G — FBO
+                sheet_data[row_idx][7] = fbs    # H — FBS
+            
+            # Записываем обновленные данные обратно в таблицу
+            await self.sheets_api.write_data(
+                self.spreadsheet_id,
+                f"{self.sheet_name}!A1",
+                sheet_data
+            )
+            
+            logger.info(f"Обновлен лист Ozon по SKU: {len(data)} товаров")
             
         except Exception as e:
             logger.error(f"Ошибка обновления листа Ozon: {e}")
