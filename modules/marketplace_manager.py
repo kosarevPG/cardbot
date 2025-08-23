@@ -159,8 +159,25 @@ class MarketplaceManager:
                     for item in data.get("result", []):
                         product_id = item.get("product_id")
                         stocks = item.get("stocks", [])
+                        
+                        # Общая сумма остатков
                         total_present = sum(int(wh.get("present", 0)) for wh in stocks)
-                        stocks_data[str(product_id)] = total_present
+                        
+                        # Детальная информация по складам
+                        warehouse_details = []
+                        for warehouse in stocks:
+                            warehouse_name = warehouse.get("warehouse_name", "Неизвестный склад")
+                            present = int(warehouse.get("present", 0))
+                            if present > 0:  # Показываем только склады с остатками
+                                warehouse_details.append({
+                                    "name": warehouse_name,
+                                    "stock": present
+                                })
+                        
+                        stocks_data[str(product_id)] = {
+                            "total": total_present,
+                            "warehouses": warehouse_details
+                        }
                     
                     return {
                         "success": True,

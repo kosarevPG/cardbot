@@ -95,7 +95,8 @@ async def cmd_marketplace_help(message: types.Message):
 • `/ozon_products` - Список товаров (первые 5, расширенная информация)
 • `/ozon_products_all` - Полный список всех товаров
 • `/ozon_products_detailed` - Детальная информация о всех товарах
-• `/ozon_stocks` - Остатки товаров
+• `/ozon_stocks` - Остатки товаров (первые 5, с названиями)
+• `/ozon_stocks_detailed` - Детальная информация об остатках по складам
 • `/ozon_sync_all` - Синхронизация всех данных с Google таблицей
 • `/ozon_sync_single OFFER_ID` - Синхронизация одного товара
 
@@ -522,19 +523,52 @@ async def cmd_ozon_stocks(message: types.Message):
                     products = detailed_result["products"]
                     
                     for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
-                        stock_count = stocks.get(str(product_id), 0)
+                        stock_info = stocks.get(str(product_id), {})
                         product_info = products.get(str(product_id), {})
                         product_name = product_info.get("name", "Без названия")
                         
-                        preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
-                        preview += f"   📝 {product_name}\n"
-                        preview += f"   Остаток: {stock_count} шт.\n\n"
+                        # Получаем информацию об остатках
+                        if isinstance(stock_info, dict):
+                            total_stock = stock_info.get("total", 0)
+                            warehouses = stock_info.get("warehouses", [])
+                            
+                            preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                            preview += f"   📝 {product_name}\n"
+                            preview += f"   📊 **Общий остаток: {total_stock} шт.**\n"
+                            
+                            # Детальная информация по складам
+                            if warehouses:
+                                preview += f"   🏪 **По складам:**\n"
+                                for warehouse in warehouses[:3]:  # Показываем первые 3 склада
+                                    preview += f"      • {warehouse['name']}: {warehouse['stock']} шт.\n"
+                                
+                                if len(warehouses) > 3:
+                                    preview += f"      ... и еще {len(warehouses) - 3} складов\n"
+                            else:
+                                preview += f"   🏪 **Склады:** Нет данных\n"
+                        else:
+                            # Fallback для старого формата
+                            stock_count = stock_info if isinstance(stock_info, (int, str)) else 0
+                            preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                            preview += f"   📝 {product_name}\n"
+                            preview += f"   📊 Остаток: {stock_count} шт.\n"
+                        
+                        preview += "\n"
                 else:
                     # Fallback к базовой информации
                     for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
-                        stock_count = stocks.get(str(product_id), 0)
-                        preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
-                        preview += f"   Остаток: {stock_count} шт.\n\n"
+                        stock_info = stocks.get(str(product_id), {})
+                        
+                        # Получаем информацию об остатках
+                        if isinstance(stock_info, dict):
+                            total_stock = stock_info.get("total", 0)
+                            preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                            preview += f"   📊 Остаток: {total_stock} шт.\n\n"
+                        else:
+                            # Fallback для старого формата
+                            stock_count = stock_info if isinstance(stock_info, (int, str)) else 0
+                            preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
+                            preview += f"   📊 Остаток: {stock_count} шт.\n\n"
                 
                 # Добавляем информацию о пагинации
                 if len(mapping) > 5:
@@ -711,6 +745,129 @@ async def cmd_ozon_sync_single(message: types.Message):
         logger.error(f"Ошибка в команде ozon_sync_single: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
+async def cmd_ozon_stocks_detailed(message: types.Message):
+    """Команда для получения детальной информации об остатках Ozon по складам"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        await message.answer("📊 Получаю детальную информацию об остатках товаров Ozon...")
+        
+        manager = MarketplaceManager()
+        
+        # Получаем mapping товаров
+        mapping_result = await manager.get_ozon_product_mapping()
+        if not mapping_result["success"]:
+            await message.answer(f"❌ Ошибка получения товаров: {mapping_result.get('error', 'Неизвестная ошибка')}")
+            return
+        
+        mapping = mapping_result["mapping"]
+        product_ids = list(mapping.values())
+        
+        # Получаем остатки
+        stocks_result = await manager.get_ozon_stocks(product_ids)
+        if stocks_result["success"]:
+            stocks = stocks_result["stocks"]
+            total = len(mapping)
+            await message.answer(f"✅ Получено товаров: {len(stocks)} из {total}")
+            
+            if stocks:
+                # Получаем детальную информацию для названий
+                detailed_result = await manager.get_ozon_products_detailed(product_ids)
+                
+                if detailed_result["success"]:
+                    products = detailed_result["products"]
+                    
+                    # Формируем детальный отчет по остаткам
+                    detailed_report = f"📋 **Детальная информация об остатках Ozon**\n\n"
+                    detailed_report += f"Всего товаров: {total}\n\n"
+                    
+                    # Статистика по остаткам
+                    total_stock_sum = 0
+                    products_with_stock = 0
+                    products_without_stock = 0
+                    
+                    for product_id in mapping.values():
+                        stock_info = stocks.get(str(product_id), {})
+                        if isinstance(stock_info, dict):
+                            total_stock = stock_info.get("total", 0)
+                            total_stock_sum += total_stock
+                            if total_stock > 0:
+                                products_with_stock += 1
+                            else:
+                                products_without_stock += 1
+                    
+                    detailed_report += f"📊 **Статистика остатков:**\n"
+                    detailed_report += f"• Общий остаток: {total_stock_sum} шт.\n"
+                    detailed_report += f"• Товаров с остатками: {products_with_stock}\n"
+                    detailed_report += f"• Товаров без остатков: {products_without_stock}\n\n"
+                    
+                    # Детальная информация по каждому товару
+                    for i, (offer_id, product_id) in enumerate(mapping.items(), 1):
+                        stock_info = stocks.get(str(product_id), {})
+                        product_info = products.get(str(product_id), {})
+                        product_name = product_info.get("name", "Без названия")
+                        
+                        detailed_report += f"**{i:2d}. {offer_id}** (ID: {product_id})\n"
+                        detailed_report += f"   📝 {product_name}\n"
+                        
+                        # Информация об остатках
+                        if isinstance(stock_info, dict):
+                            total_stock = stock_info.get("total", 0)
+                            warehouses = stock_info.get("warehouses", [])
+                            
+                            detailed_report += f"   📊 **Общий остаток: {total_stock} шт.**\n"
+                            
+                            if warehouses:
+                                detailed_report += f"   🏪 **По складам:**\n"
+                                for warehouse in warehouses:
+                                    detailed_report += f"      • {warehouse['name']}: {warehouse['stock']} шт.\n"
+                            else:
+                                detailed_report += f"   🏪 **Склады:** Нет данных\n"
+                        else:
+                            # Fallback для старого формата
+                            stock_count = stock_info if isinstance(stock_info, (int, str)) else 0
+                            detailed_report += f"   📊 **Остаток: {stock_count} шт.**\n"
+                        
+                        detailed_report += "\n"
+                    
+                    # Разбиваем на части, если сообщение слишком длинное
+                    if len(detailed_report) > 4000:
+                        parts = []
+                        current_part = ""
+                        
+                        lines = detailed_report.split('\n')
+                        for line in lines:
+                            if len(current_part) + len(line) + 1 > 3500:
+                                parts.append(current_part.strip())
+                                current_part = line + '\n'
+                            else:
+                                current_part += line + '\n'
+                        
+                        if current_part:
+                            parts.append(current_part.strip())
+                        
+                        # Отправляем части
+                        for i, part in enumerate(parts):
+                            if i == 0:
+                                await message.answer(f"✅ Получено товаров: {total}\n\n{part}", parse_mode="Markdown")
+                            else:
+                                await message.answer(f"📋 **Остатки Ozon (часть {i + 1})**\n\n{part}", parse_mode="Markdown")
+                    else:
+                        await message.answer(f"✅ Получено товаров: {total}\n\n{detailed_report}", parse_mode="Markdown")
+                else:
+                    await message.answer(f"❌ Ошибка получения детальной информации: {detailed_result.get('error', 'Неизвестная ошибка')}")
+            else:
+                await message.answer("📭 Остатки не найдены")
+        else:
+            await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
+        
+    except Exception as e:
+        logger.error(f"Ошибка в команде ozon_stocks_detailed: {e}")
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
 def register_marketplace_handlers(dp):
     """Регистрирует обработчики команд маркетплейсов"""
     
@@ -730,6 +887,7 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_ozon_products_all, Command("ozon_products_all"))
     dp.message.register(cmd_ozon_products_detailed, Command("ozon_products_detailed"))
     dp.message.register(cmd_ozon_stocks, Command("ozon_stocks"))
+    dp.message.register(cmd_ozon_stocks_detailed, Command("ozon_stocks_detailed"))
     dp.message.register(cmd_ozon_sync_all, Command("ozon_sync_all"))
     dp.message.register(cmd_ozon_sync_single, Command("ozon_sync_single"))
     
