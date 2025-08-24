@@ -3,6 +3,7 @@
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ sync_ozon_data - теперь правильно записывает остатки в Google таблицу
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ _update_ozon_sheet - теперь использует SKU для маппинга строк
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ sync_ozon_data - теперь правильно суммирует FBO/FBS остатки по present
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ _update_ozon_sheet - теперь ищет строки по offer_id из колонки D
 # Управление маркетплейсами (Ozon, Wildberries) и Google Sheets
 import os
 import json
@@ -627,33 +628,27 @@ class MarketplaceManager:
                 logger.error("Не удалось прочитать данные из Google таблицы")
                 return
             
-            # Построим маппинг: SKU (из колонки A) -> номер строки
-            sku_to_row = {str(row[0]): idx for idx, row in enumerate(sheet_data)}
+            # Построим маппинг: offer_id (из колонки D) -> номер строки
+            offer_to_row = {str(row[3]): idx for idx, row in enumerate(sheet_data) if len(row) > 3}
             
-            # Обновляем данные по SKU
+            # Обновляем данные по offer_id
             for offer_id, info in data.items():
                 total = info.get('total_stock', 0)
                 fbo = info.get('fbo_stock', 0)
                 fbs = info.get('fbs_stock', 0)
                 
-                # Найдём SKU из данных
-                sku = info.get('sku')
-                
-                if not sku:
-                    logger.warning(f"Не найден SKU для offer_id={offer_id}")
-                    continue
-                
-                row_idx = sku_to_row.get(str(sku))
+                # Ищем строку по offer_id (колонка D)
+                row_idx = offer_to_row.get(str(offer_id))
                 if row_idx is None:
-                    logger.warning(f"SKU {sku} не найден в таблице, пропускаем")
+                    logger.warning(f"offer_id {offer_id} не найден в таблице (колонка D), пропускаем")
                     continue
                 
-                logger.info(f"Обновляем строку SKU={sku} (offer_id={offer_id}): total={total}, fbo={fbo}, fbs={fbs}")
+                logger.info(f"Обновляем строку offer_id={offer_id}: total={total}, fbo={fbo}, fbs={fbs}")
                 
-                # Обновляем данные в sheet_data
-                sheet_data[row_idx][5] = total  # F — всего
-                sheet_data[row_idx][6] = fbo    # G — FBO
-                sheet_data[row_idx][7] = fbs    # H — FBS
+                # Обновляем данные в sheet_data (колонки F, G, H)
+                sheet_data[row_idx][5] = total  # F — Остаток Ozon, всего
+                sheet_data[row_idx][6] = fbo    # G — Остаток Ozon, FBO
+                sheet_data[row_idx][7] = fbs    # H — Остаток Ozon, FBS
             
             # Записываем обновленные данные обратно в таблицу
             await self.sheets_api.write_data(
@@ -662,7 +657,7 @@ class MarketplaceManager:
                 sheet_data
             )
             
-            logger.info(f"Обновлен лист Ozon по SKU: {len(data)} товаров")
+            logger.info(f"Обновлен лист Ozon по offer_id: {len(data)} товаров")
             
         except Exception as e:
             logger.error(f"Ошибка обновления листа Ozon: {e}")
