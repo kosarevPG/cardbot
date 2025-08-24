@@ -2,6 +2,7 @@
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ ozon_stocks_detailed - теперь использует правильный метод
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ sync_ozon_data - теперь правильно записывает остатки в Google таблицу
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ _update_ozon_sheet - теперь использует SKU для маппинга строк
+# FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ sync_ozon_data - теперь правильно суммирует FBO/FBS остатки по present
 # Управление маркетплейсами (Ozon, Wildberries) и Google Sheets
 import os
 import json
@@ -505,19 +506,23 @@ class MarketplaceManager:
                 sku = None
                 
                 if isinstance(stock_info, dict):
-                    total_stock = stock_info.get("total", 0)
                     warehouses = stock_info.get("warehouses", [])
                     
-                    # Разбиваем по типам складов и получаем SKU
+                    # Правильно суммируем остатки по типам складов
+                    fbo_stock = 0
+                    fbs_stock = 0
                     for warehouse in warehouses:
                         if warehouse.get("type") == "fbo":
-                            fbo_stock += warehouse.get("stock", 0)
+                            fbo_stock += warehouse.get("present", 0)
                         elif warehouse.get("type") == "fbs":
-                            fbs_stock += warehouse.get("stock", 0)
+                            fbs_stock += warehouse.get("present", 0)
                         
                         # Берем SKU из первого склада (он одинаковый для всех)
                         if not sku:
                             sku = warehouse.get("sku")
+                    
+                    # Общий остаток = сумма FBO + FBS
+                    total_stock = fbo_stock + fbs_stock
                 
                 # Здесь можно добавить логику получения продаж и выручки из analytics
                 # Пока оставляем пустыми
