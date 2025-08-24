@@ -868,3 +868,6 @@ async def get_wb_stocks(self, warehouse_id: int, barcodes: List[str]) -> Dict[st
                 return {"success": False, "error": f"Ошибка при получении остатков: {response.status_code}"}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+# Временное логирование для проверки загрузки WB_API_KEY
+logger.info(f"WB_API_KEY: {os.getenv('WB_API_KEY')}")
