@@ -66,6 +66,9 @@ class MarketplaceManager:
         
         # Проверка настроек
         self._validate_config()
+        
+        # Добавляем словарь для сопоставления offer_id с SKU
+        self.offer_id_to_sku = {}
     
     def _validate_config(self):
         """Проверяет корректность настроек API"""
@@ -337,6 +340,10 @@ class MarketplaceManager:
                                 "total": 0,
                                 "warehouses": []
                             }
+
+                        # Сохраняем SKU
+                        if offer_id and "sku" in item:
+                            self.offer_id_to_sku[offer_id] = item["sku"]
 
                     logger.info(f"Обработано товаров (by offer_id): {len(stocks_data)}")
 
@@ -646,6 +653,11 @@ class MarketplaceManager:
                 logger.info(f"Обновляем строку offer_id={offer_id}: total={total}, fbo={fbo}, fbs={fbs}")
                 
                 # Обновляем данные в sheet_data (колонки F, G, H)
+                sku = self.offer_id_to_sku.get(offer_id)
+                if not sku:
+                    logger.warning(f"Не найден SKU для offer_id={offer_id}")
+                    continue
+                
                 sheet_data[row_idx][5] = total  # F — Остаток Ozon, всего
                 sheet_data[row_idx][6] = fbo    # G — Остаток Ozon, FBO
                 sheet_data[row_idx][7] = fbs    # H — Остаток Ozon, FBS
