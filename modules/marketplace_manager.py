@@ -495,7 +495,7 @@ class MarketplaceManager:
             if not stocks_result["success"]:
                 return stocks_result
             
-            stocks = stocks_result["stocks"]
+            stocks_by_offer_id = stocks_result["stocks"]
             
             # Получаем аналитику за последние 30 дней
             date_to = datetime.now().strftime("%Y-%m-%d")
@@ -505,32 +505,15 @@ class MarketplaceManager:
             # Подготавливаем данные для таблицы
             table_data = {}
             for offer_id, product_id in offer_map.items():
-                stock_info = stocks.get(offer_id, {})
+                stock_info = stocks_by_offer_id.get(offer_id, {})
                 
-                # Получаем остатки по типам складов
-                total_stock = 0
-                fbo_stock = 0
-                fbs_stock = 0
-                sku = None
+                # Исправляем подсчёт остатков, используя сумму всех складов по типу
+                fbo = sum(s['present'] for s in stock_info.get("warehouses", []) if s.get("type") == "fbo")
+                fbs = sum(s['present'] for s in stock_info.get("warehouses", []) if s.get("type") == "fbs")
                 
-                if isinstance(stock_info, dict):
-                    warehouses = stock_info.get("warehouses", [])
-                    
-                    # Правильно суммируем остатки по типам складов
-                    fbo_stock = 0
-                    fbs_stock = 0
-                    for warehouse in warehouses:
-                        if warehouse.get("type") == "fbo":
-                            fbo_stock += warehouse.get("present", 0)
-                        elif warehouse.get("type") == "fbs":
-                            fbs_stock += warehouse.get("present", 0)
-                        
-                        # Берем SKU из первого склада (он одинаковый для всех)
-                        if not sku:
-                            sku = warehouse.get("sku")
-                    
-                    # Общий остаток = сумма FBO + FBS
-                    total_stock = fbo_stock + fbs_stock
+                total = fbo + fbs
+                
+                logger.info(f"Обновляем строку offer_id={offer_id}: total={total}, fbo={fbo}, fbs={fbs}")
                 
                 # Здесь можно добавить логику получения продаж и выручки из analytics
                 # Пока оставляем пустыми
@@ -538,10 +521,10 @@ class MarketplaceManager:
                 revenue = 0
                 
                 table_data[offer_id] = {
-                    "total_stock": total_stock,
-                    "fbo_stock": fbo_stock,
-                    "fbs_stock": fbs_stock,
-                    "sku": sku,
+                    "total_stock": total,
+                    "fbo_stock": fbo,
+                    "fbs_stock": fbs,
+                    "sku": self.offer_id_to_sku.get(offer_id),
                     "sales": sales,
                     "revenue": revenue
                 }
