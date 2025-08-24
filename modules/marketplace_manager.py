@@ -75,6 +75,7 @@ class MarketplaceManager:
         if not self.ozon_api_key or not self.ozon_client_id:
             logger.warning("Ozon API не настроен - функции Ozon будут недоступны")
         
+        # Проверка наличия WB_API_KEY и логирование
         if not self.wb_api_key:
             logger.warning("Wildberries API не настроен - функции WB будут недоступны")
     
