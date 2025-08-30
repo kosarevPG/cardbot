@@ -514,13 +514,14 @@ class MarketplaceManager:
             # Подготавливаем данные для таблицы
             table_data = {}
             for offer_id, product_id in offer_map.items():
-                stock_info = stocks_by_offer_id.get(offer_id, {})
+                stock_info = stocks_by_offer_id.get(str(offer_id), {})
                 
                 # Исправляем подсчёт остатков, используя сумму всех складов по типу
-                fbo = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbo")
-                fbs = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbs")
+                warehouses = stock_info.get("warehouses", [])
+                fbo = sum(s.get('stock', 0) for s in warehouses if s.get("name") == "fbo")
+                fbs = sum(s.get('stock', 0) for s in warehouses if s.get("name") == "fbs")
                 
-                total = fbo + fbs
+                total = stock_info.get("total", 0)  # Используем предварительно рассчитанный total
                 
                 logger.info(f"Обновляем строку offer_id={offer_id}: total={total}, fbo={fbo}, fbs={fbs}")
                 
