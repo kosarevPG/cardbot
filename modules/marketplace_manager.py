@@ -504,8 +504,9 @@ class MarketplaceManager:
             if not stocks_result["success"]:
                 return stocks_result
             
-            stocks_by_offer_id = stocks_result["stocks"]
-            
+            stocks_by_offer_id = stocks_result.get("stocks", {})
+            logger.info(f"[DEBUG] Stocks data received in sync_ozon_data: {stocks_by_offer_id}")
+
             # Получаем аналитику за последние 30 дней
             date_to = datetime.now().strftime("%Y-%m-%d")
             date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -515,13 +516,14 @@ class MarketplaceManager:
             table_data = {}
             for offer_id, product_id in offer_map.items():
                 stock_info = stocks_by_offer_id.get(str(offer_id), {})
-                
+                logger.info(f"[DEBUG] Processing offer_id={offer_id}. Found stock_info: {stock_info}")
+
                 # Исправляем подсчёт остатков, используя сумму всех складов по типу
                 warehouses = stock_info.get("warehouses", [])
                 fbo = sum(s.get('stock', 0) for s in warehouses if s.get("name") == "fbo")
                 fbs = sum(s.get('stock', 0) for s in warehouses if s.get("name") == "fbs")
                 
-                total = stock_info.get("total", 0)  # Используем предварительно рассчитанный total
+                total = stock_info.get("total", 0)
                 
                 logger.info(f"Обновляем строку offer_id={offer_id}: total={total}, fbo={fbo}, fbs={fbs}")
                 
