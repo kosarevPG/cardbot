@@ -17,8 +17,10 @@ try:
     import pytz
 except ImportError:
     pytz = None
+from typing import Optional, Dict, Any
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+# Убираем basicConfig, настройка должна быть в main.py
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- НОВЫЙ БЛОК: ФУНКЦИИ БЕЗОПАСНОСТИ ---
@@ -1646,3 +1648,34 @@ async def get_integrated_reflection_summary(user_id: int, reflection_data: dict,
     return summary_text if summary_text is not None else fallback_summary
 
 # --- КОНЕЦ УЛУЧШЕННОЙ ФУНКЦИИ ---
+
+class AIService:
+    def __init__(self, db: Database):
+        self.db = db
+
+    async def get_grok_question(self, user_id, user_request, user_response, feedback_type, step=1, previous_responses=None):
+        return await get_grok_question(user_id, user_request, user_response, feedback_type, step, previous_responses, self.db)
+
+    async def get_grok_summary(self, user_id, interaction_data):
+        return await get_grok_summary(user_id, interaction_data, self.db)
+
+    async def get_grok_supportive_message(self, user_id):
+        return await get_grok_supportive_message(user_id, self.db)
+
+    async def get_reflection_summary(self, user_id, reflection_data):
+        return await get_reflection_summary(user_id, reflection_data, self.db)
+
+    async def get_reflection_summary_and_card_synergy(self, user_id, reflection_data, card_name=None, card_meaning=None):
+        return await get_reflection_summary_and_card_synergy(user_id, reflection_data, self.db, card_name, card_meaning)
+
+    async def get_empathetic_response(self, text):
+        return await get_empathetic_response(text)
+
+    async def get_weekly_analysis(self, reflections):
+        return await get_weekly_analysis(reflections)
+
+    async def get_integrated_reflection_summary(self, user_id, reflection_data):
+        return await get_integrated_reflection_summary(user_id, reflection_data, self.db)
+
+    async def build_user_profile(self, user_id):
+        return await build_user_profile(user_id, self.db)
