@@ -498,6 +498,8 @@ class MarketplaceManager:
             
             offer_map = mapping_result["mapping"]
             
+            await asyncio.sleep(1) # Задержка в 1 секунду
+
             # Получаем остатки через offer_id (правильный метод)
             offer_ids = list(offer_map.keys())
             stocks_result = await self.get_ozon_stocks_by_offer(offer_ids)
@@ -506,6 +508,8 @@ class MarketplaceManager:
             
             stocks_by_offer_id = stocks_result.get("stocks", {})
             logger.info(f"[DEBUG] Stocks data received in sync_ozon_data: {stocks_by_offer_id}")
+
+            await asyncio.sleep(1) # Задержка в 1 секунду
 
             # Получаем аналитику за последние 30 дней
             date_to = datetime.now().strftime("%Y-%m-%d")

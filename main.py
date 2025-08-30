@@ -2858,6 +2858,124 @@ async def send_weekly_analysis(user_id: int, db: Database, bot: Bot):
 
 # --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
 
+def setup_logging():
+    """Настройка логирования."""
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+
+async def main() -> None:
+    # Загрузка конфигурации
+    setup_logging()  # Настройка логирования
+    logger.info("Starting bot...")
+    commands = [
+        types.BotCommand(command="start", description="🔄 Перезагрузка"),
+        types.BotCommand(command="name", description="👩🏼 Указать имя"),
+        types.BotCommand(command="remind", description="⏰ Настроить напоминания"),
+        types.BotCommand(command="remind_off", description="🔕 Выключить все напоминания"),
+        types.BotCommand(command="share", description="🎁 Поделиться с другом"),
+        types.BotCommand(command="feedback", description="✉️ Оставить отзыв / Идею"),
+        types.BotCommand(command="user_profile", description="📊 Мой профиль")
+    ]
+    
+    # Добавляем админские команды
+    admin_commands = [
+        types.BotCommand(command="create_post", description="📝 Создать пост (админ)"),
+        types.BotCommand(command="list_posts", description="📋 Список постов (админ)"),
+        types.BotCommand(command="send_post", description="📤 Отправить пост (админ)"),
+        types.BotCommand(command="process_mailings", description="🔄 Обработать рассылки (админ)")
+    ]
+    try:
+        await bot.set_my_commands(commands)
+        logger.info("Bot commands set successfully.")
+    except Exception as e:
+        logger.error(f"Failed to set bot commands: {e}")
+
+    # Инициализация PostManager и Scheduler
+    post_manager = PostManager(db, bot, logging_service)
+    scheduler = MailingScheduler(post_manager, check_interval=60)
+    
+    # Инициализация планировщика еженедельного анализа рефлексий
+    reflection_scheduler = ReflectionAnalysisScheduler(bot, db, check_interval=3600)  # Проверяем каждый час
+    
+    # Инициализируем данные в диспетчере с проверками
+    try:
+        # Убеждаемся, что workflow_data существует
+        if not hasattr(dp, 'workflow_data') or dp.workflow_data is None:
+            dp.workflow_data = {}
+        
+        dp["db"] = db
+        dp["logger_service"] = logging_service
+        dp["user_manager"] = user_manager
+        dp["post_manager"] = post_manager
+        dp["scheduler"] = scheduler
+        logger.info("Dispatcher data initialized successfully")
+    except Exception as init_err:
+        logger.error(f"Error initializing dispatcher data: {init_err}")
+        print(f"Warning: Dispatcher data initialization failed: {init_err}")
+    
+    # Регистрируем middleware для проверки подписки
+    subscription_middleware = SubscriptionMiddleware()
+    dp.message.middleware(subscription_middleware)
+    dp.callback_query.middleware(subscription_middleware)
+    logger.info("Subscription middleware registered successfully")
+    
+    register_handlers(dp, db, logging_service, user_manager)
+    
+    # Запускаем планировщик рассылок
+    await scheduler.start()
+    logger.info("Mailing scheduler started.")
+    
+    # Запускаем планировщик еженедельного анализа рефлексий
+    await reflection_scheduler.start()
+    logger.info("Reflection analysis scheduler started.")
+    
+    reminder_task = asyncio.create_task(notifier.check_reminders())
+    logger.info("Reminder check task scheduled.")
+    logger.info("Starting polling...")
+    print("Bot is starting polling...")
+    try:
+        # Проверяем, что все необходимые данные инициализированы
+        if not hasattr(dp, 'workflow_data') or dp.workflow_data is None:
+            dp.workflow_data = {}
+        
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    except Exception as e:
+        logger.critical(f"Polling failed: {e}", exc_info=True)
+        print(f"CRITICAL: Polling failed: {e}")
+    finally:
+        logger.info("Stopping bot...")
+        print("Bot is stopping...")
+        
+        # Останавливаем планировщик
+        try:
+            if 'scheduler' in dp and dp["scheduler"]:
+                await dp["scheduler"].stop()
+                logger.info("Mailing scheduler stopped.")
+        except Exception as scheduler_err:
+            logger.error(f"Error stopping scheduler: {scheduler_err}")
+        
+        # Останавливаем планировщик еженедельного анализа
+        try:
+            await reflection_scheduler.stop()
+            logger.info("Reflection analysis scheduler stopped.")
+        except Exception as reflection_scheduler_err:
+            logger.error(f"Error stopping reflection analysis scheduler: {reflection_scheduler_err}")
+        
+        reminder_task.cancel()
+        try:
+            await reminder_task
+        except asyncio.CancelledError:
+            logger.info("Reminder task cancelled successfully.")
+        except Exception as reminder_err:
+            logger.error(f"Error cancelling reminder task: {reminder_err}")
+            
+        if db and db.conn:
+            try:
+                db.close()
+            except Exception as db_close_err:
+                logger.error(f"Error closing database connection: {db_close_err}")
+        logger.info("Bot session cleanup (handled by aiogram).")
+        print("Bot stopped.")
+
 if __name__ == "__main__":
     try:
         asyncio.run(main())
