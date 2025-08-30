@@ -418,25 +418,33 @@ class MarketplaceManager:
             return {"success": False, "error": "Wildberries API не настроен"}
         
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(
-                    f"{self.wb_base_url}/api/v3/supplies/stocks",
-                    headers=self._get_wb_headers()
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    return {
-                        "success": True,
-                        "stocks": data.get("stocks", [])
-                    }
-                else:
-                    logger.error(f"Ошибка получения WB stocks: {response.status_code} - {response.text}")
-                    return {
-                        "success": False,
-                        "error": f"Ошибка API: {response.status_code}",
-                        "details": response.text
-                    }
+            # Получаем все склады
+            warehouses_result = await self.get_wb_warehouses()
+            if not warehouses_result["success"]:
+                return warehouses_result
+
+            warehouses = warehouses_result.get("warehouses", [])
+            if not warehouses:
+                return {"success": False, "error": "Не удалось получить список складов Wildberries"}
+
+            # Используем первый склад для получения остатков (можно добавить логику выбора)
+            warehouse_id = warehouses[0].get("id")
+            if not warehouse_id:
+                return {"success": False, "error": "Не удалось получить ID склада Wildberries"}
+
+            # Получаем все баркоды товаров
+            barcodes_result = await self.get_wb_product_barcodes()
+            if not barcodes_result["success"]:
+                return barcodes_result
+
+            barcodes = barcodes_result.get("barcodes", [])
+            if not barcodes:
+                return {"success": False, "error": "Не удалось получить список баркодов Wildberries"}
+
+            # Теперь используем новый метод get_wb_stocks с warehouse_id и barcodes
+            stocks_result = await self.get_wb_stocks_by_warehouse_and_barcodes(warehouse_id, barcodes)
+            
+            return stocks_result
                     
         except Exception as e:
             logger.error(f"Ошибка получения WB stocks: {e}")
@@ -509,8 +517,8 @@ class MarketplaceManager:
                 stock_info = stocks_by_offer_id.get(offer_id, {})
                 
                 # Исправляем подсчёт остатков, используя сумму всех складов по типу
-                fbo = sum(s['present'] for s in stock_info.get("warehouses", []) if s.get("type") == "fbo")
-                fbs = sum(s['present'] for s in stock_info.get("warehouses", []) if s.get("type") == "fbs")
+                fbo = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbo")
+                fbs = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbs")
                 
                 total = fbo + fbs
                 
@@ -606,57 +614,54 @@ class MarketplaceManager:
         
         return results
     
-    async def _update_ozon_sheet(self, data: List[Dict[str, Any]]) -> None:
-        """Обновляет лист Ozon в Google таблице"""
+    async def _update_ozon_sheet(self, data: Dict[str, Dict[str, Any]]) -> None:
+        """Обновляет лист Ozon в Google таблице с помощью пакетного обновления"""
         try:
-            # Получаем текущие данные из таблицы для построения маппинга
-            sheet_data = await self.sheets_api.read_data(
+            # Читаем столбец с offer_id, чтобы найти номера строк
+            offer_ids_in_sheet = await self.sheets_api.read_data(
                 self.spreadsheet_id,
-                f"{self.sheet_name}!A:Z"
+                f"{self.sheet_name}!{self.ozon_columns['offer_id']}:{self.ozon_columns['offer_id']}"
             )
             
-            if not sheet_data:
-                logger.error("Не удалось прочитать данные из Google таблицы")
-                return
+            # Создаем mapping: offer_id -> номер строки
+            offer_to_row = {
+                offer[0]: i + 1 
+                for i, offer in enumerate(offer_ids_in_sheet) 
+                if offer
+            }
             
-            # Построим маппинг: offer_id (из колонки D) -> номер строки
-            offer_to_row = {str(row[3]): idx for idx, row in enumerate(sheet_data) if len(row) > 3}
-            
-            # Обновляем данные по offer_id
+            # Подготавливаем данные для пакетного обновления
+            updates = []
             for offer_id, info in data.items():
-                total = info.get('total_stock', 0)
-                fbo = info.get('fbo_stock', 0)
-                fbs = info.get('fbs_stock', 0)
-                
-                # Ищем строку по offer_id (колонка D)
-                row_idx = offer_to_row.get(str(offer_id))
-                if row_idx is None:
-                    logger.warning(f"offer_id {offer_id} не найден в таблице (колонка D), пропускаем")
-                    continue
-                
-                logger.info(f"Обновляем строку offer_id={offer_id}: total={total}, fbo={fbo}, fbs={fbs}")
-                
-                # Обновляем данные в sheet_data (колонки F, G, H)
-                sku = self.offer_id_to_sku.get(offer_id)
-                if not sku:
-                    logger.warning(f"Не найден SKU для offer_id={offer_id}")
-                    continue
-                
-                sheet_data[row_idx][5] = total  # F — Остаток Ozon, всего
-                sheet_data[row_idx][6] = fbo    # G — Остаток Ozon, FBO
-                sheet_data[row_idx][7] = fbs    # H — Остаток Ozon, FBS
+                if offer_id in offer_to_row:
+                    row = offer_to_row[offer_id]
+                    
+                    # Обновляем остатки, продажи, выручку
+                    updates.append({
+                        "range": f"{self.sheet_name}!{self.ozon_columns['stock']}{row}",
+                        "values": [[info.get("total_stock", 0)]]
+                    })
+                    updates.append({
+                        "range": f"{self.sheet_name}!{self.ozon_columns['sales']}{row}",
+                        "values": [[info.get("sales", 0)]]
+                    })
+                    updates.append({
+                        "range": f"{self.sheet_name}!{self.ozon_columns['revenue']}{row}",
+                        "values": [[info.get("revenue", 0)]]
+                    })
             
-            # Записываем обновленные данные обратно в таблицу
-            await self.sheets_api.write_data(
-                self.spreadsheet_id,
-                f"{self.sheet_name}!A1",
-                sheet_data
-            )
-            
-            logger.info(f"Обновлен лист Ozon по offer_id: {len(data)} товаров")
-            
+            # Выполняем пакетное обновление
+            if updates:
+                spreadsheet = await self.sheets_api.open_spreadsheet(self.spreadsheet_id)
+                worksheet = spreadsheet.worksheet(self.sheet_name)
+                worksheet.batch_update(updates)
+                logger.info(f"Обновлен лист Ozon: {len(updates)} ячеек")
+            else:
+                logger.warning("Нет данных для обновления Ozon")
+                
         except Exception as e:
             logger.error(f"Ошибка обновления листа Ozon: {e}")
+
     
     async def _update_wb_sheet(self, data: List[Dict[str, Any]]) -> None:
         """Обновляет лист Wildberries в Google таблице"""
@@ -809,8 +814,6 @@ class MarketplaceManager:
         
         return results
 
-# Добавляем методы для интеграции с Wildberries API
-
 async def get_wb_warehouses(self) -> Dict[str, Union[bool, str, List[Dict]]]:
     """Получение списка складов Wildberries"""
     if not self.wb_api_key:
@@ -850,8 +853,8 @@ async def get_wb_product_barcodes(self) -> Dict[str, Union[bool, str, List[str]]
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-async def get_wb_stocks(self, warehouse_id: int, barcodes: List[str]) -> Dict[str, Union[bool, str, Dict]]:
-    """Получение остатков товаров на складе Wildberries"""
+async def get_wb_stocks_by_warehouse_and_barcodes(self, warehouse_id: int, barcodes: List[str]) -> Dict[str, Union[bool, str, Dict]]:
+    """Получение остатков товаров на складе Wildberries по ID склада и баркодам"""
     if not self.wb_api_key:
         return {"success": False, "error": "Wildberries API не настроен"}
     
