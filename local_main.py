@@ -15,11 +15,11 @@ sys.path.append(str(Path(__file__).parent))
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Устанавливаем уровень DEBUG
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('bot_local.log'),
-        logging.StreamHandler(sys.stdout)
+        logging.StreamHandler(),
+        logging.FileHandler("bot.log", encoding='utf-8')
     ]
 )
 
@@ -54,6 +54,8 @@ try:
     from modules.marketplace_commands import cmd_ozon_sync_all
     from modules.card_of_the_day import cmd_card_of_the_day
     from modules.evening_reflection import cmd_evening_reflection
+    from modules.notification_service import NotificationService
+    from modules.scheduler import MailingScheduler, ReflectionAnalysisScheduler
     logger.info("✅ Модули бота импортированы успешно")
 except ImportError as e:
     logger.error(f"❌ Ошибка импорта модулей: {e}")
