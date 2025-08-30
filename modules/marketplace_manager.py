@@ -19,6 +19,16 @@ import gspread
 from google.oauth2.service_account import Credentials
 from .google_sheets import GoogleSheetsAPI
 
+# Принудительно настраиваем корневой логгер на DEBUG
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+# Добавляем обработчик, если его нет, чтобы видеть логи в консоли
+if not root_logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    root_logger.addHandler(handler)
+
 logger = logging.getLogger(__name__)
 
 class MarketplaceManager:
