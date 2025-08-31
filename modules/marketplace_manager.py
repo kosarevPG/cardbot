@@ -838,10 +838,6 @@ class MarketplaceManager:
 
     async def get_wb_warehouses(self) -> Dict[str, Union[bool, str, List[Dict]]]:
         """Получение списка складов Wildberries"""
-        pre = self._wb_precheck()
-        if not pre["ok"]:
-            return {"success": False, "error": pre["error"]}
-
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.get(
@@ -857,10 +853,6 @@ class MarketplaceManager:
 
     async def get_wb_product_barcodes(self) -> Dict[str, Union[bool, str, List[str]]]:
         """Получение списка баркодов товаров Wildberries"""
-        pre = self._wb_precheck()
-        if not pre["ok"]:
-            return {"success": False, "error": pre["error"]}
-        
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.post(
@@ -879,10 +871,6 @@ class MarketplaceManager:
 
     async def get_wb_stocks(self, warehouse_id: int, barcodes: List[str]) -> Dict[str, Union[bool, str, Dict]]:
         """Получение остатков товаров на складе Wildberries"""
-        pre = self._wb_precheck()
-        if not pre["ok"]:
-            return {"success": False, "error": pre["error"]}
-        
         try:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.post(
