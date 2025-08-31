@@ -9,6 +9,20 @@ import os
 import json
 import base64
 import logging
+import sys
+
+# --- ПРИНУДИТЕЛЬНОЕ ВКЛЮЧЕНИЕ DEBUG ЛОГИРОВАНИЯ ---
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+# Добавляем обработчик, если его нет, чтобы видеть логи в консоли
+if not root_logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+    handler.setFormatter(formatter)
+    root_logger.addHandler(handler)
+# --------------------------------------------------
+
 import asyncio
 from typing import Dict, List, Union, Optional, Any
 # Дополнительный импорт для уверенности
