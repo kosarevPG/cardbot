@@ -117,9 +117,12 @@ def run_sqlite_web():
     except Exception as e:
         print(f"CRITICAL error starting/running sqlite_web process: {e}", flush=True)
 
-# Запуск потока остается тем же
-t = threading.Thread(target=run_sqlite_web, daemon=True)
-t.start()
+# Запуск sqlite_web только если разрешено и бинарь доступен
+if os.getenv("ENABLE_SQLITE_WEB", "0") == "1" and shutil.which("sqlite_web"):
+    t = threading.Thread(target=run_sqlite_web, daemon=True)
+    t.start()
+else:
+    print("sqlite_web disabled or not installed; skipping", flush=True)
 
 import asyncio
 from aiogram import Bot, Dispatcher, types, F
@@ -275,7 +278,10 @@ try:
 except (sqlite3.Error, Exception) as e:
     logger.exception(f"CRITICAL: Database initialization failed at {db_path}: {e}")
     print(f"CRITICAL: Database initialization failed at {db_path}: {e}"); raise SystemExit(f"Database failed: {e}")
-logging_service = LoggingService(db)
+# уже имеется import os earlier
+LOG_DIR = os.getenv("LOG_DIR", "logs")
+logging_service = LoggingService(log_dir=LOG_DIR)
+logging_service.db = db
 notifier = NotificationService(bot, db)
 user_manager = UserManager(db)
 
