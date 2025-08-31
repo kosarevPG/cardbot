@@ -14,14 +14,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 # Настройка логирования
-logging.basicConfig(
-    level=logging.DEBUG,  # Устанавливаем уровень DEBUG
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("bot.log", encoding='utf-8')
-    ]
-)
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
 logger = logging.getLogger(__name__)
 
