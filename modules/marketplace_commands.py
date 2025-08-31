@@ -16,79 +16,74 @@ def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
 async def cmd_wb_test(message: types.Message):
-    """Команда для тестирования подключения к WB API"""
-    # Проверяем права администратора
+    """Тест подключения к WB API"""
     if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
         return
-    
+
+    await message.answer("🔄 Тестирую подключение к Wildberries API...")
+
     try:
-        await message.answer("🔄 Тестирую подключение к Wildberries API...")
-        
         manager = MarketplaceManager()
-        result = await manager.test_connections()
-        
-        if result["wildberries"] is True:
-            await message.answer("✅ Подключение к Wildberries API успешно установлено!")
+        result = await manager.get_wb_warehouses()
+
+        if result.get("success"):
+            await message.answer("✅ Подключение к Wildberries API успешно! Склады получены.")
         else:
-            await message.answer(f"❌ Ошибка подключения к Wildberries API: {result['wildberries']}")
-        
+            await message.answer(f"❌ Ошибка подключения к Wildberries API: {result.get('error', 'Неизвестная ошибка')}")
+
     except Exception as e:
-        logger.error(f"Ошибка в команде wb_test: {e}")
-        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+        logger.error(f"Ошибка в команде wb_test: {e}", exc_info=True)
+        await message.answer(f"❌ Произошла критическая ошибка: {str(e)}")
 
 async def cmd_wb_stats(message: types.Message):
-    """Команда для получения статистики WB"""
-    # Проверяем права администратора
+    """Статистика остатков WB"""
     if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
         return
-    
+
+    await message.answer("📊 Получаю остатки Wildberries...")
+
     try:
-        await message.answer("📊 Получаю статистику Wildberries...")
-        
         manager = MarketplaceManager()
-        
-        # проверку токена/DNS выполняют сами методы менеджера
 
-        # 1) Получаем склады
         warehouses_result = await manager.get_wb_warehouses()
-        if not warehouses_result["success"] or not warehouses_result.get("warehouses"):
-            await message.answer("❌ Не удалось получить список складов Wildberries.")
+        if not warehouses_result.get("success") or not warehouses_result.get("warehouses"):
+            await message.answer(f"❌ Не удалось получить склады Wildberries: {warehouses_result.get('error')}")
             return
 
-        warehouse_id = warehouses_result["warehouses"][0]["id"]
+        warehouse = warehouses_result["warehouses"][0]
+        warehouse_id = warehouse["id"]
+        warehouse_name = warehouse["name"]
 
-        # 2) Получаем артикулы (barcodes)
         barcodes_result = await manager.get_wb_product_barcodes()
-        if not barcodes_result["success"] or not barcodes_result.get("barcodes"):
-            await message.answer("❌ Не удалось получить список товаров Wildberries.")
+        if not barcodes_result.get("success") or not barcodes_result.get("barcodes"):
+            await message.answer(f"❌ Не удалось получить артикулы товаров: {barcodes_result.get('error')}")
             return
-
         barcodes = barcodes_result["barcodes"]
 
-        # 3) Получаем остатки по новому эндпоинту
         stocks_result = await manager.get_wb_stocks(warehouse_id, barcodes)
-        if stocks_result["success"]:
-            stocks = stocks_result["stocks"]
-            total = len(stocks) if isinstance(stocks, list) else len(stocks.keys())
 
-            summary = f"📊 **Остатки Wildberries**\n\n"
-            summary += f"Склад ID: {warehouse_id}\n"
-            summary += f"Товаров получено: {total}\n\n"
+        if stocks_result.get("success"):
+            stocks_data = stocks_result.get("stocks", {}).get("stocks", [])
+            total_items = sum(item.get('amount', 0) for item in stocks_data)
 
-            # Покажем первые 5
-            if isinstance(stocks, list):
-                sample = stocks[:5]
-                for i, item in enumerate(sample, 1):
-                    summary += f"{i}. {item.get('barcode', 'N/A')} — {item.get('stocks', 0)} шт.\n"
+            summary = f"📊 **Остатки Wildberries**\nСклад: **{warehouse_name}**\n\n"
+            summary += f"📦 Позиции: {len(stocks_data)}\n"
+            summary += f"🔢 Всего единиц: {total_items}\n\n"
+
+            if stocks_data:
+                summary += "**Первые 10:**\n"
+                for item in stocks_data[:10]:
+                    summary += f"• `{item.get('sku')}`: {item.get('amount', 0)} шт.\n"
+
             await message.answer(summary, parse_mode="Markdown")
         else:
             await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
-        
+
     except Exception as e:
-        logger.error(f"Ошибка в команде wb_stats: {e}")
-        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+        logger.error(f"Ошибка в команде wb_stats: {e}", exc_info=True)
+        await message.answer(f"❌ Произошла критическая ошибка: {str(e)}")
 
 async def cmd_marketplace_help(message: types.Message):
     """Справка по командам маркетплейсов"""
@@ -131,38 +126,39 @@ async def cmd_marketplace_help(message: types.Message):
     await message.answer(help_text, parse_mode="Markdown")
 
 async def cmd_wb_products(message: types.Message):
-    """Команда для получения списка товаров WB"""
-    # Проверяем права администратора
+    """Список товаров WB"""
     if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
         return
-    
+
+    await message.answer("📦 Получаю список артикулов Wildberries...")
+
     try:
-        await message.answer("📦 Получаю список товаров Wildberries...")
-        
-        # Здесь будет вызов API для получения товаров
-        await message.answer("🔄 Функция в разработке...")
-        
+        manager = MarketplaceManager()
+        barcodes_result = await manager.get_wb_product_barcodes()
+
+        if barcodes_result.get("success"):
+            barcodes = barcodes_result.get("barcodes", [])
+            if not barcodes:
+                await message.answer("📭 Товары не найдены.")
+                return
+
+            response_text = f"✅ **Найдено артикулов: {len(barcodes)}**\n\n"
+            response_text += "```\n" + "\n".join(barcodes[:20]) + "\n```"
+            if len(barcodes) > 20:
+                response_text += f"\n...и еще {len(barcodes) - 20}."
+
+            await message.answer(response_text, parse_mode="Markdown")
+        else:
+            await message.answer(f"❌ Ошибка: {barcodes_result.get('error', 'Неизвестная ошибка')}")
+
     except Exception as e:
-        logger.error(f"Ошибка в команде wb_products: {e}")
-        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+        logger.error(f"Ошибка в команде wb_products: {e}", exc_info=True)
+        await message.answer(f"❌ Произошла критическая ошибка: {str(e)}")
 
 async def cmd_wb_stocks(message: types.Message):
-    """Команда для получения остатков WB"""
-    # Проверяем права администратора
-    if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
-        return
-    
-    try:
-        await message.answer("📊 Получаю остатки товаров Wildberries...")
-        
-        # Здесь будет вызов API для получения остатков
-        await message.answer("🔄 Функция в разработке...")
-        
-    except Exception as e:
-        logger.error(f"Ошибка в команде wb_stocks: {e}")
-        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+    """Шорткат для остатков WB"""
+    await cmd_wb_stats(message)
 
 # ------------------ НОВАЯ КОМАНДА: /wb_warehouses ------------------
 async def cmd_wb_get_warehouses(message: types.Message):
