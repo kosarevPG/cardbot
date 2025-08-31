@@ -71,12 +71,12 @@ class MarketplaceManager:
             "revenue": "L"        # Выручка Ozon
         }
         
-        # Структура таблицы для Wildberries
+        # Обновлённые колонки Google Sheet (см. новый макет)
         self.wb_columns = {
-            "nm_id": "B",         # Артикул WB
-            "stock": "E",         # Остаток WB
-            "sales": "G",         # Продажи WB
-            "revenue": "I"        # Выручка WB
+            "nm_id": "C",        # Баркод / Артикул WB
+            "stock": "F",        # Остаток WB (всего)
+            "sales": "L",        # Продажи WB
+            "revenue": "N"       # Выручка WB
         }
         
         # Ozon API эндпоинты
@@ -708,22 +708,22 @@ class MarketplaceManager:
             # Записываем в таблицу (колонки C, E, I, K)
             await self.sheets_api.write_data(
                 self.spreadsheet_id,
-                f"{self.sheet_name}!C2:C{len(rows)+1}",
+                f"{self.sheet_name}!{self.wb_columns['nm_id']}2:{self.wb_columns['nm_id']}{len(rows)+1}",
                 [[item["nm_id"]] for item in data]
             )
             await self.sheets_api.write_data(
                 self.spreadsheet_id,
-                f"{self.sheet_name}!E2:E{len(rows)+1}",
+                f"{self.sheet_name}!{self.wb_columns['stock']}2:{self.wb_columns['stock']}{len(rows)+1}",
                 [[item["stock"]] for item in data]
             )
             await self.sheets_api.write_data(
                 self.spreadsheet_id,
-                f"{self.sheet_name}!I2:I{len(rows)+1}",
+                f"{self.sheet_name}!{self.wb_columns['sales']}2:{self.wb_columns['sales']}{len(rows)+1}",
                 [[item["sales"]] for item in data]
             )
             await self.sheets_api.write_data(
                 self.spreadsheet_id,
-                f"{self.sheet_name}!K2:K{len(rows)+1}",
+                f"{self.sheet_name}!{self.wb_columns['revenue']}2:{self.wb_columns['revenue']}{len(rows)+1}",
                 [[item["revenue"]] for item in data]
             )
             
