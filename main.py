@@ -1,3 +1,75 @@
+# ==== GITHUB BOOTSTRAP (place at very top of main.py) ====
+import os
+if os.getenv("BOOTSTRAP_FROM_GITHUB", "0") == "1":
+    import io, sys, shutil, tempfile, zipfile, time
+    from urllib.request import urlopen, Request
+
+    REPO_OWNER = os.getenv("BOOTSTRAP_REPO_OWNER", "kosarevPG")
+    REPO_NAME  = os.getenv("BOOTSTRAP_REPO_NAME",  "cardbot")
+    BRANCH     = os.getenv("BOOTSTRAP_BRANCH",     "master")
+    ZIP_URL    = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/archive/refs/heads/{BRANCH}.zip"
+
+    GH_TOKEN   = os.getenv("GITHUB_TOKEN", "").strip()
+
+    EXCLUDES = {
+        "data", "bot.db", ".git", ".github", "__pycache__", "DEPLOY_PROOF_runtime.txt"
+    }
+
+    def _skip(path: str) -> bool:
+        parts = path.replace("\\", "/").split("/")
+        return any(p in EXCLUDES for p in parts)
+
+    def _overlay_copy(src_dir: str, dst_dir: str) -> None:
+        for root, dirs, files in os.walk(src_dir):
+            rel = os.path.relpath(root, src_dir)
+            dirs[:] = [d for d in dirs if not _skip(os.path.join(rel, d))]
+            rel = "" if rel == "." else rel
+            target_root = os.path.join(dst_dir, rel) if rel else dst_dir
+            os.makedirs(target_root, exist_ok=True)
+            for f in files:
+                rel_path = os.path.join(rel, f)
+                if _skip(rel_path):
+                    continue
+                src = os.path.join(root, f)
+                dst = os.path.join(target_root, f)
+                shutil.copy2(src, dst)
+
+    try:
+        headers = {"User-Agent": "bootstrap/1.0"}
+        if GH_TOKEN:
+            headers["Authorization"] = f"token {GH_TOKEN}"
+
+        print(f"[bootstrap] Fetching {ZIP_URL}", flush=True)
+        with urlopen(Request(ZIP_URL, headers=headers), timeout=60) as resp:
+            data = resp.read()
+        print(f"[bootstrap] Zip downloaded: {len(data)} bytes", flush=True)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            zf = zipfile.ZipFile(io.BytesIO(data))
+            zf.extractall(tmp)
+            extracted_root = next(
+                (os.path.join(tmp, name) for name in os.listdir(tmp) if name.startswith(f"{REPO_NAME}-")),
+                None
+            )
+            if not extracted_root or not os.path.isdir(extracted_root):
+                raise RuntimeError("extracted root not found")
+
+            print(f"[bootstrap] Overlay copy -> {os.getcwd()}", flush=True)
+            _overlay_copy(extracted_root, os.getcwd())
+
+        with open("DEPLOY_PROOF_runtime.txt", "w", encoding="utf-8") as f:
+            f.write(f"updated_from_github_at={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+
+        print("[bootstrap] Done. Proceeding with main startup…", flush=True)
+    except Exception as e:
+        print(f"[bootstrap] WARNING: {e!r} — continuing with bundled sources", flush=True)
+
+try:
+    print("DEPLOY_PROOF_runtime exists:", os.path.exists("DEPLOY_PROOF_runtime.txt"), flush=True)
+except Exception:
+    pass
+# ==========================================================
+
 # Last Amvera rebuild: 2024-12-19 - Force rebuild for GitHub-Amvera integration test
 # код/main.py
 
