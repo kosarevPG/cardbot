@@ -857,24 +857,28 @@ class MarketplaceManager:
             return {"success": False, "error": str(e)}
 
     async def get_wb_product_barcodes(self) -> Dict[str, Union[bool, str, List[str]]]:
-        """Получает список баркодов (sku) товаров WB"""
+        """Получает список баркодов (sku) всех карточек WB через Content-API v2."""
         if not self.wb_api_key:
             return {"success": False, "error": "Wildberries API не настроен"}
 
         try:
             barcodes: List[str] = []
-            updated_at = 0
-            nm_id = 0
-            total = 1  # стартовое >0, чтобы войти в цикл
 
-            while len(barcodes) < total:
+            cursor_updated_at: Optional[str] = None
+            cursor_nm_id: Optional[int] = None
+            total: Optional[int] = None
+
+            while True:
+                cursor_payload: Dict[str, Any] = {"limit": 100}
+                if cursor_updated_at and cursor_nm_id is not None:
+                    cursor_payload.update({
+                        "updatedAt": cursor_updated_at,
+                        "nmID": int(cursor_nm_id)
+                    })
+
                 payload = {
                     "settings": {
-                        "cursor": {
-                            "limit": 100,
-                            "updatedAt": updated_at,
-                            "nmID": nm_id
-                        },
+                        "cursor": cursor_payload,
                         "filter": {"withPhoto": -1}
                     }
                 }
@@ -892,22 +896,22 @@ class MarketplaceManager:
                     return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
 
                 data = resp.json()
-                products = data.get("cards", [])
-                cursor = data.get("cursor", {})
-                total = cursor.get("total", len(products))
+                cards = data.get("cards", []) or []
+                cursor_obj = data.get("cursor", {}) or {}
 
-                for prod in products:
-                    for sz in prod.get("sizes", []) or []:
-                        barcodes.extend(sz.get("skus", []))
+                for card in cards:
+                    for sz in card.get("sizes", []) or []:
+                        barcodes.extend(sz.get("skus", []) or [])
 
-                # подготовка к следующей странице
-                updated_at = cursor.get("updatedAt", 0)
-                nm_id = cursor.get("nmID", 0)
+                cursor_updated_at = cursor_obj.get("updatedAt")
+                cursor_nm_id = cursor_obj.get("nmID")
+                total = cursor_obj.get("total", total)
 
-                if not products:  # safety break
+                if not cards or cursor_updated_at is None or cursor_nm_id is None:
                     break
 
             return {"success": True, "barcodes": barcodes, "total": len(barcodes)}
+
         except Exception as e:
             logger.exception("Ошибка get_wb_product_barcodes")
             return {"success": False, "error": str(e)}
