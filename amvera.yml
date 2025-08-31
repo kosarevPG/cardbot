@@ -1,18 +1,25 @@
 ---
-version: null
+version: 1
 meta:
   environment: python
   toolchain:
     name: pip
     version: "3.11"
+
 build:
+  # Amvera сама выполнит установку зависимостей из requirements.txt
   requirementsPath: requirements.txt
 
-# Указываем файл для запуска
+# ЯВНО задаём команду запуска. -u = без буферизации stdout.
 run:
-  web: python main.py
+  web: python -u startup_probe.py && python -u main.py
 
-# Добавляем routes — все запросы на домен пойдут на порт 80
+# Полезные переменные окружения
+env:
+  - name: PYTHONUNBUFFERED
+    value: "1"
+
+# Маршруты (как было)
 routes:
   - path: /
     port: 80
