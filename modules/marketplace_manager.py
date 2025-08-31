@@ -46,6 +46,15 @@ class MarketplaceManager:
         
         # Wildberries API настройки
         self.wb_api_key = os.getenv("WB_API_KEY", "")
+
+        # С января 2025 WB заменил suppliers-api.wildberries.ru на новые домены:
+        #   marketplace-api.wildberries.ru  – заказы/склады/остатки
+        #   content-api.wildberries.ru      – карточки/контент
+        # Базы можно переопределить через переменные окружения
+        self.wb_marketplace_base = os.getenv(
+            "WB_MARKETPLACE_BASE", "https://marketplace-api.wildberries.ru")
+        self.wb_content_base = os.getenv(
+            "WB_CONTENT_BASE", "https://content-api.wildberries.ru")
         
         # Google Sheets настройки
         self.sheets_api = GoogleSheetsAPI(service_account_info=google_creds)
@@ -431,10 +440,31 @@ class MarketplaceManager:
             "Authorization": token,
             "Content-Type": "application/json"
         }
-
-        # Старая реализация get_wb_stocks без параметров была удалена как
-        # некорректная (вызывала GET /supplies/stocks и путала сигнатуры).
     
+    async def _wb_request(self, path: str, *, suppliers: bool = True, method: str = "GET", bearer: bool = False, **kwargs):
+        """Делает запрос к WB, при ошибке DNS повторяет на фиксированный IP.
+
+        path – строка вроде "/api/v3/warehouses"
+        suppliers=True  → suppliers-api.wildberries.ru
+        bearer=True     → добавляем префикс "Bearer " в Authorization
+        """
+        base = self.wb_marketplace_base if suppliers else self.wb_content_base
+        domain = base.replace("https://", "")
+        url    = f"{base}{path}"
+        headers = kwargs.pop("headers", self._get_wb_headers(bearer=bearer))
+        try:
+            async with httpx.AsyncClient(timeout=20.0, verify=True) as client:
+                resp = await client.request(method, url, headers=headers, **kwargs)
+                return resp
+        except httpx.ConnectError as e:
+            # Если ошибка DNS, пробуем на IP
+            logger.warning("WB DNS fail for %s → fallback to IP (%s): %s", domain, e, domain)
+            fallback_ip = self.wb_suppliers_ip if suppliers else self.wb_content_ip
+            ip_url = f"https://{fallback_ip}{path}"
+            headers["Host"] = domain  # SNI всё равно будет IP, поэтому выключаем verify
+            async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+                return await client.request(method, ip_url, headers=headers, **kwargs)
+
     async def get_wb_analytics(self, date_from: str, date_to: str) -> Dict[str, Union[bool, str, Dict]]:
         """Получение аналитики Wildberries"""
         if not self.wb_api_key:
@@ -818,13 +848,11 @@ class MarketplaceManager:
         if not self.wb_api_key:
             return {"success": False, "error": "Wildberries API не настроен"}
 
-        url = "https://suppliers-api.wildberries.ru/api/v3/warehouses"
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.get(url, headers=self._get_wb_headers())
-                if resp.status_code == 200:
-                    return {"success": True, "warehouses": resp.json()}
-                return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
+            resp = await self._wb_request("/api/v3/warehouses", suppliers=True)
+            if resp.status_code == 200:
+                return {"success": True, "warehouses": resp.json()}
+            return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -833,22 +861,22 @@ class MarketplaceManager:
         if not self.wb_api_key:
             return {"success": False, "error": "Wildberries API не настроен"}
 
-        url = "https://content-api.wildberries.ru/content/v2/get/cards/list"
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.post(
-                    url,
-                    headers=self._get_wb_headers(bearer=True),
-                    json={"settings": {"cursor": {"limit": 1000}}}
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    products = data.get("cards", []) or data.get("data", [])
-                    barcodes: List[str] = []
-                    for prod in products:
-                        for sz in prod.get("sizes", []):
-                            barcodes.extend(sz.get("skus", []))
-                    return {"success": True, "barcodes": barcodes}
+            resp = await self._wb_request(
+                "/content/v2/get/cards/list",
+                suppliers=False,
+                method="POST",
+                bearer=True,
+                json={"settings": {"cursor": {"limit": 1000}}},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                products = data.get("cards", []) or data.get("data", [])
+                barcodes: List[str] = []
+                for prod in products:
+                    for sz in prod.get("sizes", []):
+                        barcodes.extend(sz.get("skus", []))
+                return {"success": True, "barcodes": barcodes}
                 return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -858,17 +886,16 @@ class MarketplaceManager:
         if not self.wb_api_key:
             return {"success": False, "error": "Wildberries API не настроен"}
 
-        url = f"https://suppliers-api.wildberries.ru/api/v3/stocks/{warehouse_id}"
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.post(
-                    url,
-                    headers=self._get_wb_headers(),
-                    json={"skus": barcodes}
-                )
-                if resp.status_code == 200:
-                    return {"success": True, "stocks": resp.json()}
-                return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
+            resp = await self._wb_request(
+                f"/api/v3/stocks/{warehouse_id}",
+                suppliers=True,
+                method="POST",
+                json={"skus": barcodes},
+            )
+            if resp.status_code == 200:
+                return {"success": True, "stocks": resp.json()}
+            return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
