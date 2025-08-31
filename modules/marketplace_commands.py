@@ -944,6 +944,19 @@ async def cmd_ozon_stocks_detailed(message: types.Message):
                 if detailed_result["success"]:
                     products = detailed_result["products"]
                     
+                    # --- Читаем названия из таблицы (колонка B) один раз ---
+                    try:
+                        sheet_rows = await manager.sheets_api.read_data(
+                            manager.spreadsheet_id,
+                            f"{manager.sheet_name}!B:D"  # B=Название, D=offer_id
+                        )
+                        sheet_name_by_offer = {
+                            row[2]: row[0] for row in sheet_rows if len(row) >= 3 and row[2]
+                        }
+                    except Exception as e:
+                        logger.warning(f"Не удалось прочитать названия из таблицы: {e}")
+                        sheet_name_by_offer = {}
+                    
                     # Формируем детальный отчет по остаткам
                     detailed_report = f"📋 **Детальная информация об остатках Ozon**\n\n"
                     detailed_report += f"Всего товаров: {total}\n\n"
@@ -973,6 +986,8 @@ async def cmd_ozon_stocks_detailed(message: types.Message):
                         stock_info = stocks.get(offer_id, {})  # Используем offer_id
                         product_info = products.get(str(product_id), {})
                         product_name = product_info.get("name", "Без названия")
+                        if product_name == "Без названия":
+                            product_name = sheet_name_by_offer.get(offer_id, "Без названия")
                         
                         detailed_report += f"**{i:2d}. {offer_id}** (ID: {product_id})\n"
                         detailed_report += f"   📝 {product_name}\n"
