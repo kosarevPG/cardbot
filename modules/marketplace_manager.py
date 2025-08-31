@@ -56,9 +56,11 @@ class MarketplaceManager:
         # Структура таблицы для Ozon
         self.ozon_columns = {
             "offer_id": "D",      # Арт. Ozon
-            "stock": "F",         # Остаток Ozon
-            "sales": "H",         # Продажи Ozon
-            "revenue": "J"        # Выручка Ozon
+            "stock": "F",         # Остаток Ozon, всего
+            "stock_fbo": "G",     # Остаток Ozon, FBO
+            "stock_fbs": "H",     # Остаток Ozon, FBS
+            "sales": "J",         # Продажи Ozon
+            "revenue": "L"        # Выручка Ozon
         }
         
         # Структура таблицы для Wildberries
@@ -647,6 +649,15 @@ class MarketplaceManager:
                         "range": f"{self.ozon_columns['stock']}{row}",
                         "values": [[info.get("total_stock", 0)]]
                     })
+                    updates.append({
+                        "range": f"{self.ozon_columns['stock_fbo']}{row}",
+                        "values": [[info.get("fbo_stock", 0)]]
+                    })
+                    updates.append({
+                        "range": f"{self.ozon_columns['stock_fbs']}{row}",
+                        "values": [[info.get("fbs_stock", 0)]]
+                    })
+                    
                     # Also update sales and revenue if they are available
                     if "sales" in info:
                         updates.append({
