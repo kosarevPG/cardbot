@@ -127,7 +127,7 @@ class PostCreationStates(StatesGroup):
     waiting_for_confirmation = State()
 
 # --- Настройка логирования ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Инициализация ---
