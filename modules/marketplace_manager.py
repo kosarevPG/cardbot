@@ -836,65 +836,63 @@ class MarketplaceManager:
         
         return results
 
-# Добавляем методы для интеграции с Wildberries API
+    async def get_wb_warehouses(self) -> Dict[str, Union[bool, str, List[Dict]]]:
+        """Получение списка складов Wildberries"""
+        if not self.wb_api_key:
+            return {"success": False, "error": "Wildberries API не настроен"}
+        
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.get(
+                    f"{self.wb_base_url}/api/v3/warehouses",
+                    headers={"Authorization": f"Bearer {self.wb_api_key}"}
+                )
+                if response.status_code == 200:
+                    return {"success": True, "warehouses": response.json()}
+                else:
+                    return {"success": False, "error": f"Ошибка при получении складов: {response.status_code}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
-async def get_wb_warehouses(self) -> Dict[str, Union[bool, str, List[Dict]]]:
-    """Получение списка складов Wildberries"""
-    if not self.wb_api_key:
-        return {"success": False, "error": "Wildberries API не настроен"}
-    
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get(
-                f"{self.wb_base_url}/api/v3/warehouses",
-                headers={"Authorization": f"Bearer {self.wb_api_key}"}
-            )
-            if response.status_code == 200:
-                return {"success": True, "warehouses": response.json()}
-            else:
-                return {"success": False, "error": f"Ошибка при получении складов: {response.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    async def get_wb_product_barcodes(self) -> Dict[str, Union[bool, str, List[str]]]:
+        """Получение списка баркодов товаров Wildberries"""
+        if not self.wb_api_key:
+            return {"success": False, "error": "Wildberries API не настроен"}
+        
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    f"{self.wb_base_url}/content/v2/get/cards/list",
+                    headers={"Authorization": f"Bearer {self.wb_api_key}", "Content-Type": "application/json"},
+                    json={"settings": {"cursor": {"limit": 1000}}}
+                )
+                if response.status_code == 200:
+                    products = response.json().get("data", [])
+                    barcodes = [product["barcode"] for product in products]
+                    return {"success": True, "barcodes": barcodes}
+                else:
+                    return {"success": False, "error": f"Ошибка при получении баркодов: {response.status_code}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
-async def get_wb_product_barcodes(self) -> Dict[str, Union[bool, str, List[str]]]:
-    """Получение списка баркодов товаров Wildberries"""
-    if not self.wb_api_key:
-        return {"success": False, "error": "Wildberries API не настроен"}
-    
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                f"{self.wb_base_url}/content/v2/get/cards/list",
-                headers={"Authorization": f"Bearer {self.wb_api_key}", "Content-Type": "application/json"},
-                json={"settings": {"cursor": {"limit": 1000}}}
-            )
-            if response.status_code == 200:
-                products = response.json().get("data", [])
-                barcodes = [product["barcode"] for product in products]
-                return {"success": True, "barcodes": barcodes}
-            else:
-                return {"success": False, "error": f"Ошибка при получении баркодов: {response.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-async def get_wb_stocks(self, warehouse_id: int, barcodes: List[str]) -> Dict[str, Union[bool, str, Dict]]:
-    """Получение остатков товаров на складе Wildberries"""
-    if not self.wb_api_key:
-        return {"success": False, "error": "Wildberries API не настроен"}
-    
-    try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.post(
-                f"{self.wb_base_url}/api/v3/stocks/{warehouse_id}",
-                headers={"Authorization": f"Bearer {self.wb_api_key}", "Content-Type": "application/json"},
-                json={"skus": barcodes}
-            )
-            if response.status_code == 200:
-                return {"success": True, "stocks": response.json()}
-            else:
-                return {"success": False, "error": f"Ошибка при получении остатков: {response.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    async def get_wb_stocks(self, warehouse_id: int, barcodes: List[str]) -> Dict[str, Union[bool, str, Dict]]:
+        """Получение остатков товаров на складе Wildberries"""
+        if not self.wb_api_key:
+            return {"success": False, "error": "Wildberries API не настроен"}
+        
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    f"{self.wb_base_url}/api/v3/stocks/{warehouse_id}",
+                    headers={"Authorization": f"Bearer {self.wb_api_key}", "Content-Type": "application/json"},
+                    json={"skus": barcodes}
+                )
+                if response.status_code == 200:
+                    return {"success": True, "stocks": response.json()}
+                else:
+                    return {"success": False, "error": f"Ошибка при получении остатков: {response.status_code}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 # Временное логирование для проверки загрузки WB_API_KEY
 logger.info(f"WB_API_KEY: {os.getenv('WB_API_KEY')}")
