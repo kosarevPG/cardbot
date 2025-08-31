@@ -419,43 +419,21 @@ class MarketplaceManager:
             return {"success": False, "error": str(e)}
     
     # ==================== WILDBERRIES API МЕТОДЫ ====================
-    
-    def _get_wb_headers(self) -> Dict[str, str]:
-        """Возвращает заголовки для Wildberries API"""
+    def _get_wb_headers(self, bearer: bool = False) -> Dict[str, str]:
+        """Формирует заголовки для Wildberries API.
+
+        Для большинства supplier-эндпоинтов передаётся токен без префикса.
+        Для content-api требуется префикс «Bearer ». Задаём его через
+        параметр bearer=True.
+        """
+        token = f"Bearer {self.wb_api_key}" if bearer else self.wb_api_key
         return {
-            "Authorization": self.wb_api_key,
+            "Authorization": token,
             "Content-Type": "application/json"
         }
-    
-    async def get_wb_stocks(self) -> Dict[str, Union[bool, str, Dict]]:
-        """Получение остатков товаров Wildberries"""
-        if not self.wb_api_key:
-            return {"success": False, "error": "Wildberries API не настроен"}
-        
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.get(
-                    f"{self.wb_base_url}/api/v3/supplies/stocks",
-                    headers=self._get_wb_headers()
-                )
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    return {
-                        "success": True,
-                        "stocks": data.get("stocks", [])
-                    }
-                else:
-                    logger.error(f"Ошибка получения WB stocks: {response.status_code} - {response.text}")
-                    return {
-                        "success": False,
-                        "error": f"Ошибка API: {response.status_code}",
-                        "details": response.text
-                    }
-                    
-        except Exception as e:
-            logger.error(f"Ошибка получения WB stocks: {e}")
-            return {"success": False, "error": str(e)}
+
+        # Старая реализация get_wb_stocks без параметров была удалена как
+        # некорректная (вызывала GET /supplies/stocks и путала сигнатуры).
     
     async def get_wb_analytics(self, date_from: str, date_to: str) -> Dict[str, Union[bool, str, Dict]]:
         """Получение аналитики Wildberries"""
@@ -860,7 +838,7 @@ class MarketplaceManager:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 resp = await client.post(
                     url,
-                    headers=self._get_wb_headers(),
+                    headers=self._get_wb_headers(bearer=True),
                     json={"settings": {"cursor": {"limit": 1000}}}
                 )
                 if resp.status_code == 200:
