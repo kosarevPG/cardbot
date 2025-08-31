@@ -160,6 +160,27 @@ async def cmd_wb_stocks(message: types.Message):
     """Шорткат для остатков WB"""
     await cmd_wb_stats(message)
 
+# ------------------ НОВАЯ КОМАНДА: /wb_sync_all ------------------
+async def cmd_wb_sync_all(message: types.Message):
+    """Синхронизирует остатки WB (total/FBO/FBS) в Google Sheet"""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+
+    await message.answer("🔄 Синхронизирую остатки Wildberries с таблицей…")
+
+    try:
+        mgr = MarketplaceManager()
+        res = await mgr.sync_wb_stock_to_sheet()
+        if res.get("success"):
+            await message.answer(f"✅ Обновлены остатки для {res.get('updated',0)} товаров")
+        else:
+            await message.answer(f"❌ Ошибка: {res.get('error')}")
+    except Exception as e:
+        logger.exception("cmd_wb_sync_all error")
+        await message.answer(f"❌ Критическая ошибка: {e}")
+# ----------------------------------------------------------------
+
 # ------------------ НОВАЯ КОМАНДА: /wb_warehouses ------------------
 async def cmd_wb_get_warehouses(message: types.Message):
     """Возвращает список складов WB и их ID"""
@@ -1184,6 +1205,8 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_wb_products, Command("wb_products"))
     dp.message.register(cmd_wb_stocks, Command("wb_stocks"))
     dp.message.register(cmd_wb_get_warehouses, Command("wb_warehouses"))
+    # новая команда синхрон WB
+    dp.message.register(cmd_wb_sync_all, Command("wb_sync_all"))
     
     # Команды Ozon
     dp.message.register(cmd_ozon_test, Command("ozon_test"))
