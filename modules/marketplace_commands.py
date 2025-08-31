@@ -54,27 +54,40 @@ async def cmd_wb_stats(message: types.Message):
             await message.answer("❌ Wildberries API не настроен. Добавьте WB_API_KEY в переменные окружения.")
             return
         
-        # Получаем остатки
-        stocks_result = await manager.get_wb_stocks()
+        # 1) Получаем склады
+        warehouses_result = await manager.get_wb_warehouses()
+        if not warehouses_result["success"] or not warehouses_result.get("warehouses"):
+            await message.answer("❌ Не удалось получить список складов Wildberries.")
+            return
+
+        warehouse_id = warehouses_result["warehouses"][0]["id"]
+
+        # 2) Получаем артикулы (barcodes)
+        barcodes_result = await manager.get_wb_product_barcodes()
+        if not barcodes_result["success"] or not barcodes_result.get("barcodes"):
+            await message.answer("❌ Не удалось получить список товаров Wildberries.")
+            return
+
+        barcodes = barcodes_result["barcodes"]
+
+        # 3) Получаем остатки по новому эндпоинту
+        stocks_result = await manager.get_wb_stocks(warehouse_id, barcodes)
         if stocks_result["success"]:
             stocks = stocks_result["stocks"]
-            total = len(stocks)
-            
-            summary = f"📊 **Сводка Wildberries**\n\n"
-            summary += f"Всего товаров: {total}\n\n"
-            
-            if stocks:
-                summary += "**Первые товары:**\n"
-                for i, stock_item in enumerate(stocks[:5], 1):
-                    nm_id = stock_item.get("nmId", "N/A")
-                    quantity = stock_item.get("quantity", 0)
-                    summary += f"{i}. 📦 {nm_id} - Остаток: {quantity} шт.\n"
-            else:
-                summary += "📭 Товары не найдены"
-            
+            total = len(stocks) if isinstance(stocks, list) else len(stocks.keys())
+
+            summary = f"📊 **Остатки Wildberries**\n\n"
+            summary += f"Склад ID: {warehouse_id}\n"
+            summary += f"Товаров получено: {total}\n\n"
+
+            # Покажем первые 5
+            if isinstance(stocks, list):
+                sample = stocks[:5]
+                for i, item in enumerate(sample, 1):
+                    summary += f"{i}. {item.get('barcode', 'N/A')} — {item.get('stocks', 0)} шт.\n"
             await message.answer(summary, parse_mode="Markdown")
         else:
-            await message.answer(f"❌ Ошибка получения данных: {stocks_result.get('error', 'Неизвестная ошибка')}")
+            await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
         
     except Exception as e:
         logger.error(f"Ошибка в команде wb_stats: {e}")
