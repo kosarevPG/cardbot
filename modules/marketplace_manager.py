@@ -508,6 +508,8 @@ class MarketplaceManager:
             for offer_id, product_id in offer_map.items():
                 stock_info = stocks_by_offer_id.get(offer_id, {})
                 
+                logger.info(f"[DEBUG] Processing offer_id={offer_id}. Found stock_info: {stock_info}")
+
                 total_stock = stock_info.get("total", 0)
                 fbo_stock = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbo")
                 fbs_stock = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbs")
