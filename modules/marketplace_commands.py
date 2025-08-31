@@ -164,6 +164,41 @@ async def cmd_wb_stocks(message: types.Message):
         logger.error(f"Ошибка в команде wb_stocks: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
+# ------------------ НОВАЯ КОМАНДА: /wb_warehouses ------------------
+async def cmd_wb_get_warehouses(message: types.Message):
+    """Возвращает список складов WB и их ID"""
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды.")
+        return
+
+    await message.answer("🔍 Получаю список складов Wildberries...")
+
+    try:
+        manager = MarketplaceManager()
+        result = await manager.get_wb_warehouses()
+
+        if result.get("success"):
+            warehouses = result.get("warehouses", [])
+            if not warehouses:
+                await message.answer("📭 Склады не найдены.")
+                return
+
+            response_text = "✅ **Ваши склады Wildberries:**\n\n"
+            for wh in warehouses:
+                wh_name = wh.get('name', 'Без имени')
+                wh_id = wh.get('id', 'Нет ID')
+                response_text += f"**Название:** {wh_name}\n**ID:** `{wh_id}`\n\n"
+
+            await message.answer(response_text, parse_mode="Markdown")
+        else:
+            await message.answer(f"❌ Ошибка: {result.get('error', 'Неизвестная ошибка')}")
+
+    except Exception as e:
+        logger.error(f"Ошибка в команде wb_get_warehouses: {e}")
+        await message.answer(f"❌ Произошла критическая ошибка: {str(e)}")
+# ------------------------------------------------------------------
+
 async def cmd_ozon_test(message: types.Message):
     """Команда для тестирования подключения к Ozon API"""
     # Проверяем права администратора
@@ -1152,6 +1187,7 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_wb_stats, Command("wb_stats"))
     dp.message.register(cmd_wb_products, Command("wb_products"))
     dp.message.register(cmd_wb_stocks, Command("wb_stocks"))
+    dp.message.register(cmd_wb_get_warehouses, Command("wb_warehouses"))
     
     # Команды Ozon
     dp.message.register(cmd_ozon_test, Command("ozon_test"))
