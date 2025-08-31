@@ -5,67 +5,50 @@ import logging
 import os
 from typing import Dict, List, Optional, Union
 import json
+import base64
 
 logger = logging.getLogger(__name__)
 
 class GoogleSheetsAPI:
     """Класс для работы с Google Sheets API"""
     
-    def __init__(self):
+    def __init__(self, service_account_info=None):
         # Настройки Google Sheets API
         self.scope = [
             'https://spreadsheets.google.com/feeds',
             'https://www.googleapis.com/auth/drive'
         ]
         
-        # Путь к файлу сервисного аккаунта (будет загружен из переменной окружения)
-        self.service_account_info = self._get_service_account_info()
-        
-        if not self.service_account_info:
-            raise ValueError("Информация о сервисном аккаунте не найдена")
-        
         # Создаем учетные данные
-        self.creds = Credentials.from_service_account_info(
-            self.service_account_info, 
-            scopes=self.scope
-        )
+        self.creds = self._get_credentials(service_account_info)
         
-        # Создаем клиент
+        # Авторизуем клиент gspread
         self.client = gspread.authorize(self.creds)
         
         logger.info("Google Sheets API клиент успешно инициализирован")
     
-    def _get_service_account_info(self) -> Optional[Dict]:
-        """Получает информацию о сервисном аккаунте из переменной окружения"""
+    def _get_credentials(self, service_account_info=None):
+        if service_account_info:
+            try:
+                return Credentials.from_service_account_info(service_account_info, scopes=self.scope)
+            except Exception as e:
+                print(f"Ошибка при использовании предоставленных кредов: {e}")
+                raise ValueError("Неверный формат предоставленных кредов")
+
+        creds_json_str = os.getenv('GOOGLE_SERVICE_ACCOUNT_BASE64')
+        if not creds_json_str:
+            raise ValueError("Информация о сервисном аккаунте не найдена в переменных окружения")
+        
         try:
-            # Пытаемся получить из переменной окружения GOOGLE_SERVICE_ACCOUNT_BASE64
-            service_account_base64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_BASE64")
-            
-            if service_account_base64:
-                # Декодируем base64 и парсим JSON
-                import base64
-                service_account_json = base64.b64decode(service_account_base64).decode('utf-8')
-                return json.loads(service_account_json)
-            
-            # Пытаемся получить из переменной окружения GOOGLE_SERVICE_ACCOUNT (обычный JSON)
-            service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT")
-            
-            if service_account_json:
-                # Парсим JSON из переменной окружения
-                return json.loads(service_account_json)
-            
-            # Альтернативно, можно попробовать получить из файла
-            service_account_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_PATH")
-            if service_account_path and os.path.exists(service_account_path):
-                with open(service_account_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            
-            logger.error("Переменные GOOGLE_SERVICE_ACCOUNT_BASE64, GOOGLE_SERVICE_ACCOUNT или GOOGLE_SERVICE_ACCOUNT_PATH не настроены")
-            return None
-            
+            creds_json = base64.b64decode(creds_json_str).decode('utf-8')
+            creds_info = json.loads(creds_json)
+            return Credentials.from_service_account_info(creds_info, scopes=self.scope)
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            print(f"Ошибка получения информации о сервисном аккаунте: {e}")
+            raise ValueError("Не удалось декодировать или разобрать JSON креды")
         except Exception as e:
-            logger.error(f"Ошибка получения информации о сервисном аккаунте: {e}")
-            return None
+            print(f"Непредвиденная ошибка при обработке кредов: {e}")
+            raise
     
     async def test_connection(self) -> Dict[str, Union[bool, str]]:
         """Тестирует подключение к Google Sheets API"""

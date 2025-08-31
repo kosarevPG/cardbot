@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class MarketplaceManager:
     """Единый менеджер для работы с маркетплейсами Ozon и Wildberries"""
     
-    def __init__(self):
+    def __init__(self, google_creds=None):
         # Ozon API настройки
         self.ozon_api_key = os.getenv("OZON_API_KEY", "")
         self.ozon_client_id = os.getenv("OZON_CLIENT_ID", "")
@@ -35,7 +35,7 @@ class MarketplaceManager:
         self.wb_base_url = "https://suppliers-api.wildberries.ru"
         
         # Google Sheets настройки
-        self.sheets_api = GoogleSheetsAPI()
+        self.sheets_api = GoogleSheetsAPI(service_account_info=google_creds)
         self.spreadsheet_id = "1RoWWv9BgiwlSu9H-KJNsFItQxlUVhG1WMbyB0eFxzYM"
         self.sheet_name = "marketplaces"
         
@@ -626,18 +626,18 @@ class MarketplaceManager:
                     
                     # Обновляем остатки, продажи, выручку
                     updates.append({
-                        "range": f"{self.sheet_name}!{self.ozon_columns['stock']}{row}",
+                        "range": f"{self.ozon_columns['stock']}{row}",
                         "values": [[info.get("total_stock", 0)]]
                     })
                     # Also update sales and revenue if they are available
                     if "sales" in info:
                         updates.append({
-                            "range": f"{self.sheet_name}!{self.ozon_columns['sales']}{row}",
+                            "range": f"{self.ozon_columns['sales']}{row}",
                             "values": [[info.get("sales", 0)]]
                         })
                     if "revenue" in info:
                         updates.append({
-                            "range": f"{self.sheet_name}!{self.ozon_columns['revenue']}{row}",
+                            "range": f"{self.ozon_columns['revenue']}{row}",
                             "values": [[info.get("revenue", 0)]]
                         })
 
