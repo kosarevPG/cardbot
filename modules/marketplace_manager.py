@@ -862,30 +862,52 @@ class MarketplaceManager:
             return {"success": False, "error": "Wildberries API не настроен"}
 
         try:
-            payload = {
-                "settings": {
-                    "cursor": {"limit": 100},
-                    "filter": {}
+            barcodes: List[str] = []
+            updated_at = 0
+            nm_id = 0
+            total = 1  # стартовое >0, чтобы войти в цикл
+
+            while len(barcodes) < total:
+                payload = {
+                    "settings": {
+                        "cursor": {
+                            "limit": 100,
+                            "updatedAt": updated_at,
+                            "nmID": nm_id
+                        },
+                        "filter": {"withPhoto": -1}
+                    }
                 }
-            }
-            resp = await self._wb_request(
-                "/content/v2/get/cards/list",
-                suppliers=False,
-                method="POST",
-                bearer=True,
-                json=payload,
-            )
-            if resp.status_code == 200:
+
+                resp = await self._wb_request(
+                    "/content/v2/get/cards/list",
+                    suppliers=False,
+                    method="POST",
+                    bearer=True,
+                    json=payload,
+                )
+
+                if resp.status_code != 200:
+                    logger.error("WB content API err %s: %s", resp.status_code, resp.text)
+                    return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
+
                 data = resp.json()
                 products = data.get("cards", [])
-                barcodes: List[str] = []
+                cursor = data.get("cursor", {})
+                total = cursor.get("total", len(products))
+
                 for prod in products:
                     for sz in prod.get("sizes", []) or []:
                         barcodes.extend(sz.get("skus", []))
-                return {"success": True, "barcodes": barcodes, "total": len(barcodes)}
-            else:
-                logger.error("WB content API 400/other: %s", resp.text)
-                return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
+
+                # подготовка к следующей странице
+                updated_at = cursor.get("updatedAt", 0)
+                nm_id = cursor.get("nmID", 0)
+
+                if not products:  # safety break
+                    break
+
+            return {"success": True, "barcodes": barcodes, "total": len(barcodes)}
         except Exception as e:
             logger.exception("Ошибка get_wb_product_barcodes")
             return {"success": False, "error": str(e)}
