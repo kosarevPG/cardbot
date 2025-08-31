@@ -64,11 +64,11 @@ class MarketplaceManager:
         # Структура таблицы для Ozon
         self.ozon_columns = {
             "offer_id": "D",      # Арт. Ozon
-            "stock": "F",         # Остаток Ozon, всего
-            "stock_fbo": "G",     # Остаток Ozon, FBO
-            "stock_fbs": "H",     # Остаток Ozon, FBS
-            "sales": "J",         # Продажи Ozon
-            "revenue": "L"        # Выручка Ozon
+            "stock": "I",         # Остаток Ozon, всего (новый столбец)
+            "stock_fbo": "J",     # Остаток Ozon, FBO
+            "stock_fbs": "K",     # Остаток Ozon, FBS
+            "sales": "M",         # Продажи Ozon
+            "revenue": "O"        # Выручка Ozon
         }
         
         # Обновлённые колонки Google Sheet (см. новый макет)
