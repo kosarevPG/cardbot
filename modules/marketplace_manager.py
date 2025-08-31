@@ -512,6 +512,8 @@ class MarketplaceManager:
             
             stocks_by_offer_id = stocks_result["stocks"]
             
+            logger.info(f"[DIAGNOSTIC] Stocks data before processing loop: {stocks_by_offer_id}")
+
             # Получаем аналитику за последние 30 дней
             date_to = datetime.now().strftime("%Y-%m-%d")
             date_from = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
