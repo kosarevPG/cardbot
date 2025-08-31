@@ -819,8 +819,8 @@ class MarketplaceManager:
         # Тест Wildberries
         if self.wb_api_key:
             try:
-                test_result = await self.get_wb_stocks()
-                results["wildberries"] = test_result["success"]
+                test_result = await self.get_wb_warehouses()
+                results["wildberries"] = test_result.get("success", False)
             except Exception as e:
                 results["wildberries"] = f"Ошибка: {str(e)}"
         else:

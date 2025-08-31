@@ -49,11 +49,8 @@ async def cmd_wb_stats(message: types.Message):
         
         manager = MarketplaceManager()
         
-        # Проверяем доступность WB API
-        if not manager.wb_api_key:
-            await message.answer("❌ Wildberries API не настроен. Добавьте WB_API_KEY в переменные окружения.")
-            return
-        
+        # проверку токена/DNS выполняют сами методы менеджера
+
         # 1) Получаем склады
         warehouses_result = await manager.get_wb_warehouses()
         if not warehouses_result["success"] or not warehouses_result.get("warehouses"):
