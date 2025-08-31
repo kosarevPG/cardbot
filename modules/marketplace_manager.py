@@ -862,23 +862,32 @@ class MarketplaceManager:
             return {"success": False, "error": "Wildberries API не настроен"}
 
         try:
+            payload = {
+                "settings": {
+                    "cursor": {"limit": 100},
+                    "filter": {}
+                }
+            }
             resp = await self._wb_request(
                 "/content/v2/get/cards/list",
                 suppliers=False,
                 method="POST",
                 bearer=True,
-                json={"settings": {"cursor": {"limit": 1000}}},
+                json=payload,
             )
             if resp.status_code == 200:
                 data = resp.json()
-                products = data.get("cards", []) or data.get("data", [])
+                products = data.get("cards", [])
                 barcodes: List[str] = []
                 for prod in products:
-                    for sz in prod.get("sizes", []):
+                    for sz in prod.get("sizes", []) or []:
                         barcodes.extend(sz.get("skus", []))
-                return {"success": True, "barcodes": barcodes}
+                return {"success": True, "barcodes": barcodes, "total": len(barcodes)}
+            else:
+                logger.error("WB content API 400/other: %s", resp.text)
                 return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
         except Exception as e:
+            logger.exception("Ошибка get_wb_product_barcodes")
             return {"success": False, "error": str(e)}
 
     async def get_wb_stocks(self, warehouse_id: int, barcodes: List[str]) -> Dict[str, Union[bool, str, Dict]]:
