@@ -898,3 +898,4 @@ async def get_wb_stocks(self, warehouse_id: int, barcodes: List[str]) -> Dict[st
 
 # Временное логирование для проверки загрузки WB_API_KEY
 logger.info(f"WB_API_KEY: {os.getenv('WB_API_KEY')}")
+"# Force redeploy" 
