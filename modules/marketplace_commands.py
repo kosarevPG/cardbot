@@ -703,108 +703,35 @@ async def cmd_ozon_products_detailed(message: types.Message):
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
 async def cmd_ozon_stocks(message: types.Message):
-    """Команда для получения остатков Ozon"""
-    # Проверяем права администратора
+    """Команда для получения сводных остатков Ozon (total/FBO/FBS)"""
     if not is_admin(message.from_user.id):
-        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
-        return
-    
+        await message.answer("❌ У вас нет прав для выполнения этой команды."); return
+
     try:
-        await message.answer("📊 Получаю остатки товаров Ozon...")
-        
-        manager = MarketplaceManager()
-        
-        # Получаем mapping товаров
-        mapping_result = await manager.get_ozon_product_mapping()
-        if not mapping_result["success"]:
-            await message.answer(f"❌ Ошибка получения товаров: {mapping_result.get('error', 'Неизвестная ошибка')}")
-            return
-        
-        mapping = mapping_result["mapping"]
-        product_ids = list(mapping.values())
-        
-        # Получаем остатки
-        stocks_result = await manager.get_ozon_stocks(product_ids)
-        logger.info(f"Результат получения остатков: {stocks_result}")
-        
-        if stocks_result["success"]:
-            stocks = stocks_result["stocks"]
-            total = len(mapping)
-            logger.info(f"Получено остатков для {len(stocks)} товаров из {total}")
-            await message.answer(f"✅ Получено товаров: {len(stocks)} из {total}")
-            
-            if stocks:
-                # Показываем первые 5 товаров с информацией о наличии
-                preview = "📋 **Информация о товарах:**\n\n"
-                # Получаем детальную информацию для названий
-                product_ids = list(mapping.values())
-                detailed_result = await manager.get_ozon_products_detailed(product_ids)
-                
-                if detailed_result["success"]:
-                    products = detailed_result["products"]
-                    
-                    for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
-                        stock_info = stocks.get(str(product_id), {})
-                        product_info = products.get(str(product_id), {})
-                        product_name = product_info.get("name", "Без названия")
-                        
-                        # Получаем информацию об остатках
-                        if isinstance(stock_info, dict):
-                            total_stock = stock_info.get("total", 0)
-                            warehouses = stock_info.get("warehouses", [])
-                            
-                            preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
-                            preview += f"   📝 {product_name}\n"
-                            preview += f"   📊 **Общий остаток: {total_stock} шт.**\n"
-                            
-                            # Детальная информация по складам
-                            if warehouses:
-                                preview += f"   🏪 **По складам:**\n"
-                                for warehouse in warehouses[:3]:  # Показываем первые 3 склада
-                                    preview += f"      • {warehouse['name']}: {warehouse['stock']} шт. (резерв: {warehouse['reserved']})\n"
-                                
-                                if len(warehouses) > 3:
-                                    preview += f"      ... и еще {len(warehouses) - 3} складов\n"
-                            else:
-                                preview += f"   🏪 **Склады:** Нет данных\n"
-                        else:
-                            # Fallback для старого формата
-                            stock_count = stock_info if isinstance(stock_info, (int, str)) else 0
-                            preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
-                            preview += f"   📝 {product_name}\n"
-                            preview += f"   📊 Остаток: {stock_count} шт.\n"
-                        
-                        preview += "\n"
-                else:
-                    # Fallback к базовой информации
-                    for i, (offer_id, product_id) in enumerate(list(mapping.items())[:5], 1):
-                        stock_info = stocks.get(str(product_id), {})
-                        
-                        # Получаем информацию об остатках
-                        if isinstance(stock_info, dict):
-                            total_stock = stock_info.get("total", 0)
-                            preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
-                            preview += f"   📊 Остаток: {total_stock} шт.\n\n"
-                        else:
-                            # Fallback для старого формата
-                            stock_count = stock_info if isinstance(stock_info, (int, str)) else 0
-                            preview += f"{i}. 📦 {offer_id} (ID: {product_id})\n"
-                            preview += f"   📊 Остаток: {stock_count} шт.\n\n"
-                
-                # Добавляем информацию о пагинации
-                if len(mapping) > 5:
-                    preview += f"📄 Показано: 5 из {len(mapping)} товаров"
-                    preview += f"\n💡 Используйте `/ozon_stocks_all` для полного списка"
-                
-                await message.answer(preview, parse_mode="Markdown")
-            else:
-                await message.answer("📭 Остатки не найдены")
-        else:
-            await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
-        
+        await message.answer("📊 Считаю остатки Ozon…")
+        mgr = MarketplaceManager()
+        res = await mgr.sync_ozon_data()
+        if not res.get("success"):
+            await message.answer(f"❌ Ошибка: {res.get('error')}"); return
+
+        data = res["data"]
+        total_total = sum(v["total_stock"] for v in data.values())
+        total_fbo   = sum(v["fbo_stock"]   for v in data.values())
+        total_fbs   = sum(v["fbs_stock"]   for v in data.values())
+
+        msg = (
+            f"📊 **Остатки Ozon**\n\n"
+            f"Товаров: {len(data)}\n"
+            f"• Общий остаток: {total_total}\n"
+            f"• FBO: {total_fbo}\n"
+            f"• FBS: {total_fbs}"
+        )
+
+        await message.answer(msg, parse_mode="Markdown")
+
     except Exception as e:
-        logger.error(f"Ошибка в команде ozon_stocks: {e}")
-        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+        logger.exception("cmd_ozon_stocks error")
+        await message.answer(f"❌ Критическая ошибка: {e}")
 
 async def cmd_google_sheets_test(message: types.Message):
     """Команда для тестирования подключения к Google Sheets API"""
