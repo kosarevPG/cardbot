@@ -3,6 +3,7 @@
 # Команды для работы с маркетплейсами
 from aiogram import types
 import logging
+import json
 from .marketplace_manager import MarketplaceManager
 from .google_sheets import test_google_sheets_connection, get_sheets_info, read_sheet_data
 
@@ -213,6 +214,17 @@ async def cmd_wb_get_warehouses(message: types.Message):
     except Exception as e:
         logger.error(f"Ошибка в команде wb_get_warehouses: {e}")
         await message.answer(f"❌ Произошла критическая ошибка: {str(e)}")
+# ------------------------------------------------------------------
+
+# ---------- Временная команда: /wb_warehouses_json -----------------
+async def cmd_wb_warehouses_json(message: types.Message):
+    """Выводит сырой JSON списка складов WB (для диагностики)."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет прав"); return
+
+    mgr = MarketplaceManager()
+    res = await mgr.get_wb_warehouses()
+    await message.answer(f"```json\n{json.dumps(res, ensure_ascii=False, indent=2)[:3500]}\n```", parse_mode="Markdown")
 # ------------------------------------------------------------------
 
 async def cmd_ozon_test(message: types.Message):
@@ -1131,6 +1143,7 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_wb_products, Command("wb_products"))
     dp.message.register(cmd_wb_stocks, Command("wb_stocks"))
     dp.message.register(cmd_wb_get_warehouses, Command("wb_warehouses"))
+    dp.message.register(cmd_wb_warehouses_json, Command("wb_warehouses_json"))
     # новая команда синхрон WB
     dp.message.register(cmd_wb_sync_all, Command("wb_sync_all"))
     
