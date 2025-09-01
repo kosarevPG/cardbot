@@ -645,7 +645,8 @@ class MarketplaceManager:
                 for item in stocks_res["stocks"].get("stocks", []):
                     sku = str(item.get("sku"))
                     qty = int(item.get("amount",0))
-                    wh_type = "fbo" if wh.get("cargoType")==1 else "fbs"
+                    delivery_type = wh.get("deliveryType")
+                    wh_type = "fbo" if delivery_type == 1 else "fbs"
                     agg[sku][wh_type]+=qty
                     agg[sku]["total"]+=qty
 
