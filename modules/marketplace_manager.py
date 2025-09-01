@@ -610,6 +610,68 @@ class MarketplaceManager:
         except Exception as e:
             logger.error(f"Ошибка синхронизации Wildberries: {e}")
             return {"success": False, "error": str(e)}
+
+    # ===== Новый метод: синхронизация остатков WB в колонке F-H =====
+    async def sync_wb_stock_to_sheet(self) -> Dict[str, Union[bool, str, int]]:
+        """Записывает остаток WB (total/FBO/FBS) в столбцы F,G,H таблицы."""
+        if not self.wb_api_key:
+            return {"success": False, "error": "WB_API_KEY not set"}
+
+        try:
+            # 1. Склады
+            wh_res = await self.get_wb_warehouses()
+            if not wh_res.get("success"):
+                return {"success": False, "error": wh_res.get("error", "warehouses fail")}
+            warehouses = wh_res.get("warehouses", [])
+            if not warehouses:
+                return {"success": False, "error": "warehouses empty"}
+
+            # 2. Все barcodes
+            bc_res = await self.get_wb_product_barcodes()
+            if not bc_res.get("success"):
+                return {"success": False, "error": bc_res.get("error", "barcodes fail")}
+            barcodes = bc_res.get("barcodes", [])
+            if not barcodes:
+                return {"success": False, "error": "no barcodes"}
+
+            # 3. Аггрегируем остатки по всем складам
+            from collections import defaultdict
+            agg: Dict[str, Dict[str,int]] = defaultdict(lambda: {"total":0,"fbo":0,"fbs":0})
+            for wh in warehouses:
+                wid = wh["id"]
+                stocks_res = await self.get_wb_stocks(wid, barcodes)
+                if not stocks_res.get("success"):
+                    continue
+                for item in stocks_res["stocks"].get("stocks", []):
+                    sku = str(item.get("sku"))
+                    qty = int(item.get("amount",0))
+                    wh_type = "fbo" if wh.get("cargoType")==1 else "fbs"
+                    agg[sku][wh_type]+=qty
+                    agg[sku]["total"]+=qty
+
+            if not agg:
+                return {"success": False, "error": "stocks empty"}
+
+            # 4. Читаем колонку C (nm_id)
+            sheet_vals = await self.sheets_api.read_data(self.spreadsheet_id, f"{self.sheet_name}!C:C")
+            sku_to_row={row[0]:idx+1 for idx,row in enumerate(sheet_vals) if row}
+
+            updates=[]
+            for sku,data in agg.items():
+                row=sku_to_row.get(sku)
+                if not row:
+                    continue
+                updates.append({"range":f"F{row}","values":[[data["total"]]]})
+                updates.append({"range":f"G{row}","values":[[data["fbo"]]]})
+                updates.append({"range":f"H{row}","values":[[data["fbs"]]]})
+
+            if updates:
+                ws= (await self.sheets_api.open_spreadsheet(self.spreadsheet_id)).worksheet(self.sheet_name)
+                ws.batch_update(updates)
+            return {"success": True, "updated": len(updates)//3}
+        except Exception as e:
+            logger.exception("sync_wb_stock_to_sheet error")
+            return {"success": False, "error": str(e)}
     
     async def sync_all_marketplaces(self) -> Dict[str, Union[bool, str, Dict]]:
         """Синхронизация всех маркетплейсов"""
