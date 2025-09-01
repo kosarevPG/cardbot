@@ -52,34 +52,33 @@ async def cmd_wb_stats(message: types.Message):
             await message.answer(f"❌ Не удалось получить склады Wildberries: {warehouses_result.get('error')}")
             return
 
-        warehouse = warehouses_result["warehouses"][0]
-        warehouse_id = warehouse["id"]
-        warehouse_name = warehouse["name"]
-
-        barcodes_result = await manager.get_wb_product_barcodes()
-        if not barcodes_result.get("success") or not barcodes_result.get("barcodes"):
-            await message.answer(f"❌ Не удалось получить артикулы товаров: {barcodes_result.get('error')}")
+        # готовим barcodes один раз
+        barcodes_res = await manager.get_wb_product_barcodes()
+        if not barcodes_res.get("success"):
+            await message.answer(f"❌ Не удалось получить артикулы: {barcodes_res.get('error')}")
             return
-        barcodes = barcodes_result["barcodes"]
+        barcodes = barcodes_res["barcodes"]
 
-        stocks_result = await manager.get_wb_stocks(warehouse_id, barcodes)
+        total_positions = 0
+        total_units = 0
 
-        if stocks_result.get("success"):
-            stocks_data = stocks_result.get("stocks", {}).get("stocks", [])
-            total_items = sum(item.get('amount', 0) for item in stocks_data)
+        for wh in warehouses_result["warehouses"]:
+            wid   = wh["id"]
+            wname = wh["name"]
+            stocks_res = await manager.get_wb_stocks(wid, barcodes)
+            if not stocks_res.get("success"):
+                continue
+            items = stocks_res["stocks"].get("stocks", [])
+            total_positions += len(items)
+            total_units += sum(it.get("amount",0) for it in items)
 
-            summary = f"📊 **Остатки Wildberries**\nСклад: **{warehouse_name}**\n\n"
-            summary += f"📦 Позиции: {len(stocks_data)}\n"
-            summary += f"🔢 Всего единиц: {total_items}\n\n"
-
-            if stocks_data:
-                summary += "**Первые 10:**\n"
-                for item in stocks_data[:10]:
-                    summary += f"• `{item.get('sku')}`: {item.get('amount', 0)} шт.\n"
-
-            await message.answer(summary, parse_mode="Markdown")
-        else:
-            await message.answer(f"❌ Ошибка получения остатков: {stocks_result.get('error', 'Неизвестная ошибка')}")
+        msg = (
+            "📊 **Остатки Wildberries (все склады)**\n\n"
+            f"Складов учтено: {len(warehouses_result['warehouses'])}\n"
+            f"Позиции: {total_positions}\n"
+            f"Всего единиц: {total_units}"
+        )
+        await message.answer(msg, parse_mode="Markdown")
 
     except Exception as e:
         logger.error(f"Ошибка в команде wb_stats: {e}", exc_info=True)
