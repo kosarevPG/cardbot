@@ -1352,7 +1352,7 @@ def make_process_name_handler(db, logger_service, user_manager):
          name = message.text.strip()
          if not name: await message.answer("Имя не может быть пустым..."); return
          if len(name) > 50: await message.answer("Слишком длинное имя..."); return
-         reserved_names = ["✨ Карта дня", "💌 Подсказка Вселенной", "🌙 Итог дня"]
+         reserved_names = ["✨ Получить карту дня", "💌 Подсказка Вселенной", "🌙 Подвести итог дня"]
          if name in reserved_names:
              await message.answer(f"Имя '{name}' использовать нельзя, оно совпадает с кнопкой меню.")
              return
@@ -2632,8 +2632,8 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.callback_query.register(admin_callback_handler, F.data.startswith("admin_"))
 
     dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной")
-    dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Карта дня")
-    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Итог дня")
+    dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Получить карту дня")
+    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Подвести итог дня")
     
     dp.message.register(process_name_handler, UserState.waiting_for_name)
     dp.callback_query.register(process_skip_name_handler, F.data == "skip_name", UserState.waiting_for_name)
