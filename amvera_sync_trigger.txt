@@ -1,2 +1,5 @@
-Deploy: 2025-08-23 15:32:25
- MarketplaceManager: Fixed API errors + Ready for production
+Deploy trigger: 2025-09-14 01:14:46
+MarketplaceManager fixes and improvements
+- Fixed Ozon API validation errors
+- Added missing Google Sheets API methods
+- All tests passing

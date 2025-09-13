@@ -1,5 +1,6 @@
 # ==== GITHUB BOOTSTRAP (place at very top of main.py) ====
 import os
+from database.db import DB # <-- Добавляем эту строку
 if os.getenv("BOOTSTRAP_FROM_GITHUB", "0") == "1":
     import io, sys, shutil, tempfile, zipfile, time
     from urllib.request import urlopen, Request
@@ -165,8 +166,11 @@ from modules.card_of_the_day import (
     process_exploration_choice_callback, process_first_grok_response,
     process_second_grok_response, process_third_grok_response,
     process_final_resource_callback, process_recharge_method, process_recharge_method_choice, process_card_feedback,
-    process_emotion_choice, process_custom_response, process_deck_choice
+    process_emotion_choice, process_custom_response, process_deck_choice,
+    get_card_of_the_day_command
 )
+
+from functools import partial # <-- Добавляем эту строку
 
 # Модуль Вечерней Рефлексии
 # Импортируем функцию для старта и обработчики состояний
@@ -2699,8 +2703,9 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     )
 
     # --- ИЗМЕНЕНИЕ: Доработанный обработчик для логгирования "отвалов" ---
-    @dp.message()
-    async def handle_unknown_message_state(message: types.Message, state: FSMContext):
+    # @dp.message() # Удаляем этот декоратор
+    dp.message.register(partial(handle_unknown_message_state, db=db, logging_service=logging_service))
+    async def handle_unknown_message_state(message: types.Message, state: FSMContext, db: DB, logging_service: LoggingService): # <-- Добавляем db и logging_service
         user_id = message.from_user.id
         current_state_str = await state.get_state()
         
@@ -3068,3 +3073,15 @@ if __name__ == "__main__":
         if "KeyError" in str(e):
             print("KeyError detected - this might be related to dispatcher data access")
             logger.error("KeyError in dispatcher - check data initialization")
+
+    # NEW: Обработчик для кнопки "Получить карту дня"
+    @dp.message(F.text == "✨ Получить карту дня")
+    async def handle_get_card_of_the_day(message: types.Message, state: FSMContext, db: DB, logging_service: LoggingService): # <-- Добавляем db и logging_service
+        user_id = message.from_user.id
+        logger.info(f"User {user_id} requested Card of the Day via button.")
+        # Очищаем текущее состояние, чтобы команда сработала корректно
+        await state.clear()
+        # Вызываем команду получения карты дня
+        await get_card_of_the_day_command(message, state, db, logging_service)
+
+    # --- ИЗМЕНЕНИЕ: Доработанный обработчик для логгирования "отвалов" ---
