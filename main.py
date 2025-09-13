@@ -2583,32 +2583,32 @@ async def handle_admin_text_input(message: types.Message, db: Database, logger_s
         await message.reply("❌ Ошибка при создании поста")
 
 # --- Регистрация всех обработчиков ---
-def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingService, user_manager: UserManager):
+def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingService, user_manager: UserManager):
     logger.info("Registering handlers...")
-    start_handler = make_start_handler(db, logger_service, user_manager)
-    share_handler = make_share_handler(db, logger_service)
-    remind_handler = make_remind_handler(db, logger_service, user_manager)
-    remind_off_handler = make_remind_off_handler(db, logger_service, user_manager)
-    process_morning_reminder_time_handler = make_process_morning_reminder_time_handler(db, logger_service, user_manager)
-    process_evening_reminder_time_handler = make_process_evening_reminder_time_handler(db, logger_service, user_manager)
-    name_handler = make_name_handler(db, logger_service, user_manager)
-    process_name_handler = make_process_name_handler(db, logger_service, user_manager)
-    process_skip_name_handler = make_process_skip_name_handler(db, logger_service, user_manager)
-    feedback_handler = make_feedback_handler(db, logger_service)
-    process_feedback_handler = make_process_feedback_handler(db, logger_service)
-    user_profile_handler = make_user_profile_handler(db, logger_service)
-    bonus_request_handler = make_bonus_request_handler(db, logger_service, user_manager)
-    users_handler = make_users_handler(db, logger_service)
-    logs_handler = make_logs_handler(db, logger_service)
-    admin_user_profile_handler = make_admin_user_profile_handler(db, logger_service)
-    scenario_stats_handler = make_scenario_stats_handler(db, logger_service)
-    broadcast_handler = make_broadcast_handler(db, logger_service)
-    create_post_handler = make_create_post_handler(db, logger_service)
-    list_posts_handler = make_list_posts_handler(db, logger_service)
-    send_post_handler = make_send_post_handler(db, logger_service)
-    process_mailings_handler = make_process_mailings_handler(db, logger_service)
-    admin_handler = make_admin_handler(db, logger_service)
-    admin_callback_handler = make_admin_callback_handler(db, logger_service)
+    start_handler = make_start_handler(db, logging_service, user_manager)
+    share_handler = make_share_handler(db, logging_service)
+    remind_handler = make_remind_handler(db, logging_service, user_manager)
+    remind_off_handler = make_remind_off_handler(db, logging_service, user_manager)
+    process_morning_reminder_time_handler = make_process_morning_reminder_time_handler(db, logging_service, user_manager)
+    process_evening_reminder_time_handler = make_process_evening_reminder_time_handler(db, logging_service, user_manager)
+    name_handler = make_name_handler(db, logging_service, user_manager)
+    process_name_handler = make_process_name_handler(db, logging_service, user_manager)
+    process_skip_name_handler = make_process_skip_name_handler(db, logging_service, user_manager)
+    feedback_handler = make_feedback_handler(db, logging_service)
+    process_feedback_handler = make_process_feedback_handler(db, logging_service)
+    user_profile_handler = make_user_profile_handler(db, logging_service)
+    bonus_request_handler = make_bonus_request_handler(db, logging_service, user_manager)
+    users_handler = make_users_handler(db, logging_service)
+    logs_handler = make_logs_handler(db, logging_service)
+    admin_user_profile_handler = make_admin_user_profile_handler(db, logging_service)
+    scenario_stats_handler = make_scenario_stats_handler(db, logging_service)
+    broadcast_handler = make_broadcast_handler(db, logging_service)
+    create_post_handler = make_create_post_handler(db, logging_service)
+    list_posts_handler = make_list_posts_handler(db, logging_service)
+    send_post_handler = make_send_post_handler(db, logging_service)
+    process_mailings_handler = make_process_mailings_handler(db, logging_service)
+    admin_handler = make_admin_handler(db, logging_service)
+    admin_callback_handler = make_admin_callback_handler(db, logging_service)
 
     dp.message.register(start_handler, Command("start"))
     dp.message.register(share_handler, Command("share"))
@@ -2632,8 +2632,8 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.callback_query.register(admin_callback_handler, F.data.startswith("admin_"))
 
     dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной")
-    dp.message.register(partial(handle_card_request, db=db, logger_service=logger_service), F.text == "✨ Карта дня")
-    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logger_service), F.text == "🌙 Итог дня")
+    dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Карта дня")
+    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Итог дня")
     
     dp.message.register(process_name_handler, UserState.waiting_for_name)
     dp.callback_query.register(process_skip_name_handler, F.data == "skip_name", UserState.waiting_for_name)
@@ -2661,9 +2661,9 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     # Регистрируем команды маркетплейсов
     register_marketplace_handlers(dp)
 
-    dp.message.register(partial(process_good_moments, db=db, logger_service=logger_service), UserState.waiting_for_good_moments)
-    dp.message.register(partial(process_gratitude, db=db, logger_service=logger_service), UserState.waiting_for_gratitude)
-    dp.message.register(partial(process_hard_moments, db=db, logger_service=logger_service), UserState.waiting_for_hard_moments)
+    dp.message.register(partial(process_good_moments, db=db, logger_service=logging_service), UserState.waiting_for_good_moments)
+    dp.message.register(partial(process_gratitude, db=db, logger_service=logging_service), UserState.waiting_for_gratitude)
+    dp.message.register(partial(process_hard_moments, db=db, logger_service=logging_service), UserState.waiting_for_hard_moments)
 
     async def handle_text_when_waiting_callback(message: types.Message, state: FSMContext):
         current_state = await state.get_state()
@@ -2709,7 +2709,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
             from config import ADMIN_IDS
             if str(user_id) in ADMIN_IDS and message.text and not message.text.startswith('/'):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} in state {current_state_str}")
-                await handle_admin_text_input(message, db, logger_service, user_id)
+                await handle_admin_text_input(message, db, logging_service, user_id)
                 return
         except ImportError as e:
             logger.error(f"DEBUG: ImportError for ADMIN_IDS: {e}")
@@ -2771,7 +2771,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
             from config import ADMIN_IDS
             if str(user_id) in ADMIN_IDS and message.text and not message.text.startswith('/'):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} (no state)")
-                await handle_admin_text_input(message, db, logger_service, user_id)
+                await handle_admin_text_input(message, db, logging_service, user_id)
                 return
         except ImportError as e:
             logger.error(f"DEBUG: ImportError for ADMIN_IDS: {e}")
