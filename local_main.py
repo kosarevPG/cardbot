@@ -45,8 +45,9 @@ except ImportError as e:
 # Импортируем модули бота
 try:
     from modules.marketplace_commands import cmd_ozon_sync_all
-    from modules.card_of_the_day import cmd_card_of_the_day
-    from modules.evening_reflection import cmd_evening_reflection
+    from modules.card_of_the_day import handle_card_request
+    from modules.evening_reflection import start_evening_reflection
+    from functools import partial
     from modules.notification_service import NotificationService
     from modules.scheduler import MailingScheduler, ReflectionAnalysisScheduler
     logger.info("✅ Модули бота импортированы успешно")
@@ -88,9 +89,9 @@ async def cmd_help(message: Message):
     )
 
 # Регистрируем основные команды
-dp.message.register(cmd_card_of_the_day, Command("card"))
-dp.message.register(cmd_evening_reflection, Command("evening"))
 dp.message.register(cmd_ozon_sync_all, Command("ozon_sync_all"))
+dp.message.register(partial(start_evening_reflection, db=db, logger_service=None), Command("evening"))
+dp.message.register(partial(handle_card_request, db=db, logger_service=None), Command("card"))
 
 # Обработчик ошибок
 @dp.errors()

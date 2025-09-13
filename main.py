@@ -165,7 +165,7 @@ from modules.card_of_the_day import (
     process_exploration_choice_callback, process_first_grok_response,
     process_second_grok_response, process_third_grok_response,
     process_final_resource_callback, process_recharge_method, process_recharge_method_choice, process_card_feedback,
-    process_emotion_choice, process_custom_response
+    process_emotion_choice, process_custom_response, process_deck_choice
 )
 
 # Модуль Вечерней Рефлексии
@@ -2656,6 +2656,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.message.register(partial(process_recharge_method, db=db, logger_service=logging_service), UserState.waiting_for_recharge_method)
     dp.callback_query.register(partial(process_card_feedback, db=db, logger_service=logging_service), F.data.startswith("feedback_v2_"))
     dp.callback_query.register(partial(process_recharge_method_choice, db=db, logger_service=logging_service), UserState.waiting_for_recharge_method_choice)
+    dp.callback_query.register(partial(process_deck_choice, db=db, logger_service=logging_service), UserState.waiting_for_deck_choice, F.data.startswith("deck_choice_"))
 
     # Регистрируем команды маркетплейсов
     register_marketplace_handlers(dp)

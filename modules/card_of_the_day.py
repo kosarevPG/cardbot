@@ -202,6 +202,20 @@ def get_card_info(card_number: int) -> dict:
     })
 
 # --- КОНЕЦ СЛОВАРЯ ЗНАЧЕНИЙ КАРТ ---
+# --- ОПИСАНИЕ КОЛОД ---
+DECKS = {
+    "nature": {
+        "title": "Ресурсы природы",
+        "dir": "cards",
+        "description": ""
+    },
+    "message": {
+        "title": "Ресурсная весточка",
+        "dir": "cards_message",
+        "description": ""
+    }
+}
+# --- КОНЕЦ ОПИСАНИЯ КОЛОД ---
 
 # Словарь для маппинга callback -> emoji/text
 RESOURCE_LEVELS = {
@@ -220,9 +234,18 @@ if not CARDS_DIR.startswith("/data") and not os.path.exists(CARDS_DIR):
 async def get_main_menu(user_id, db: Database):
     """Возвращает основную клавиатуру меню. (ИЗМЕНЕНО)"""
     keyboard = [
-        [types.KeyboardButton(text="✨ Карта дня")],
         [types.KeyboardButton(text="🌙 Итог дня")]
     ]
+    show_card_btn = True
+    try:
+        if user_id not in NO_CARD_LIMIT_USERS:
+            today = datetime.now(TIMEZONE).date()
+            # кнопка видна, если хотя бы одна колода доступна сегодня
+            show_card_btn = any(db.is_deck_available(user_id, deck, today) for deck in DECKS.keys())
+    except Exception as e:
+        logger.error(f"Error checking deck availability for main menu user {user_id}: {e}")
+    if show_card_btn:
+        keyboard.insert(0, [types.KeyboardButton(text="✨ Карта дня")])
     try:
         user_data = db.get_user(user_id)
         # --- ИЗМЕНЕНИЕ: Добавляем кнопку в конец, если бонус доступен ---
@@ -242,67 +265,35 @@ async def get_main_menu(user_id, db: Database):
 
 # --- Шаг 0: Начало флоу ---
 async def handle_card_request(message: types.Message, state: FSMContext, db: Database, logger_service):
-    """
-    СТАРТОВАЯ ТОЧКА сценария 'Карта дня'.
-    Проверяет доступность карты и запускает замер ресурса.
-    """
+    """Начало сценария: предлагаем выбрать колоду."""
     user_id = message.from_user.id
-    user_data = db.get_user(user_id) or {}
-    name = user_data.get("name") or ""
-    name = name.strip() if isinstance(name, str) else ""
-    now = datetime.now(TIMEZONE)
-    today = now.date()
+    # Кнопки выбора колоды
+    buttons = [[types.InlineKeyboardButton(text=deck["title"], callback_data=f"deck_choice_{key}")] for key, deck in DECKS.items()]
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
+    await message.answer("Выбери колоду, из которой хочешь получить карту:", reply_markup=keyboard)
+    await state.set_state(UserState.waiting_for_deck_choice)
 
-    logger.info(f"User {user_id}: Checking card availability for {today}")
-    card_available = db.is_card_available(user_id, today)
-    logger.info(f"User {user_id}: Card available? {card_available}")
-
-    if user_id not in NO_CARD_LIMIT_USERS and not card_available:
-        last_req_time_str = "неизвестно"
-        if user_data and isinstance(user_data.get('last_request'), datetime):
-            try:
-                last_req_dt = user_data['last_request']
-                if last_req_dt.tzinfo is None and pytz:
-                    last_req_dt_local = TIMEZONE.localize(last_req_dt).astimezone(TIMEZONE)
-                elif last_req_dt.tzinfo:
-                    last_req_dt_local = last_req_dt.astimezone(TIMEZONE)
-                else: 
-                    last_req_dt_local = last_req_dt
-                last_req_time_str = last_req_dt_local.strftime('%H:%M %d.%m.%Y')
-            except Exception as e:
-                logger.error(f"Error formatting last_request time for user {user_id}: {e}")
-                last_req_time_str = "ошибка времени"
-        text = (f"{name}, ты уже вытянула карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨" if name else f"Ты уже вытянула карту сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨")
-        logger.info(f"User {user_id}: Sending 'already drawn' message.")
-        
-        # Логируем попытку повторного использования
-        db.log_scenario_step(user_id, 'card_of_day', 'already_used_today', {
-            'last_request_time': last_req_time_str,
-            'today': today.isoformat()
-        })
-        
-        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
-        await state.clear()
+async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, db: Database, logger_service):
+    """Обрабатывает выбор колоды."""
+    user_id = callback.from_user.id
+    parts = callback.data.split("_")
+    deck_name = parts[-1] if len(parts) >= 3 else "nature"
+    today = datetime.now(TIMEZONE).date()
+    if user_id not in NO_CARD_LIMIT_USERS and not db.is_deck_available(user_id, deck_name, today):
+        await callback.answer("Ты уже вытянул карту из этой колоды сегодня. Попробуй завтра!", show_alert=True)
         return
-
-    logger.info(f"User {user_id}: Card available, starting initial resource check.")
-    
-    # Начинаем сценарий "Карта дня"
-    session_id = db.start_user_scenario(user_id, 'card_of_day')
-    db.log_scenario_step(user_id, 'card_of_day', 'started', {
-        'session_id': session_id,
-        'today': today.isoformat(),
-        'card_available': card_available
-    })
-    
-    # Сохраняем session_id в состоянии
+    # сохраняем выбранную колоду
+    await state.update_data(deck_name=deck_name)
+    # создаём сессию после выбора колоды
+    session_id = db.start_user_scenario(user_id, f"card_of_day_{deck_name}")
     await state.update_data(session_id=session_id)
-
-    await logger_service.log_action(user_id, "card_flow_started", {
-        "trigger": "button",
-        "session_id": session_id
-    })
-    await ask_initial_resource(message, state, db, logger_service)
+    await callback.answer()
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    # переходим к замеру ресурса
+    await ask_initial_resource(callback.message, state, db, logger_service)
 
 # --- Шаг 1: Замер начального ресурса ---
 async def ask_initial_resource(message: types.Message, state: FSMContext, db: Database, logger_service):
@@ -441,14 +432,20 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
     name = name.strip() if isinstance(name, str) else ""
     now_iso = datetime.now(TIMEZONE).isoformat()
 
+    deck_name = user_data_fsm.get("deck_name", "nature")
+    cards_dir = os.path.join(DATA_DIR, DECKS[deck_name]["dir"]) if DATA_DIR != "/data" else DECKS[deck_name]["dir"]
+    if not os.path.isdir(cards_dir):
+        logger.error(f"Cards directory not found for deck {deck_name}: {cards_dir}")
+        await message.answer("Не могу найти папку с картами выбранной колоды..."); await state.clear(); return
+    field = "last_request_nature" if deck_name=="nature" else "last_request_message"
     try:
-         db.update_user(user_id, {"last_request": now_iso})
+        db.update_user(user_id, {field: now_iso})
     except Exception as e:
-         logger.error(f"Failed to update last_request time for user {user_id}: {e}", exc_info=True)
+        logger.error(f"Failed to update {field} time for user {user_id}: {e}", exc_info=True)
 
     card_number = None
     try:
-        used_cards = db.get_user_cards(user_id)
+        used_cards = db.get_user_cards(user_id, deck_name)
         if not os.path.isdir(CARDS_DIR):
              logger.error(f"Cards directory not found or not a directory: {CARDS_DIR}")
              await message.answer("Не могу найти папку с картами..."); await state.clear(); return
@@ -460,10 +457,10 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
         available_cards = [c for c in all_cards if c not in used_cards]
         if not available_cards:
             logger.info(f"Card deck reset for user {user_id} as all cards were used.")
-            db.reset_user_cards(user_id)
+            db.reset_user_cards(user_id, deck_name)
             available_cards = all_cards
         card_number = random.choice(available_cards)
-        db.add_user_card(user_id, card_number)
+        db.add_user_card(user_id, card_number, deck_name)
         await state.update_data(card_number=card_number)
     except Exception as card_logic_err:
         logger.error(f"Error during card selection logic for user {user_id}: {card_logic_err}", exc_info=True)

@@ -100,12 +100,12 @@ class Database:
                         user_id INTEGER PRIMARY KEY, name TEXT, username TEXT,
                         last_request TEXT, reminder_time TEXT,
                         reminder_time_evening TEXT, bonus_available BOOLEAN DEFAULT FALSE,
-                        first_seen TEXT
+                        first_seen TEXT, last_request_nature TEXT, last_request_message TEXT
                     )""")
                 # Таблица user_cards
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS user_cards (
-                        user_id INTEGER, card_number INTEGER,
+                        user_id INTEGER, card_number INTEGER, deck_name TEXT NOT NULL DEFAULT 'nature',
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
                 # Таблица actions
@@ -261,7 +261,9 @@ class Database:
             self._add_columns_if_not_exist('user_profiles', profile_columns)
             users_columns = { 
                 'reminder_time_evening': 'TEXT',
-                'first_seen': 'TEXT'
+                'first_seen': 'TEXT',
+                'last_request_nature': 'TEXT',
+                'last_request_message': 'TEXT'
             }
             self._add_columns_if_not_exist('users', users_columns)
             reflection_columns = { 'ai_summary': 'TEXT' }
@@ -349,21 +351,22 @@ class Database:
             default_user_data = {
                 "user_id": user_id, "name": "", "username": "", "last_request": None,
                 "reminder_time": None, "reminder_time_evening": None, "bonus_available": False,
-                "first_seen": current_time
+                "first_seen": current_time, "last_request_nature": None, "last_request_message": None
             }
             with self.conn:
                 self.conn.execute(
-                    """INSERT INTO users (user_id, name, username, last_request, reminder_time, reminder_time_evening, bonus_available, first_seen)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    """INSERT INTO users (user_id, name, username, last_request, reminder_time, reminder_time_evening, bonus_available, first_seen, last_request_nature, last_request_message)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (user_id, default_user_data["name"], default_user_data["username"], None,
                      default_user_data["reminder_time"], default_user_data["reminder_time_evening"],
-                     int(default_user_data["bonus_available"]), default_user_data["first_seen"])
+                     int(default_user_data["bonus_available"]), default_user_data["first_seen"],
+                     default_user_data["last_request_nature"], default_user_data["last_request_message"])
                 )
             logger.info(f"Default user entry created for {user_id}")
             return default_user_data
         except sqlite3.Error as e:
             logger.error(f"Failed to get or create user {user_id}: {e}", exc_info=True)
-            return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "reminder_time_evening": None, "bonus_available": False, "first_seen": None}
+            return {"user_id": user_id, "name": "", "username": "", "last_request": None, "reminder_time": None, "reminder_time_evening": None, "bonus_available": False, "first_seen": None, "last_request_nature": None, "last_request_message": None}
 
     def update_user(self, user_id, data):
         # ... (код метода update_user) ...
@@ -391,19 +394,20 @@ class Database:
         try:
             with self.conn:
                 self.conn.execute("""
-                    INSERT OR REPLACE INTO users (user_id, name, username, last_request, reminder_time, reminder_time_evening, bonus_available, first_seen)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO users (user_id, name, username, last_request, reminder_time, reminder_time_evening, bonus_available, first_seen, last_request_nature, last_request_message)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, ( user_id, name_to_save, username_to_save, last_request_to_save,
-                       reminder_to_save, reminder_evening_to_save, int(bonus_to_save), first_seen_to_save ))
+                       reminder_to_save, reminder_evening_to_save, int(bonus_to_save), first_seen_to_save,
+                       data.get("last_request_nature"), data.get("last_request_message")))
         except sqlite3.Error as e:
             logger.error(f"Failed to update user {user_id}: {e}", exc_info=True)
 
 
-    def get_user_cards(self, user_id):
+    def get_user_cards(self, user_id, deck_name: str = 'nature'):
         # ... (код метода get_user_cards) ...
         """Возвращает список номеров карт, использованных пользователем."""
         try:
-            cursor = self.conn.execute("SELECT card_number FROM user_cards WHERE user_id = ?", (user_id,))
+            cursor = self.conn.execute("SELECT card_number FROM user_cards WHERE user_id = ? AND deck_name = ?", (user_id, deck_name))
             return [row["card_number"] for row in cursor.fetchall()]
         except sqlite3.Error as e:
             logger.error(f"Failed to get user cards for {user_id}: {e}", exc_info=True)
@@ -420,22 +424,22 @@ class Database:
             logger.error(f"Failed to count user cards for {user_id}: {e}", exc_info=True)
             return 0
 
-    def add_user_card(self, user_id, card_number):
+    def add_user_card(self, user_id, card_number, deck_name: str = 'nature'):
         # ... (код метода add_user_card) ...
         """Добавляет запись об использованной карте."""
         try:
             with self.conn:
-                self.conn.execute("INSERT INTO user_cards (user_id, card_number) VALUES (?, ?)", (user_id, card_number))
+                self.conn.execute("INSERT INTO user_cards (user_id, card_number, deck_name) VALUES (?, ?, ?)", (user_id, card_number, deck_name))
         except sqlite3.Error as e:
             logger.error(f"Failed to add user card {card_number} for {user_id}: {e}", exc_info=True)
 
-    def reset_user_cards(self, user_id):
+    def reset_user_cards(self, user_id, deck_name: str = 'nature'):
         # ... (код метода reset_user_cards) ...
         """Удаляет все записи об использованных картах для пользователя."""
         try:
             with self.conn:
-                self.conn.execute("DELETE FROM user_cards WHERE user_id = ?", (user_id,))
-            logger.info(f"Reset used cards for user {user_id}")
+                self.conn.execute("DELETE FROM user_cards WHERE user_id = ? AND deck_name = ?", (user_id, deck_name))
+            logger.info(f"Reset used cards for user {user_id} in deck {deck_name}")
         except sqlite3.Error as e:
             logger.error(f"Failed to reset user cards for {user_id}: {e}", exc_info=True)
 
@@ -2002,6 +2006,21 @@ class Database:
         except Exception as e:
             logger.error(f"Unexpected error getting today's card for user {user_id}: {e}", exc_info=True)
             return None
+
+    def is_deck_available(self, user_id, deck_name: str, today_date: date):
+        """Checks if a card from specified deck is available for the user today."""
+        user_data = self.get_user(user_id)
+        if not user_data:
+            return True
+        field = 'last_request_nature' if deck_name == 'nature' else 'last_request_message'
+        last_req = user_data.get(field)
+        if isinstance(last_req, datetime):
+            try:
+                last_date = last_req.astimezone(TIMEZONE).date() if pytz else last_req.date()
+            except Exception:
+                last_date = last_req.date()
+            return last_date < today_date
+        return True
 
 # --- КОНЕЦ КЛАССА ---
 
