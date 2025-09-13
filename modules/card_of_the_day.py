@@ -326,7 +326,37 @@ async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, 
     deck_name = parts[-1] if len(parts) >= 3 else "nature"
     today = datetime.now(TIMEZONE).date()
     if user_id not in NO_CARD_LIMIT_USERS and not db.is_deck_available(user_id, deck_name, today):
-        await callback.answer("Ты уже вытянул карту из этой колоды сегодня. Попробуй завтра!", show_alert=True)
+        # Получаем данные пользователя для формирования сообщения
+        user_data = db.get_user(user_id) or {}
+        name = user_data.get("name") or ""
+        name = name.strip() if isinstance(name, str) else ""
+
+        field = 'last_request_nature' if deck_name == 'nature' else 'last_request_message'
+        last_req_dt = user_data.get(field)
+
+        last_req_time_str = "неизвестно"
+        if isinstance(last_req_dt, datetime):
+            try:
+                if last_req_dt.tzinfo is None and pytz:
+                    last_req_dt_local = TIMEZONE.localize(last_req_dt).astimezone(TIMEZONE)
+                elif last_req_dt.tzinfo:
+                    last_req_dt_local = last_req_dt.astimezone(TIMEZONE)
+                else:
+                    last_req_dt_local = last_req_dt
+                last_req_time_str = last_req_dt_local.strftime('%H:%M %d.%m.%Y')
+            except Exception as e:
+                logger_service.error(f"Error formatting last_request time for user {user_id}: {e}")
+                last_req_time_str = "ошибка времени"
+
+        text = (f"{name}, ты уже вытянула карту из этой колоды сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨" if name else f"Ты уже вытянула карту из этой колоды сегодня (в {last_req_time_str} МСК)! Новая будет доступна завтра. ✨")
+        
+        await callback.message.answer(text, reply_markup=await get_main_menu(user_id, db))
+        await state.clear()
+        await callback.answer()
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         return
     # сохраняем выбранную колоду
     await state.update_data(deck_name=deck_name)
