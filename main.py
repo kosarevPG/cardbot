@@ -2712,7 +2712,9 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         # Проверяем, является ли пользователь админом
         try:
             from config import ADMIN_IDS
-            if str(user_id) in ADMIN_IDS and message.text and not message.text.startswith('/'):
+            if (str(user_id) in ADMIN_IDS and message.text and 
+                not message.text.startswith('/') and
+                message.text not in ["✨ Получить карту дня", "🌙 Подвести итог дня"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} in state {current_state_str}")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return
@@ -2774,7 +2776,9 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         # Проверяем, является ли пользователь админом
         try:
             from config import ADMIN_IDS
-            if str(user_id) in ADMIN_IDS and message.text and not message.text.startswith('/'):
+            if (str(user_id) in ADMIN_IDS and message.text and 
+                not message.text.startswith('/') and
+                message.text not in ["✨ Получить карту дня", "🌙 Подвести итог дня"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} (no state)")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return
