@@ -100,14 +100,21 @@ class Database:
                         user_id INTEGER PRIMARY KEY, name TEXT, username TEXT,
                         last_request TEXT, reminder_time TEXT,
                         reminder_time_evening TEXT, bonus_available BOOLEAN DEFAULT FALSE,
-                        first_seen TEXT, last_request_nature TEXT, last_request_message TEXT
+                        first_seen TEXT
                     )""")
+                # Добавляем last_request_nature и last_request_message через миграцию
+                self._add_columns_if_not_exist('users', {
+                    'last_request_nature': 'TEXT',
+                    'last_request_message': 'TEXT'
+                })
                 # Таблица user_cards
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS user_cards (
-                        user_id INTEGER, card_number INTEGER, deck_name TEXT NOT NULL DEFAULT 'nature',
+                        user_id INTEGER, card_number INTEGER,
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
+                # Принудительно добавляем deck_name, если его нет
+                self._add_columns_if_not_exist('user_cards', {'deck_name': 'TEXT NOT NULL DEFAULT \'nature\''})
                 # Таблица actions
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS actions (
