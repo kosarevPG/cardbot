@@ -223,11 +223,7 @@ RESOURCE_LEVELS = {
     "resource_medium": "😐 Средне",
     "resource_low": "😔 Низко",
 }
-# Путь к папке с картами
-CARDS_DIR = os.path.join(DATA_DIR, "cards") if DATA_DIR != "/data" else "cards"
-if not CARDS_DIR.startswith("/data") and not os.path.exists(CARDS_DIR):
-     os.makedirs(CARDS_DIR, exist_ok=True)
-     logger.warning(f"Cards directory '{CARDS_DIR}' did not exist and was created. Make sure card images are present.")
+# Глобальный путь к папке с картами больше не используется, так как путь определяется динамически.
 
 
 # --- Основная клавиатура (ИЗМЕНЕНО) ---
@@ -433,7 +429,7 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
     now_iso = datetime.now(TIMEZONE).isoformat()
 
     deck_name = user_data_fsm.get("deck_name", "nature")
-    cards_dir = os.path.join(DATA_DIR, DECKS[deck_name]["dir"]) if DATA_DIR != "/data" else DECKS[deck_name]["dir"]
+    cards_dir = os.path.join(os.getenv("AMVERA_APP_ROOT", "/app"), DECKS[deck_name]["dir"])
     if not os.path.isdir(cards_dir):
         logger.error(f"Cards directory not found for deck {deck_name}: {cards_dir}")
         await message.answer("Не могу найти папку с картами выбранной колоды..."); await state.clear(); return
@@ -446,12 +442,12 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
     card_number = None
     try:
         used_cards = db.get_user_cards(user_id, deck_name)
-        if not os.path.isdir(CARDS_DIR):
-             logger.error(f"Cards directory not found or not a directory: {CARDS_DIR}")
+        if not os.path.isdir(cards_dir):
+             logger.error(f"Cards directory not found or not a directory: {cards_dir}")
              await message.answer("Не могу найти папку с картами..."); await state.clear(); return
-        all_card_files = [f for f in os.listdir(CARDS_DIR) if f.startswith("card_") and f.endswith(".jpg")]
+        all_card_files = [f for f in os.listdir(cards_dir) if f.startswith("card_") and f.endswith(".jpg")]
         if not all_card_files:
-            logger.error(f"No card images found in {CARDS_DIR}.")
+            logger.error(f"No card images found in {cards_dir}.")
             await message.answer("В папке нет изображений карт..."); await state.clear(); return
         all_cards = [int(f.replace("card_", "").replace(".jpg", "")) for f in all_card_files]
         available_cards = [c for c in all_cards if c not in used_cards]
@@ -468,7 +464,7 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
         await state.clear()
         return
 
-    card_path = os.path.join(CARDS_DIR, f"card_{card_number}.jpg")
+    card_path = os.path.join(cards_dir, f"card_{card_number}.jpg")
     if not os.path.exists(card_path):
         logger.error(f"Card image file not found: {card_path} after selecting number {card_number} for user {user_id}.")
         await message.answer("Изображение для выбранной карты потерялось...")

@@ -16,6 +16,18 @@ os.environ['BOT_TOKEN'] = os.getenv('BOT_TOKEN', 'your_bot_token')
 os.environ['ADMIN_ID'] = os.getenv('ADMIN_ID', 'your_admin_id')
 os.environ['WB_API_TOKEN'] = os.getenv('WB_API_TOKEN', 'your_wb_api_token')
 
+# ---- ЖЁСТКО задаём WB_API_KEY для локального теста (НЕ коммитить в репозиторий) ----
+os.environ['WB_API_KEY'] = (
+    "eyJhbGciOiJFUzI1NiIsImtpZCI6IjIwMjUwNTIwdjEiLCJ0eXAiOiJKV1QifQ."
+    "eyJlbnQiOjEsImV4cCI6MTc3MjQxODc4OSwiaWQiOiIwMTk5MDA4Yi1kOWVjLTcw"
+    "ZTEtOWE1My0xMzMyOWFiNjE4ZjEiLCJpaWQiOjgyMTIyMzE4LCJvaWQiOjI1MDAx"
+    "MzM2OCwicyI6MTYxMjYsInNpZCI6IjBlYzZhYTIxLTQ5YWYtNGQ3MS05Y2E2LTk2"
+    "NjU0MWQwMmZmZSIsInQiOmZhbHNlLCJ1aWQiOjgyMTIyMzE4fQ."
+    "wBX-qYBreCEaQg4pNMV1tJQKcFE3_YmhRI7UMA2LQ29irj0e4mrv1RSIwCM9yde5"
+    "NHJ2JZAonV6puSlmr1kokQ"
+)
+# -------------------------------------------------------------------------------
+
 
 # Добавляем корневую папку проекта в sys.path для корректного импорта
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -45,12 +57,17 @@ async def main():
     print("Инициализация MarketplaceManager...")
     manager = MarketplaceManager(google_creds=google_creds_info)
     
-    print("Запуск синхронизации данных Ozon...")
-    result = await manager.sync_ozon_data()
-    
-    print("\n--- Результат синхронизации ---")
-    print(result)
-    print("---------------------------------")
+    # --- Тест WB: список складов ---
+    print("Тест WB: склады")
+    wb_res = await manager.get_wb_warehouses()
+    print(wb_res)
+
+    # Если нужно проверить остатки, раскомментируйте:
+    # if wb_res.get("success") and wb_res["warehouses"]:
+    #     wid = wb_res["warehouses"][0]["id"]
+    #     barcodes = (await manager.get_wb_product_barcodes()).get("barcodes", [])[:20]
+    #     stocks = await manager.get_wb_stocks(wid, barcodes)
+    #     print("Stocks:", stocks)
 
 if __name__ == "__main__":
     # Для Windows может потребоваться следующая строка, если возникают проблемы с циклом событий
