@@ -2043,19 +2043,14 @@ class Database:
             return True
         field = 'last_request_nature' if deck_name == 'nature' else 'last_request_message'
         last_req = user_data.get(field)
-        logging.info(f"DEBUG DB: is_deck_available - user_id: {user_id}, deck_name: {deck_name}, field: {field}")
-        logging.info(f"DEBUG DB: last_req: {last_req} (type: {type(last_req)})")
         if isinstance(last_req, datetime):
             try:
                 last_date = last_req.astimezone(TIMEZONE).date() if pytz else last_req.date()
             except Exception as e:
-                logging.error(f"DEBUG DB: Error processing last_req date for user {user_id}: {e}", exc_info=True)
-                last_date = last_req.date()
-            logging.info(f"DEBUG DB: last_date: {last_date}, today_date: {today_date}")
-            logging.info(f"DEBUG DB: last_date < today_date: {last_date < today_date}")
-            logging.info(f"DEBUG DB: is_deck_available returning: {last_date < today_date}")
+                # Если произошла ошибка при обработке даты, считаем, что она недействительна
+                logging.error(f"Error processing last_req date for user {user_id}: {e}", exc_info=True)
+                return True # Считаем доступной, чтобы не блокировать пользователя
             return last_date < today_date
-        logging.info(f"DEBUG DB: last_req is not datetime. Returning True.")
         return True
 
 # --- КОНЕЦ КЛАССА ---

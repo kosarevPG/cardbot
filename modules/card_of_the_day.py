@@ -232,16 +232,8 @@ async def get_main_menu(user_id, db: Database):
     keyboard = [
         [types.KeyboardButton(text="🌙 Итог дня")]
     ]
-    show_card_btn = True
-    try:
-        if user_id not in NO_CARD_LIMIT_USERS:
-            today = datetime.now(TIMEZONE).date()
-            # кнопка видна, если хотя бы одна колода доступна сегодня
-            show_card_btn = any(db.is_deck_available(user_id, deck, today) for deck in DECKS.keys())
-    except Exception as e:
-        logger.error(f"Error checking deck availability for main menu user {user_id}: {e}")
-    if show_card_btn:
-        keyboard.insert(0, [types.KeyboardButton(text="✨ Карта дня")])
+    # Кнопка 'Карта дня' всегда доступна в главном меню
+    keyboard.insert(0, [types.KeyboardButton(text="✨ Карта дня")])
     try:
         user_data = db.get_user(user_id)
         # --- ИЗМЕНЕНИЕ: Добавляем кнопку в конец, если бонус доступен ---
@@ -269,52 +261,8 @@ async def handle_card_request(message: types.Message, state: FSMContext, db: Dat
     now = datetime.now(TIMEZONE)
     today = now.date()
 
-    # Проверяем, доступны ли вообще какие-либо колоды
-    any_deck_available = any(db.is_deck_available(user_id, deck_key, today) for deck_key in DECKS.keys())
-
-    if user_id not in NO_CARD_LIMIT_USERS and not any_deck_available:
-        last_request_nature_dt = user_data.get('last_request_nature')
-        last_request_message_dt = user_data.get('last_request_message')
-        # Используем наиболее позднее время запроса для вывода сообщения
-        last_req_dt = None
-        if last_request_nature_dt and last_request_message_dt:
-            last_req_dt = max(last_request_nature_dt, last_request_message_dt)
-        elif last_request_nature_dt:
-            last_req_dt = last_request_nature_dt
-        elif last_request_message_dt:
-            last_req_dt = last_request_message_dt
-
-        last_req_time_str = "неизвестно"
-        if isinstance(last_req_dt, datetime):
-            try:
-                if last_req_dt.tzinfo is None and pytz:
-                    last_req_dt_local = TIMEZONE.localize(last_req_dt).astimezone(TIMEZONE)
-                elif last_req_dt.tzinfo:
-                    last_req_dt_local = last_req_dt.astimezone(TIMEZONE)
-                else:
-                    last_req_dt_local = last_req_dt
-                last_req_time_str = last_req_dt_local.strftime('%H:%M %d.%m.%Y')
-            except Exception as e:
-                logger.error(f"Error formatting last_request time for user {user_id}: {e}")
-                last_req_time_str = "ошибка времени"
-        text = (f"{name}, ты уже вытянула все доступные карты сегодня (последняя в {last_req_time_str} МСК)! Новые будут доступны завтра. ✨" if name else f"Ты уже вытянула все доступные карты сегодня (последняя в {last_req_time_str} МСК)! Новые будут доступны завтра. ✨")
-        logger.info(f"User {user_id}: Sending 'all decks used' message.")
-
-        db.log_scenario_step(user_id, 'card_of_day', 'all_decks_used_today', {
-            'last_request_time': last_req_time_str,
-            'today': today.isoformat()
-        })
-
-        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
-        await state.clear()
-        return
-
-    logger.info(f"User {user_id}: At least one deck available, offering choice.")
-    # Кнопки выбора колоды (формируются только если хотя бы одна колода доступна)
-    buttons = []
-    for key, deck_info in DECKS.items():
-        if db.is_deck_available(user_id, key, today) or user_id in NO_CARD_LIMIT_USERS:
-            buttons.append([types.InlineKeyboardButton(text=deck_info["title"], callback_data=f"deck_choice_{key}")])
+    # Кнопки выбора колоды
+    buttons = [[types.InlineKeyboardButton(text=deck["title"], callback_data=f"deck_choice_{key}")] for key, deck in DECKS.items()]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.answer("Выбери колоду, из которой хочешь получить карту:", reply_markup=keyboard)
     await state.set_state(UserState.waiting_for_deck_choice)
@@ -325,12 +273,8 @@ async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, 
     parts = callback.data.split("_")
     deck_name = parts[-1] if len(parts) >= 3 else "nature"
     today = datetime.now(TIMEZONE).date()
-    logging.info(f"DEBUG: Checking availability for user {user_id}, deck {deck_name}, today {today}")
-    is_available = db.is_deck_available(user_id, deck_name, today)
-    logging.info(f"DEBUG: Deck {deck_name} available: {is_available}")
-    logging.info(f"DEBUG: Final check in process_deck_choice - is_available={is_available}, not is_available={not is_available}")
 
-    if user_id not in NO_CARD_LIMIT_USERS and not is_available:
+    if user_id not in NO_CARD_LIMIT_USERS and not db.is_deck_available(user_id, deck_name, today):
         # Получаем данные пользователя для формирования сообщения
         user_data = db.get_user(user_id) or {}
         name = user_data.get("name") or ""
