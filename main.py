@@ -2656,7 +2656,7 @@ def register_handlers(dp: Dispatcher, db: Database, logger_service: LoggingServi
     dp.message.register(partial(process_recharge_method, db=db, logger_service=logging_service), UserState.waiting_for_recharge_method)
     dp.callback_query.register(partial(process_card_feedback, db=db, logger_service=logging_service), F.data.startswith("feedback_v2_"))
     dp.callback_query.register(partial(process_recharge_method_choice, db=db, logger_service=logging_service), UserState.waiting_for_recharge_method_choice)
-    dp.callback_query.register(partial(process_deck_choice, db=db, logger_service=logging_service), UserState.waiting_for_deck_choice, F.data.startswith("deck_choice_"))
+    dp.callback_query.register(partial(process_deck_choice, db=db, logger_service=logging_service), UserState.waiting_for_deck_choice)
 
     # Регистрируем команды маркетплейсов
     register_marketplace_handlers(dp)
