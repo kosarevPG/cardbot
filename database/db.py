@@ -348,6 +348,28 @@ class Database:
                 elif not isinstance(last_request_val, datetime):
                      user_dict["last_request"] = None
 
+                # Декодируем last_request_nature
+                last_request_nature_val = user_dict.get("last_request_nature")
+                if last_request_nature_val and isinstance(last_request_nature_val, str):
+                    try:
+                        user_dict["last_request_nature"] = self.decode_timestamp(last_request_nature_val.encode('utf-8'))
+                    except Exception as e:
+                         logger.error(f"Error decoding last_request_nature '{last_request_nature_val}' for user {user_id}: {e}")
+                         user_dict["last_request_nature"] = None
+                elif not isinstance(last_request_nature_val, datetime):
+                     user_dict["last_request_nature"] = None
+
+                # Декодируем last_request_message
+                last_request_message_val = user_dict.get("last_request_message")
+                if last_request_message_val and isinstance(last_request_message_val, str):
+                    try:
+                        user_dict["last_request_message"] = self.decode_timestamp(last_request_message_val.encode('utf-8'))
+                    except Exception as e:
+                         logger.error(f"Error decoding last_request_message '{last_request_message_val}' for user {user_id}: {e}")
+                         user_dict["last_request_message"] = None
+                elif not isinstance(last_request_message_val, datetime):
+                     user_dict["last_request_message"] = None
+
                 user_dict.setdefault("bonus_available", False)
                 user_dict.setdefault("reminder_time_evening", None)
                 user_dict["bonus_available"] = bool(user_dict["bonus_available"])
