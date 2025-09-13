@@ -263,8 +263,58 @@ async def get_main_menu(user_id, db: Database):
 async def handle_card_request(message: types.Message, state: FSMContext, db: Database, logger_service):
     """Начало сценария: предлагаем выбрать колоду."""
     user_id = message.from_user.id
-    # Кнопки выбора колоды
-    buttons = [[types.InlineKeyboardButton(text=deck["title"], callback_data=f"deck_choice_{key}")] for key, deck in DECKS.items()]
+    user_data = db.get_user(user_id) or {}
+    name = user_data.get("name") or ""
+    name = name.strip() if isinstance(name, str) else ""
+    now = datetime.now(TIMEZONE)
+    today = now.date()
+
+    # Проверяем, доступны ли вообще какие-либо колоды
+    any_deck_available = any(db.is_deck_available(user_id, deck_key, today) for deck_key in DECKS.keys())
+
+    if user_id not in NO_CARD_LIMIT_USERS and not any_deck_available:
+        last_request_nature_dt = user_data.get('last_request_nature')
+        last_request_message_dt = user_data.get('last_request_message')
+        # Используем наиболее позднее время запроса для вывода сообщения
+        last_req_dt = None
+        if last_request_nature_dt and last_request_message_dt:
+            last_req_dt = max(last_request_nature_dt, last_request_message_dt)
+        elif last_request_nature_dt:
+            last_req_dt = last_request_nature_dt
+        elif last_request_message_dt:
+            last_req_dt = last_request_message_dt
+
+        last_req_time_str = "неизвестно"
+        if isinstance(last_req_dt, datetime):
+            try:
+                if last_req_dt.tzinfo is None and pytz:
+                    last_req_dt_local = TIMEZONE.localize(last_req_dt).astimezone(TIMEZONE)
+                elif last_req_dt.tzinfo:
+                    last_req_dt_local = last_req_dt.astimezone(TIMEZONE)
+                else:
+                    last_req_dt_local = last_req_dt
+                last_req_time_str = last_req_dt_local.strftime('%H:%M %d.%m.%Y')
+            except Exception as e:
+                logger.error(f"Error formatting last_request time for user {user_id}: {e}")
+                last_req_time_str = "ошибка времени"
+        text = (f"{name}, ты уже вытянула все доступные карты сегодня (последняя в {last_req_time_str} МСК)! Новые будут доступны завтра. ✨" if name else f"Ты уже вытянула все доступные карты сегодня (последняя в {last_req_time_str} МСК)! Новые будут доступны завтра. ✨")
+        logger.info(f"User {user_id}: Sending 'all decks used' message.")
+
+        db.log_scenario_step(user_id, 'card_of_day', 'all_decks_used_today', {
+            'last_request_time': last_req_time_str,
+            'today': today.isoformat()
+        })
+
+        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+        await state.clear()
+        return
+
+    logger.info(f"User {user_id}: At least one deck available, offering choice.")
+    # Кнопки выбора колоды (формируются только если хотя бы одна колода доступна)
+    buttons = []
+    for key, deck_info in DECKS.items():
+        if db.is_deck_available(user_id, key, today) or user_id in NO_CARD_LIMIT_USERS:
+            buttons.append([types.InlineKeyboardButton(text=deck_info["title"], callback_data=f"deck_choice_{key}")])
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     await message.answer("Выбери колоду, из которой хочешь получить карту:", reply_markup=keyboard)
     await state.set_state(UserState.waiting_for_deck_choice)
