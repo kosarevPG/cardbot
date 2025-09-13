@@ -3090,3 +3090,4 @@ if __name__ == "__main__":
         await get_card_of_the_day_command(message, state, db, logging_service)
 
     # --- ИЗМЕНЕНИЕ: Доработанный обработчик для логгирования "отвалов" ---
+"# Force update $(date)" 
