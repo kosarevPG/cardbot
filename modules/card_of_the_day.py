@@ -430,9 +430,10 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
 
     deck_name = user_data_fsm.get("deck_name", "nature")
     cards_dir = os.path.join(os.getenv("AMVERA_APP_ROOT", "/app"), DECKS[deck_name]["dir"])
+    logger.debug(f"Attempting to load cards from directory: {cards_dir} for deck {deck_name}")
     if not os.path.isdir(cards_dir):
-        logger.error(f"Cards directory not found for deck {deck_name}: {cards_dir}")
-        await message.answer("Не могу найти папку с картами выбранной колоды..."); await state.clear(); return
+        logger.error(f"Cards directory not found for deck {deck_name}: {cards_dir}. Path does not exist or is not a directory.")
+        await message.answer(f"Не могу найти папку с картами колоды '{DECKS[deck_name]['title']}'..."); await state.clear(); return
     field = "last_request_nature" if deck_name=="nature" else "last_request_message"
     try:
         db.update_user(user_id, {field: now_iso})
@@ -443,8 +444,8 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
     try:
         used_cards = db.get_user_cards(user_id, deck_name)
         if not os.path.isdir(cards_dir):
-             logger.error(f"Cards directory not found or not a directory: {cards_dir}")
-             await message.answer("Не могу найти папку с картами..."); await state.clear(); return
+             logger.error(f"Cards directory '{cards_dir}' unexpectedly disappeared or is not a directory.")
+             await message.answer(f"Папка с картами колоды '{DECKS[deck_name]['title']}' пропала..."); await state.clear(); return
         all_card_files = [f for f in os.listdir(cards_dir) if f.startswith("card_") and f.endswith(".jpg")]
         if not all_card_files:
             logger.error(f"No card images found in {cards_dir}.")
