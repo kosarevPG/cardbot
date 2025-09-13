@@ -16,6 +16,7 @@ class UserState(StatesGroup):
     # ------------------------------------
 
     # --- Флоу Карты Дня ---
+    waiting_for_deck_choice = State()  # выбор колоды
     waiting_for_initial_resource = State()
     waiting_for_request_type_choice = State()
     waiting_for_request_text_input = State()
