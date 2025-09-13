@@ -325,9 +325,9 @@ async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, 
     parts = callback.data.split("_")
     deck_name = parts[-1] if len(parts) >= 3 else "nature"
     today = datetime.now(TIMEZONE).date()
-    logger_service.debug(f"DEBUG: Checking availability for user {user_id}, deck {deck_name}, today {today}")
+    logger_service.info(f"DEBUG: Checking availability for user {user_id}, deck {deck_name}, today {today}")
     is_available = db.is_deck_available(user_id, deck_name, today)
-    logger_service.debug(f"DEBUG: Deck {deck_name} available: {is_available}")
+    logger_service.info(f"DEBUG: Deck {deck_name} available: {is_available}")
 
     if user_id not in NO_CARD_LIMIT_USERS and not is_available:
         # Получаем данные пользователя для формирования сообщения
