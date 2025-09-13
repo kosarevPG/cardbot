@@ -1,6 +1,6 @@
 # ==== GITHUB BOOTSTRAP (place at very top of main.py) ====
 import os
-from database.db import DB # <-- Добавляем эту строку
+from database.db import Database # <-- Исправляем название класса
 if os.getenv("BOOTSTRAP_FROM_GITHUB", "0") == "1":
     import io, sys, shutil, tempfile, zipfile, time
     from urllib.request import urlopen, Request
@@ -2703,7 +2703,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     )
 
     # --- ИЗМЕНЕНИЕ: Доработанный обработчик для логгирования "отвалов" ---
-    async def handle_unknown_message_state(message: types.Message, state: FSMContext, db: DB, logging_service: LoggingService): # <-- Добавляем db и logging_service
+    async def handle_unknown_message_state(message: types.Message, state: FSMContext, db: Database, logging_service: LoggingService): # <-- Добавляем db и logging_service
         user_id = message.from_user.id
         current_state_str = await state.get_state()
         
@@ -3081,7 +3081,7 @@ if __name__ == "__main__":
 
     # NEW: Обработчик для кнопки "Получить карту дня"
     @dp.message(F.text == "✨ Получить карту дня")
-    async def handle_get_card_of_the_day(message: types.Message, state: FSMContext, db: DB, logging_service: LoggingService): # <-- Добавляем db и logging_service
+    async def handle_get_card_of_the_day(message: types.Message, state: FSMContext, db: Database, logging_service: LoggingService): # <-- Добавляем db и logging_service
         user_id = message.from_user.id
         logger.info(f"User {user_id} requested Card of the Day via button.")
         # Очищаем текущее состояние, чтобы команда сработала корректно
