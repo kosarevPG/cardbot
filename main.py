@@ -2703,8 +2703,6 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     )
 
     # --- ИЗМЕНЕНИЕ: Доработанный обработчик для логгирования "отвалов" ---
-    # @dp.message() # Удаляем этот декоратор
-    dp.message.register(partial(handle_unknown_message_state, db=db, logging_service=logging_service))
     async def handle_unknown_message_state(message: types.Message, state: FSMContext, db: DB, logging_service: LoggingService): # <-- Добавляем db и logging_service
         user_id = message.from_user.id
         current_state_str = await state.get_state()
@@ -2769,7 +2767,6 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         await callback.answer("Неизвестное действие.", show_alert=True)
 
     # Обработчик для сообщений без состояния (включая админские)
-    @dp.message()
     async def handle_unknown_message_no_state(message: types.Message):
         user_id = message.from_user.id
         
@@ -2786,6 +2783,10 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             logger.error(f"DEBUG: ImportError for ADMIN_IDS: {e}")
         
         logger.warning(f"Unknown message '{message.text}' from user {user_id} with no state.")
+
+    # Register fallback handlers LAST
+    dp.message.register(partial(handle_unknown_message_state, db=db, logging_service=logging_service), StateFilter("*"))
+    dp.message.register(partial(handle_unknown_message_no_state, db=db, logging_service=logging_service)) # Catches any other text message
 
     logger.info("Handlers registered successfully.")
 
