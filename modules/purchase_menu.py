@@ -8,8 +8,7 @@ async def get_purchase_menu() -> InlineKeyboardMarkup:
     """Возвращает клавиатуру для выбора места приобретения МАК."""
     keyboard = [
         [InlineKeyboardButton(text="Приобрести на Ozon", url="https://www.ozon.ru/seller/makovaya-igropraktika-3033403/?miniapp=seller_3033403")],
-        [InlineKeyboardButton(text="Приобрести на WB", url="https://www.wildberries.ru/brands/312187808-makovaya-igropraktika")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main_menu")]
+        [InlineKeyboardButton(text="Приобрести на WB", url="https://www.wildberries.ru/brands/312187808-makovaya-igropraktika")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
