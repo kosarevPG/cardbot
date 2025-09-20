@@ -161,13 +161,10 @@ from modules.ai_service import build_user_profile
 
 # Модуль Карты Дня
 from modules.card_of_the_day import (
-    get_main_menu, handle_card_request, process_initial_resource_callback,
-    process_request_type_callback, process_request_text, process_initial_response,
-    process_exploration_choice_callback, process_first_grok_response,
-    process_second_grok_response, process_third_grok_response,
-    process_final_resource_callback, process_recharge_method, process_recharge_method_choice, process_card_feedback,
-    process_emotion_choice, process_custom_response, process_deck_choice
+    DECKS, get_card_info, get_main_menu, get_resource_level_keyboard, RESOURCE_LEVELS
 )
+
+from modules.purchase_menu import handle_purchase_menu, handle_purchase_callbacks, get_purchase_menu # Добавлены импорты из нового модуля
 
 from functools import partial # <-- Добавляем эту строку
 
@@ -3088,5 +3085,7 @@ if __name__ == "__main__":
         # Вызываем команду получения карты дня
         await handle_card_request(message, state, db, logging_service)
 
-    # --- ИЗМЕНЕНИЕ: Доработанный обработчик для логгирования "отвалов" ---
-"# Force update $(date)" 
+    dp.message.register(partial(handle_unknown_message_state, db=db, logging_service=logging_service), StateFilter("*"))
+
+    dp.message.register(partial(handle_purchase_menu, db=db, logging_service=logging_service), text="🛍 Приобрести МАК")
+    dp.callback_query.register(partial(handle_purchase_callbacks, db=db), F.data == "back_to_main_menu")

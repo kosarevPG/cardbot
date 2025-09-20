@@ -3,6 +3,17 @@ import asyncio
 import sys
 import json
 
+# Добавляем корневую папку проекта в sys.path для корректного импорта
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Добавляем путь к каталогу modules для импорта подмодулей
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'modules')))
+
+from aiogram import types # Добавлен импорт types
+from modules.purchase_menu import handle_purchase_menu, handle_purchase_callbacks, get_purchase_menu # Добавлены импорты из modules.purchase_menu
+from modules.card_of_the_day import get_main_menu # Для получения главного меню
+from modules.logging_service import LoggingService # Добавлен импорт LoggingService
+from database.db import Database # Добавлен импорт Database
+
 # --- ВАЖНО ---
 # Перед запуском теста убедитесь, что вы создали файл 'tools/google_creds.json'
 # и поместили в него содержимое вашего JSON-ключа для доступа к Google Sheets.
@@ -29,9 +40,6 @@ os.environ['WB_API_KEY'] = (
 # -------------------------------------------------------------------------------
 
 
-# Добавляем корневую папку проекта в sys.path для корректного импорта
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 from modules.marketplace_manager import MarketplaceManager
 
 # Загружаем учетные данные напрямую из JSON-файла
@@ -57,17 +65,72 @@ async def main():
     print("Инициализация MarketplaceManager...")
     manager = MarketplaceManager(google_creds=google_creds_info)
     
-    # --- Тест WB: список складов ---
-    print("Тест WB: склады")
-    wb_res = await manager.get_wb_warehouses()
-    print(wb_res)
+    # Инициализация для тестов бота
+    logging_service = LoggingService()
+    db_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'bot.db')
+    db = Database(db_path)
 
-    # Если нужно проверить остатки, раскомментируйте:
-    # if wb_res.get("success") and wb_res["warehouses"]:
-    #     wid = wb_res["warehouses"][0]["id"]
-    #     barcodes = (await manager.get_wb_product_barcodes()).get("barcodes", [])[:20]
-    #     stocks = await manager.get_wb_stocks(wid, barcodes)
-    #     print("Stocks:", stocks)
+    print("\n--- Тест кнопки \"Приобрести МАК\" ---")
+    # Имитация объектов Message и CallbackQuery
+    class MockMessage:
+        def __init__(self):
+            self.text = "🛍 Приобрести МАК"
+            self.from_user = types.User(id=12345, is_bot=False, first_name="Test", last_name="User")
+            self.answer_text = None
+            self.reply_markup = None
+
+        async def answer(self, text, reply_markup=None):
+            print(f"Бот ответил: {text}")
+            self.answer_text = text
+            self.reply_markup = reply_markup
+            return self
+
+        async def edit_text(self, text, reply_markup=None):
+            print(f"Бот изменил сообщение: {text}")
+            self.answer_text = text
+            self.reply_markup = reply_markup
+            return self
+
+    class MockCallbackQuery:
+        def __init__(self, data):
+            self.data = data
+            self.from_user = types.User(id=12345, is_bot=False, first_name="Test", last_name="User")
+            self.message = MockMessage() # Связываем с MockMessage для edit_text
+            self.answer_called = False
+
+        async def answer(self):
+            print(f"CallbackQuery.answer() вызван для: {self.data}")
+            self.answer_called = True
+
+    # Для `handle_purchase_menu`
+    mock_message = MockMessage()
+    # Передаем db и logging_service
+    await handle_purchase_menu(mock_message, db, logging_service)
+
+    # Проверка ответа после нажатия "Приобрести МАК"
+    assert mock_message.answer_text == "Выберите, где приобрести МАК:", f"Expected 'Выберите, где приобрести МАК:', got {mock_message.answer_text}"
+    assert mock_message.reply_markup is not None, "Reply markup should not be None"
+    
+    # Проверка наличия кнопок
+    markup_buttons = [button.text for row in mock_message.reply_markup.inline_keyboard for button in row]
+    print(f"Кнопки в меню: {markup_buttons}")
+    assert "Приобрести на Ozon" in markup_buttons, "Ozon button missing"
+    assert "Приобрести на WB" in markup_buttons, "WB button missing"
+    assert "⬅️ Назад" in markup_buttons, "Back button missing"
+
+    # Для `handle_purchase_callbacks` (кнопка "Назад")
+    print("\n--- Тест кнопки \"⬅️ Назад\" ---")
+    mock_callback_back = MockCallbackQuery(data="back_to_main_menu")
+    # Передаем db
+    await handle_purchase_callbacks(mock_callback_back, db)
+
+    # Проверка, что сообщение изменено на главное меню
+    expected_main_menu_markup = await get_main_menu(mock_callback_back.from_user.id, db) # Получаем ожидаемую разметку главного меню
+    assert mock_callback_back.message.answer_text == "Главное меню:", f"Expected 'Главное меню:', got {mock_callback_back.message.answer_text}"
+    assert mock_callback_back.message.reply_markup == expected_main_menu_markup, "Reply markup for main menu is incorrect"
+    assert mock_callback_back.answer_called, "Callback answer not called for back button"
+    
+    db.close()
 
 if __name__ == "__main__":
     # Для Windows может потребоваться следующая строка, если возникают проблемы с циклом событий

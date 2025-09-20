@@ -6,6 +6,7 @@ import uuid  # <--- ДОБАВЛЕНО
 from aiogram import types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 try:
     from config_local import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR, pytz
 except ImportError:
@@ -234,6 +235,9 @@ async def get_main_menu(user_id, db: Database):
     ]
     # Кнопка 'Получить карту дня' всегда доступна в главном меню
     keyboard.insert(0, [types.KeyboardButton(text="✨ Получить карту дня")])
+    
+    # Добавляем кнопку 'Приобрести МАК' в главное меню
+    keyboard.append([types.KeyboardButton(text="🛍 Приобрести МАК")])
     try:
         user_data = db.get_user(user_id)
         # --- ИЗМЕНЕНИЕ: Добавляем кнопку в конец, если бонус доступен ---
@@ -246,6 +250,15 @@ async def get_main_menu(user_id, db: Database):
     # Используем persistent=True для постоянного отображения
     return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
 
+# --- Клавиатура для Приобретения МАК ---
+async def get_purchase_menu() -> InlineKeyboardMarkup:
+    """Возвращает клавиатуру для выбора места приобретения МАК."""
+    keyboard = [
+        [InlineKeyboardButton(text="Приобрести на Ozon", url="https://www.ozon.ru/seller/makovaya-igropraktika-3033403/?miniapp=seller_3033403")],
+        [InlineKeyboardButton(text="Приобрести на WB", url="https://www.wildberries.ru/brands/312187808-makovaya-igropraktika")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_main_menu")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 # ================================
 # === НОВЫЙ СЦЕНАРИЙ КАРТЫ ДНЯ ===
