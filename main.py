@@ -161,7 +161,11 @@ from modules.ai_service import build_user_profile
 
 # Модуль Карты Дня
 from modules.card_of_the_day import (
-    DECKS, get_card_info, get_main_menu, get_resource_level_keyboard, RESOURCE_LEVELS
+    DECKS, get_card_info, get_main_menu, get_resource_level_keyboard, RESOURCE_LEVELS, handle_card_request,
+    process_initial_resource_callback, process_request_type_callback, process_request_text, process_initial_response,
+    process_emotion_choice, process_custom_response, process_exploration_choice_callback, process_first_grok_response,
+    process_second_grok_response, process_third_grok_response, process_final_resource_callback, process_recharge_method,
+    process_card_feedback, process_recharge_method_choice, process_deck_choice
 )
 
 from modules.purchase_menu import handle_purchase_menu, handle_purchase_callbacks, get_purchase_menu # Добавлены импорты из нового модуля
@@ -2784,6 +2788,10 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.message.register(partial(handle_unknown_message_state, db=db, logging_service=logging_service), StateFilter("*"))
     dp.message.register(handle_unknown_message_no_state) # Catches any other text message
 
+    # Регистрируем обработчики для меню покупки
+    dp.message.register(partial(handle_purchase_menu, db=db, logging_service=logging_service), text="🛍 Приобрести МАК")
+    dp.callback_query.register(partial(handle_purchase_callbacks, db=db), F.data == "back_to_main_menu")
+
     logger.info("Handlers registered successfully.")
 
 
@@ -2852,6 +2860,8 @@ async def main():
     # Запускаем планировщик еженедельного анализа рефлексий
     await reflection_scheduler.start()
     logger.info("Reflection analysis scheduler started.")
+    
+    register_handlers(dp, db, logging_service, user_manager)
     
     reminder_task = asyncio.create_task(notifier.check_reminders())
     logger.info("Reminder check task scheduled.")
@@ -3013,6 +3023,8 @@ async def main() -> None:
     await reflection_scheduler.start()
     logger.info("Reflection analysis scheduler started.")
     
+    register_handlers(dp, db, logging_service, user_manager)
+    
     reminder_task = asyncio.create_task(notifier.check_reminders())
     logger.info("Reminder check task scheduled.")
     logger.info("Starting polling...")
@@ -3084,8 +3096,3 @@ if __name__ == "__main__":
         await state.clear()
         # Вызываем команду получения карты дня
         await handle_card_request(message, state, db, logging_service)
-
-    dp.message.register(partial(handle_unknown_message_state, db=db, logging_service=logging_service), StateFilter("*"))
-
-    dp.message.register(partial(handle_purchase_menu, db=db, logging_service=logging_service), text="🛍 Приобрести МАК")
-    dp.callback_query.register(partial(handle_purchase_callbacks, db=db), F.data == "back_to_main_menu")
