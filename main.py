@@ -2789,7 +2789,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.message.register(handle_unknown_message_no_state) # Catches any other text message
 
     # Регистрируем обработчики для меню покупки
-    dp.message.register(partial(handle_purchase_menu, db=db, logging_service=logging_service), text="🛍 Приобрести МАК")
+    dp.message.register(partial(handle_purchase_menu, db=db, logging_service=logging_service), F.text == "🛍 Приобрести МАК")
     dp.callback_query.register(partial(handle_purchase_callbacks, db=db), F.data == "back_to_main_menu")
 
     logger.info("Handlers registered successfully.")
