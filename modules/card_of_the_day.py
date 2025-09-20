@@ -224,8 +224,11 @@ RESOURCE_LEVELS = {
     "resource_medium": "😐 Средне",
     "resource_low": "😔 Низко",
 }
-# Глобальный путь к папке с картами больше не используется, так как путь определяется динамически.
 
+def get_resource_level_keyboard() -> InlineKeyboardMarkup:
+    """Возвращает клавиатуру для выбора уровня ресурса."""
+    buttons = [types.InlineKeyboardButton(text=label.split()[0], callback_data=key) for key, label in RESOURCE_LEVELS.items()]
+    return types.InlineKeyboardMarkup(inline_keyboard=[buttons])
 
 # --- Основная клавиатура (ИЗМЕНЕНО) ---
 async def get_main_menu(user_id, db: Database):
