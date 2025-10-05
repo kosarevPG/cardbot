@@ -2741,7 +2741,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         
         event_name = state_to_event_map.get(current_state_str)
         if event_name:
-            await logger_service.log_action(
+            await logging_service.log_action(
                 user_id,
                 event_name,
                 {
