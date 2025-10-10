@@ -234,7 +234,8 @@ def get_resource_level_keyboard() -> InlineKeyboardMarkup:
 async def get_main_menu(user_id, db: Database):
     """Возвращает основную клавиатуру меню. (ИЗМЕНЕНО)"""
     keyboard = [
-        [types.KeyboardButton(text="🌙 Подвести итог дня")]
+        [types.KeyboardButton(text="🌙 Подвести итог дня")],
+        [types.KeyboardButton(text="🎓 Как разговаривать с картой")]
     ]
     # Кнопка 'Получить карту дня' всегда доступна в главном меню
     keyboard.insert(0, [types.KeyboardButton(text="✨ Получить карту дня")])

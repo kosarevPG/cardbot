@@ -2641,6 +2641,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной")
     dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Получить карту дня")
     dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Подвести итог дня")
+    dp.message.register(partial(start_learning, db=db), F.text == "🎓 Как разговаривать с картой")
     
     dp.message.register(process_name_handler, UserState.waiting_for_name)
     dp.callback_query.register(process_skip_name_handler, F.data == "skip_name", UserState.waiting_for_name)
