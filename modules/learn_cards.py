@@ -170,13 +170,13 @@ async def start_practice_command(message: types.Message, state: FSMContext, db: 
     await state.update_data(
         session_id=session_id,
         attempts_count=0,
-        max_attempts=2,  # Для /practice лимит 2 попытки
+        max_attempts=9999,  # неограниченное число попыток
         is_practice_mode=True
     )
     
     await message.answer(
         "🧪 <b>Быстрая практика</b>\n\n"
-        "Давай сразу попробуем! У тебя будет 2 попытки сформулировать ресурсный запрос.",
+        "Давай сразу попробуем! Сформулируй ресурсный запрос.",
         parse_mode="HTML"
     )
     
@@ -391,8 +391,8 @@ async def handle_user_request_input(message: types.Message, state: FSMContext, d
                 ]
             else:
                 buttons = [
-                    ("Попробовать снова 🔄", "learn_retry"),
-                    ("Посмотреть примеры 👀", "learn_show_examples_again")
+                    ("Попробовать ещё ✍️", "learn_retry"),
+                    ("Завершить 🌙", "learn_complete_external")
                 ]
         
         keyboard = create_inline_keyboard(buttons)
@@ -564,7 +564,7 @@ async def handle_finish(callback: types.CallbackQuery, state: FSMContext, db: Da
         "Отлично! Возвращайся к практике когда захочешь.\n\n"
         "Команды:\n"
         "/learn_cards — полное обучение\n"
-        "/practice — быстрая практика (2 попытки)"
+        "/practice — быстрая практика"
     )
     
     await state.clear()
