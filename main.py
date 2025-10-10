@@ -188,7 +188,7 @@ from modules.scheduler import MailingScheduler, ReflectionAnalysisScheduler  # �
 from modules.marketplace_commands import register_marketplace_handlers  # Команды маркетплейсов
 
 # Модуль обучения "Как разговаривать с картой"
-from modules.learn_cards import register_learn_cards_handlers
+from modules.learn_cards import register_learn_cards_handlers, start_learning
 
 # --- Стандартные импорты ---
 import random
@@ -1359,7 +1359,7 @@ def make_process_name_handler(db, logger_service, user_manager):
          name = message.text.strip()
          if not name: await message.answer("Имя не может быть пустым..."); return
          if len(name) > 50: await message.answer("Слишком длинное имя..."); return
-         reserved_names = ["✨ Получить карту дня", "💌 Подсказка Вселенной", "🌙 Подвести итог дня"]
+         reserved_names = ["✨ Получить карту дня", "💌 Подсказка Вселенной", "🌙 Подвести итог дня", "🎓 Как разговаривать с картой"]
          if name in reserved_names:
              await message.answer(f"Имя '{name}' использовать нельзя, оно совпадает с кнопкой меню.")
              return
@@ -2719,7 +2719,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             from config import ADMIN_IDS
             if (str(user_id) in ADMIN_IDS and message.text and 
                 not message.text.startswith('/') and
-                message.text not in ["✨ Получить карту дня", "🌙 Подвести итог дня"]):
+                message.text not in ["✨ Получить карту дня", "🌙 Подвести итог дня", "🎓 Как разговаривать с картой"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} in state {current_state_str}")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return
@@ -2782,7 +2782,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             from config import ADMIN_IDS
             if (str(user_id) in ADMIN_IDS and message.text and 
                 not message.text.startswith('/') and
-                message.text not in ["✨ Получить карту дня", "🌙 Подвести итог дня"]):
+                message.text not in ["✨ Получить карту дня", "🌙 Подвести итог дня", "🎓 Как разговаривать с картой"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} (no state)")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return
