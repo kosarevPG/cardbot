@@ -1649,6 +1649,207 @@ async def get_integrated_reflection_summary(user_id: int, reflection_data: dict,
 
 # --- КОНЕЦ УЛУЧШЕННОЙ ФУНКЦИИ ---
 
+# --- НОВАЯ ФУНКЦИЯ: Анализ запросов для обучающего модуля ---
+async def analyze_request(text: str) -> dict:
+    """
+    Анализирует текст запроса пользователя к МАК-картам.
+    
+    Оценивает запрос по 4 критериям:
+    - Личный фокус ("я", "мне", "мой") - 30%
+    - Внутреннее направление - 30%
+    - Открытость вопроса - 20%
+    - Конкретность контекста - 20%
+    
+    Args:
+        text: Текст запроса пользователя
+        
+    Returns:
+        dict: {
+            "tone": "resourceful" | "neutral" | "external",
+            "score": int (0-100),
+            "message": str (обратная связь)
+        }
+    """
+    logger.info(f"Analyzing request: {text[:50]}...")
+    
+    # Валидация входного текста
+    is_valid, error_msg = validate_input_text(text, 500)
+    if not is_valid:
+        logger.error(f"Invalid text for analyze_request: {error_msg}")
+        return {
+            "tone": "external",
+            "score": 0,
+            "message": "Ошибка: текст запроса некорректен."
+        }
+    
+    headers = {
+        "Authorization": f"Api-Key {YANDEX_API_KEY}",
+        "Content-Type": "application/json",
+        "x-folder-id": YANDEX_FOLDER_ID
+    }
+
+    system_prompt_text = (
+        "Ты — эксперт по работе с метафорическими ассоциативными картами (МАК). "
+        "Твоя задача — оценить запрос пользователя по тому, насколько он является 'ресурсным' "
+        "(то есть направленным внутрь себя, на осознание своих чувств и состояний).\n\n"
+        
+        "Критерии оценки запроса (общая оценка 0-100 баллов):\n\n"
+        
+        "1. ЛИЧНЫЙ ФОКУС (30 баллов) - насколько запрос направлен на себя:\n"
+        "   - Использует местоимения 'я', 'мне', 'мой', 'моя' → высокий балл\n"
+        "   - Говорит о других людях ('он', 'она', 'они') → низкий балл\n\n"
+        
+        "2. ВНУТРЕННЕЕ НАПРАВЛЕНИЕ (30 баллов) - фокус на внутренних процессах:\n"
+        "   - Спрашивает о своих чувствах, эмоциях, состояниях → высокий балл\n"
+        "   - Спрашивает о действиях других или внешних событиях → низкий балл\n\n"
+        
+        "3. ОТКРЫТОСТЬ ВОПРОСА (20 баллов) - формат вопроса:\n"
+        "   - Открытые вопросы ('Что я чувствую?', 'Как это влияет на меня?') → высокий балл\n"
+        "   - Закрытые вопросы ('Будет ли...?', 'Когда...?', 'Почему он...?') → низкий балл\n\n"
+        
+        "4. КОНКРЕТНОСТЬ КОНТЕКСТА (20 баллов) - специфика запроса:\n"
+        "   - Конкретная личная ситуация → высокий балл\n"
+        "   - Общие или абстрактные вопросы → средний балл\n\n"
+        
+        "На основе общей оценки определи ТОН запроса:\n"
+        "- 70-100 баллов → 'resourceful' (ресурсный, направлен внутрь)\n"
+        "- 40-69 баллов → 'neutral' (нейтральный, смешанный)\n"
+        "- 0-39 баллов → 'external' (внешний, направлен на других)\n\n"
+        
+        "Твой ответ должен быть в формате JSON:\n"
+        "{\n"
+        '  "score": <число 0-100>,\n'
+        '  "tone": "<resourceful|neutral|external>",\n'
+        '  "message": "<короткая обратная связь на русском, 1-2 предложения>"\n'
+        "}\n\n"
+        
+        "В поле 'message' дай мягкую, поддерживающую обратную связь:\n"
+        "- Для 'resourceful': похвали направленность внутрь\n"
+        "- Для 'neutral': отметь хорошее начало, предложи углубиться\n"
+        "- Для 'external': мягко укажи, что фокус сейчас на других, предложи вернуться к себе\n\n"
+        
+        "Категорически запрещено генерировать ссылки или упоминать интернет."
+    )
+
+    user_prompt_text = f'Проанализируй этот запрос к МАК-картам:\n\n"{text}"\n\nВерни JSON с оценкой.'
+    
+    payload = {
+        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt/latest",
+        "completionOptions": {
+            "stream": False,
+            "temperature": 0.3,  # Низкая температура для более стабильных оценок
+            "maxTokens": "200"
+        },
+        "messages": [
+            {"role": "system", "text": system_prompt_text},
+            {"role": "user", "text": user_prompt_text}
+        ]
+    }
+
+    # Fallback-ответы на случай ошибки
+    fallback_responses = {
+        "external": {
+            "tone": "external",
+            "score": 30,
+            "message": "Пока твой вопрос смотрит больше наружу. Попробуй спросить: 'Что Я чувствую в этой ситуации?'"
+        },
+        "neutral": {
+            "tone": "neutral",
+            "score": 55,
+            "message": "Хорошее начало! Хочешь, покажу, как сделать запрос ещё глубже и ближе к себе?"
+        },
+        "resourceful": {
+            "tone": "resourceful",
+            "score": 75,
+            "message": "Отличный запрос! Он направлен внутрь — карта услышит тебя. 🌿"
+        }
+    }
+    
+    max_retries = 3
+    base_delay = 1.0
+
+    for attempt in range(max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                logger.info(f"Sending REQUEST ANALYSIS to YandexGPT API (Attempt {attempt + 1})")
+                response = await client.post(YANDEX_GPT_URL, headers=headers, json=payload)
+                response.raise_for_status()
+                data = response.json()
+                logger.info(f"Received REQUEST ANALYSIS response from YandexGPT API")
+
+            if not data.get("result") or not data["result"].get("alternatives") or not data["result"]["alternatives"][0].get("message") or not data["result"]["alternatives"][0]["message"].get("text"):
+                raise ValueError("Invalid response structure for request analysis from YandexGPT API")
+
+            response_text = data["result"]["alternatives"][0]["message"]["text"].strip()
+            
+            # Пытаемся извлечь JSON из ответа
+            # Иногда модель может добавить текст до или после JSON
+            json_match = re.search(r'\{[^}]+\}', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(0)
+                try:
+                    result = json.loads(json_str)
+                    
+                    # Валидация структуры ответа
+                    if not all(k in result for k in ["score", "tone", "message"]):
+                        raise ValueError("Missing required fields in JSON response")
+                    
+                    # Валидация значений
+                    if not isinstance(result["score"], (int, float)) or not (0 <= result["score"] <= 100):
+                        raise ValueError("Invalid score value")
+                    
+                    if result["tone"] not in ["resourceful", "neutral", "external"]:
+                        raise ValueError("Invalid tone value")
+                    
+                    # Приводим score к int
+                    result["score"] = int(result["score"])
+                    
+                    # Очищаем message от потенциально опасного контента
+                    result["message"] = sanitize_text_for_ai(result["message"])
+                    
+                    logger.info(f"Successfully analyzed request: tone={result['tone']}, score={result['score']}")
+                    return result
+                    
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse JSON from response: {e}")
+                    raise ValueError("Invalid JSON in response")
+            else:
+                raise ValueError("No JSON found in response")
+
+        except httpx.TimeoutException:
+            logger.warning(f"YandexGPT API request analysis timed out (Attempt {attempt + 1})")
+            if attempt == max_retries - 1:
+                return fallback_responses["neutral"]
+                
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in [429] or e.response.status_code >= 500:
+                logger.warning(f"YandexGPT API returned {e.response.status_code} for request analysis (Attempt: {attempt + 1}). Retrying...")
+                if attempt == max_retries - 1:
+                    return fallback_responses["neutral"]
+            else:
+                logger.error(f"YandexGPT API request analysis failed with status {e.response.status_code}: {e}")
+                return fallback_responses["neutral"]
+                
+        except (ValueError, KeyError, IndexError) as e:
+            logger.error(f"Failed to parse YandexGPT API request analysis response: {e}")
+            return fallback_responses["neutral"]
+            
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred in analyze_request during attempt {attempt + 1}: {e}")
+            if attempt == max_retries - 1:
+                return fallback_responses["neutral"]
+        
+        if attempt < max_retries - 1:
+            delay = base_delay * (2 ** attempt)
+            logger.info(f"Waiting {delay:.1f}s before retrying YandexGPT REQUEST ANALYSIS request...")
+            await asyncio.sleep(delay)
+
+    # Если все попытки исчерпаны
+    logger.error("YandexGPT API request analysis failed after all retries")
+    return fallback_responses["neutral"]
+
+# --- КОНЕЦ НОВОЙ ФУНКЦИИ ---
+
 class AIService:
     def __init__(self, db: Database):
         self.db = db
@@ -1679,3 +1880,6 @@ class AIService:
 
     async def build_user_profile(self, user_id):
         return await build_user_profile(user_id, self.db)
+    
+    async def analyze_request(self, text):
+        return await analyze_request(text)

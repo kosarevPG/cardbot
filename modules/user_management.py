@@ -37,6 +37,21 @@ class UserState(StatesGroup):
     waiting_for_hard_moments = State()
 
 
+# --- Состояния для обучающего модуля "Как разговаривать с картой" ---
+class LearnCardsFSM(StatesGroup):
+    intro = State()  # Вступление
+    theory_1 = State()  # Что такое МАК-карты
+    theory_2 = State()  # Зачем нужен запрос
+    theory_3 = State()  # Типичные ошибки
+    steps = State()  # Три шага к живому запросу
+    trainer_intro = State()  # Подготовка к практике
+    trainer_examples = State()  # Примеры запросов
+    trainer_user_input = State()  # Ввод запроса пользователем
+    trainer_feedback = State()  # Анализ ИИ
+    trainer_user_retry = State()  # Переформулировка
+    training_done = State()  # Завершение
+
+
 class UserManager:
     # --- Код UserManager остается БЕЗ ИЗМЕНЕНИЙ ---
     def __init__(self, db):

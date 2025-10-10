@@ -249,6 +249,32 @@ class Database:
                         FOREIGN KEY (mailing_id) REFERENCES mailings(id) ON DELETE CASCADE,
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )""")
+                
+                # Таблица user_training_progress - прогресс обучения
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS user_training_progress (
+                        user_id INTEGER PRIMARY KEY,
+                        theory_passed BOOLEAN DEFAULT FALSE,
+                        sessions_completed INTEGER DEFAULT 0,
+                        best_score INTEGER DEFAULT 0,
+                        consecutive_resourceful INTEGER DEFAULT 0,
+                        last_session_at TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )""")
+                
+                # Таблица training_session_log - история сессий обучения
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS training_session_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        started_at TEXT NOT NULL,
+                        finished_at TEXT,
+                        attempts INTEGER DEFAULT 0,
+                        best_score INTEGER DEFAULT 0,
+                        final_tone TEXT,
+                        ai_feedback TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )""")
 
             logger.info("Base table structures checked/created successfully.")
         except sqlite3.Error as e:
@@ -325,6 +351,10 @@ class Database:
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_user_scenarios_user_scenario ON user_scenarios (user_id, scenario)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_user_scenarios_status ON user_scenarios (status)")
                 self.conn.execute("CREATE INDEX IF NOT EXISTS idx_user_scenarios_started_at ON user_scenarios (started_at)")
+                
+                # Индексы для таблиц обучающего модуля
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_training_session_log_user ON training_session_log (user_id)")
+                self.conn.execute("CREATE INDEX IF NOT EXISTS idx_training_session_log_started_at ON training_session_log (started_at)")
             logger.info("Indexes checked/created successfully.")
         except sqlite3.Error as e:
             logger.error(f"Error creating database indexes: {e}", exc_info=True)
@@ -2052,6 +2082,243 @@ class Database:
                 return True # Считаем доступной, чтобы не блокировать пользователя
             return last_date < today_date
         return True
+
+    # === МЕТОДЫ ДЛЯ ОБУЧАЮЩЕГО МОДУЛЯ ===
+    
+    def get_training_progress(self, user_id: int) -> dict | None:
+        """
+        Получает прогресс обучения пользователя.
+        
+        Args:
+            user_id: ID пользователя
+            
+        Returns:
+            dict | None: Словарь с данными прогресса или None
+        """
+        try:
+            cursor = self.conn.execute("""
+                SELECT user_id, theory_passed, sessions_completed, best_score, 
+                       consecutive_resourceful, last_session_at
+                FROM user_training_progress 
+                WHERE user_id = ?
+            """, (user_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                result = dict(row)
+                # Конвертируем last_session_at в datetime если возможно
+                if result.get('last_session_at'):
+                    try:
+                        result['last_session_at'] = self.decode_timestamp(result['last_session_at'].encode('utf-8'))
+                    except Exception as e:
+                        logger.error(f"Error decoding last_session_at for user {user_id}: {e}")
+                return result
+            return None
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error getting training progress for user {user_id}: {e}", exc_info=True)
+            return None
+    
+    def init_training_progress(self, user_id: int) -> bool:
+        """
+        Инициализирует запись прогресса обучения для пользователя.
+        
+        Args:
+            user_id: ID пользователя
+            
+        Returns:
+            bool: True если успешно
+        """
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    INSERT OR IGNORE INTO user_training_progress 
+                    (user_id, theory_passed, sessions_completed, best_score, consecutive_resourceful)
+                    VALUES (?, FALSE, 0, 0, 0)
+                """, (user_id,))
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error initializing training progress for user {user_id}: {e}", exc_info=True)
+            return False
+    
+    def update_training_progress(self, user_id: int, updates: dict) -> bool:
+        """
+        Обновляет прогресс обучения пользователя.
+        
+        Args:
+            user_id: ID пользователя
+            updates: Словарь с обновляемыми полями
+            
+        Returns:
+            bool: True если успешно
+        """
+        try:
+            # Сначала убедимся, что запись существует
+            self.init_training_progress(user_id)
+            
+            # Формируем SQL запрос для обновления
+            allowed_fields = ['theory_passed', 'sessions_completed', 'best_score', 
+                              'consecutive_resourceful', 'last_session_at']
+            fields_to_update = {k: v for k, v in updates.items() if k in allowed_fields}
+            
+            if not fields_to_update:
+                return True
+            
+            set_clause = ", ".join([f"{k} = ?" for k in fields_to_update.keys()])
+            values = list(fields_to_update.values()) + [user_id]
+            
+            with self.conn:
+                self.conn.execute(f"""
+                    UPDATE user_training_progress 
+                    SET {set_clause}
+                    WHERE user_id = ?
+                """, values)
+            
+            logger.info(f"Updated training progress for user {user_id}: {fields_to_update}")
+            return True
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error updating training progress for user {user_id}: {e}", exc_info=True)
+            return False
+    
+    def start_training_session(self, user_id: int) -> int | None:
+        """
+        Создает новую сессию обучения.
+        
+        Args:
+            user_id: ID пользователя
+            
+        Returns:
+            int | None: ID созданной сессии или None при ошибке
+        """
+        try:
+            now = datetime.now(TIMEZONE).isoformat()
+            
+            with self.conn:
+                cursor = self.conn.execute("""
+                    INSERT INTO training_session_log 
+                    (user_id, started_at, attempts, best_score)
+                    VALUES (?, ?, 0, 0)
+                """, (user_id, now))
+                session_id = cursor.lastrowid
+            
+            logger.info(f"Started training session {session_id} for user {user_id}")
+            return session_id
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error starting training session for user {user_id}: {e}", exc_info=True)
+            return None
+    
+    def update_training_session(self, session_id: int, updates: dict) -> bool:
+        """
+        Обновляет данные сессии обучения.
+        
+        Args:
+            session_id: ID сессии
+            updates: Словарь с обновляемыми полями
+            
+        Returns:
+            bool: True если успешно
+        """
+        try:
+            allowed_fields = ['finished_at', 'attempts', 'best_score', 'final_tone', 'ai_feedback']
+            fields_to_update = {k: v for k, v in updates.items() if k in allowed_fields}
+            
+            if not fields_to_update:
+                return True
+            
+            # Сериализуем ai_feedback в JSON если это dict
+            if 'ai_feedback' in fields_to_update and isinstance(fields_to_update['ai_feedback'], dict):
+                fields_to_update['ai_feedback'] = json.dumps(fields_to_update['ai_feedback'], ensure_ascii=False)
+            
+            set_clause = ", ".join([f"{k} = ?" for k in fields_to_update.keys()])
+            values = list(fields_to_update.values()) + [session_id]
+            
+            with self.conn:
+                self.conn.execute(f"""
+                    UPDATE training_session_log 
+                    SET {set_clause}
+                    WHERE id = ?
+                """, values)
+            
+            logger.info(f"Updated training session {session_id}: {list(fields_to_update.keys())}")
+            return True
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error updating training session {session_id}: {e}", exc_info=True)
+            return False
+    
+    def get_training_session(self, session_id: int) -> dict | None:
+        """
+        Получает данные сессии обучения.
+        
+        Args:
+            session_id: ID сессии
+            
+        Returns:
+            dict | None: Данные сессии или None
+        """
+        try:
+            cursor = self.conn.execute("""
+                SELECT id, user_id, started_at, finished_at, attempts, 
+                       best_score, final_tone, ai_feedback
+                FROM training_session_log 
+                WHERE id = ?
+            """, (session_id,))
+            
+            row = cursor.fetchone()
+            if row:
+                result = dict(row)
+                # Десериализуем ai_feedback из JSON
+                if result.get('ai_feedback'):
+                    try:
+                        result['ai_feedback'] = json.loads(result['ai_feedback'])
+                    except json.JSONDecodeError:
+                        pass
+                return result
+            return None
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error getting training session {session_id}: {e}", exc_info=True)
+            return None
+    
+    def get_user_training_sessions(self, user_id: int, limit: int = 10) -> list[dict]:
+        """
+        Получает последние сессии обучения пользователя.
+        
+        Args:
+            user_id: ID пользователя
+            limit: Максимальное количество сессий
+            
+        Returns:
+            list[dict]: Список сессий
+        """
+        try:
+            cursor = self.conn.execute("""
+                SELECT id, user_id, started_at, finished_at, attempts, 
+                       best_score, final_tone, ai_feedback
+                FROM training_session_log 
+                WHERE user_id = ?
+                ORDER BY started_at DESC
+                LIMIT ?
+            """, (user_id, limit))
+            
+            results = []
+            for row in cursor.fetchall():
+                result = dict(row)
+                # Десериализуем ai_feedback из JSON
+                if result.get('ai_feedback'):
+                    try:
+                        result['ai_feedback'] = json.loads(result['ai_feedback'])
+                    except json.JSONDecodeError:
+                        pass
+                results.append(result)
+            
+            return results
+            
+        except sqlite3.Error as e:
+            logger.error(f"Error getting training sessions for user {user_id}: {e}", exc_info=True)
+            return []
 
 # --- КОНЕЦ КЛАССА ---
 

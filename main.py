@@ -187,6 +187,9 @@ from modules.post_management import PostManager
 from modules.scheduler import MailingScheduler, ReflectionAnalysisScheduler  # Добавляем новый планировщик
 from modules.marketplace_commands import register_marketplace_handlers  # Команды маркетплейсов
 
+# Модуль обучения "Как разговаривать с картой"
+from modules.learn_cards import register_learn_cards_handlers
+
 # --- Стандартные импорты ---
 import random
 from datetime import datetime, timedelta, time, date # Добавляем time, date
@@ -2664,6 +2667,9 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
 
     # Регистрируем команды маркетплейсов
     register_marketplace_handlers(dp)
+
+    # Регистрируем обработчики обучающего модуля
+    register_learn_cards_handlers(dp, db, logging_service, user_manager)
 
     dp.message.register(partial(process_good_moments, db=db, logger_service=logging_service), UserState.waiting_for_good_moments)
     dp.message.register(partial(process_gratitude, db=db, logger_service=logging_service), UserState.waiting_for_gratitude)
