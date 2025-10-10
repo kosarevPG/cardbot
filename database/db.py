@@ -1685,6 +1685,114 @@ class Database:
                 'total_draws': 0
             }
 
+    def get_evening_reflection_metrics(self, days: int = 7):
+        """Получает детальные метрики по вечерней рефлексии."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            # Общая статистика
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    COUNT(*) as total_reflections,
+                    COUNT(DISTINCT user_id) as unique_users,
+                    AVG(LENGTH(good_moments)) as avg_good_length,
+                    AVG(LENGTH(gratitude)) as avg_gratitude_length,
+                    AVG(LENGTH(hard_moments)) as avg_hard_length,
+                    SUM(CASE WHEN ai_summary IS NOT NULL AND ai_summary != '' THEN 1 ELSE 0 END) as ai_summaries_count
+                FROM evening_reflections 
+                WHERE date >= date('now', '-{days} days')
+                {excluded_condition}
+            """, list(excluded_users) if excluded_users else [])
+            
+            stats = cursor.fetchone()
+            
+            # Топ активных пользователей
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    user_id,
+                    COUNT(*) as reflection_count,
+                    MAX(date) as last_reflection
+                FROM evening_reflections 
+                WHERE date >= date('now', '-{days} days')
+                {excluded_condition}
+                GROUP BY user_id
+                ORDER BY reflection_count DESC
+                LIMIT 10
+            """, list(excluded_users) if excluded_users else [])
+            
+            top_users = []
+            for row in cursor.fetchall():
+                user_data = self.get_user(row['user_id'])
+                top_users.append({
+                    'user_id': row['user_id'],
+                    'name': user_data.get('name', 'Без имени') if user_data else 'Без имени',
+                    'reflection_count': row['reflection_count'],
+                    'last_reflection': row['last_reflection']
+                })
+            
+            # Последние рефлексии
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    user_id,
+                    date,
+                    good_moments,
+                    gratitude,
+                    hard_moments,
+                    ai_summary,
+                    created_at
+                FROM evening_reflections 
+                WHERE date >= date('now', '-{days} days')
+                {excluded_condition}
+                ORDER BY created_at DESC
+                LIMIT 20
+            """, list(excluded_users) if excluded_users else [])
+            
+            recent_reflections = []
+            for row in cursor.fetchall():
+                user_data = self.get_user(row['user_id'])
+                recent_reflections.append({
+                    'user_id': row['user_id'],
+                    'name': user_data.get('name', 'Без имени') if user_data else 'Без имени',
+                    'date': row['date'],
+                    'good_moments': row['good_moments'],
+                    'gratitude': row['gratitude'],
+                    'hard_moments': row['hard_moments'],
+                    'ai_summary': row['ai_summary'],
+                    'created_at': row['created_at']
+                })
+            
+            return {
+                'total_reflections': stats['total_reflections'] or 0,
+                'unique_users': stats['unique_users'] or 0,
+                'avg_good_length': round(stats['avg_good_length'] or 0, 1),
+                'avg_gratitude_length': round(stats['avg_gratitude_length'] or 0, 1),
+                'avg_hard_length': round(stats['avg_hard_length'] or 0, 1),
+                'ai_summaries_count': stats['ai_summaries_count'] or 0,
+                'ai_summary_rate': round((stats['ai_summaries_count'] / stats['total_reflections'] * 100) if stats['total_reflections'] > 0 else 0, 1),
+                'top_users': top_users,
+                'recent_reflections': recent_reflections
+            }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get evening reflection metrics: {e}", exc_info=True)
+            return {
+                'total_reflections': 0,
+                'unique_users': 0,
+                'avg_good_length': 0,
+                'avg_gratitude_length': 0,
+                'avg_hard_length': 0,
+                'ai_summaries_count': 0,
+                'ai_summary_rate': 0,
+                'top_users': [],
+                'recent_reflections': []
+            }
+
     def get_admin_dashboard_summary(self, days: int = 7):
         """Получает сводку для главного дашборда админки."""
         try:

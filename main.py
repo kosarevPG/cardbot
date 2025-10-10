@@ -1517,6 +1517,20 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
                 await show_admin_decks(callback.message, db, logger_service, user_id, days)
             except ValueError:
                 await show_admin_decks(callback.message, db, logger_service, user_id, 7)
+        elif action == "admin_reflections":
+            await show_admin_reflections(callback.message, db, logger_service, user_id, 7)
+        elif action.startswith("admin_reflections_"):
+            try:
+                days = int(action.split("_")[-1])
+                await show_admin_reflections(callback.message, db, logger_service, user_id, days)
+            except ValueError:
+                await show_admin_reflections(callback.message, db, logger_service, user_id, 7)
+        elif action.startswith("admin_reflection_detail_"):
+            try:
+                user_reflection_id = int(action.split("_")[-1])
+                await show_reflection_detail(callback.message, db, logger_service, user_id, user_reflection_id)
+            except ValueError:
+                await callback.answer("Ошибка: неверный ID рефлексии", show_alert=True)
         elif action == "admin_users":
             await show_admin_users(callback.message, db, logger_service, user_id)
         elif action == "admin_users_list":
@@ -1575,6 +1589,7 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
             [types.InlineKeyboardButton(text="🔄 Воронка 'Карта дня'", callback_data="admin_funnel")],
             [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
             [types.InlineKeyboardButton(text="🃏 Статистика колод", callback_data="admin_decks")],
+            [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
             [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")]
@@ -1950,6 +1965,89 @@ async def show_admin_decks(message: types.Message, db: Database, logger_service:
     except Exception as e:
         logger.error(f"Error showing admin decks: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке статистики колод"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_reflections(message: types.Message, db: Database, logger_service: LoggingService, user_id: int, days: int = 7):
+    """Показывает метрики вечерней рефлексии."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", parse_mode="HTML")
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin reflections")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", parse_mode="HTML")
+        return
+    
+    try:
+        # Получаем метрики вечерней рефлексии
+        metrics = db.get_evening_reflection_metrics(days)
+        
+        if not metrics:
+            text = "❌ Нет данных о рефлексиях за указанный период"
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            ])
+            await message.edit_text(text, reply_markup=keyboard)
+            return
+        
+        # Определяем период для отображения
+        period_text = "Сегодня" if days == 1 else f"{days} дней"
+        
+        text = f"""🌙 <b>ВЕЧЕРНЯЯ РЕФЛЕКСИЯ</b> ({period_text})
+
+📊 <b>Общая статистика:</b>
+• Всего рефлексий: {metrics['total_reflections']}
+• Уникальных пользователей: {metrics['unique_users']}
+• AI-резюме сгенерировано: {metrics['ai_summaries_count']} ({metrics['ai_summary_rate']}%)
+
+📝 <b>Средняя длина ответов:</b>
+• Хорошие моменты: {metrics['avg_good_length']} символов
+• Благодарность: {metrics['avg_gratitude_length']} символов
+• Сложности: {metrics['avg_hard_length']} символов
+
+👥 <b>Топ-5 активных пользователей:</b>
+"""
+        
+        # Добавляем топ пользователей
+        for i, user in enumerate(metrics['top_users'][:5], 1):
+            text += f"{i}. {user['name']} — {user['reflection_count']} рефлексий\n"
+        
+        if not metrics['top_users']:
+            text += "Нет данных\n"
+        
+        text += "\n💡 Нажмите кнопку ниже, чтобы увидеть последние рефлексии"
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [
+                types.InlineKeyboardButton(text="Сегодня", callback_data="admin_reflections_1"),
+                types.InlineKeyboardButton(text="7 дней", callback_data="admin_reflections_7"),
+                types.InlineKeyboardButton(text="30 дней", callback_data="admin_reflections_30")
+            ],
+            [types.InlineKeyboardButton(text="📋 Последние рефлексии", callback_data=f"admin_recent_reflections_{days}")],
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_reflections_{days}")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_reflections_viewed", {"days": days})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin reflections: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке метрик рефлексии"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
         ])
