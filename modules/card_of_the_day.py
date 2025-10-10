@@ -525,6 +525,7 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
         # Логируем вытягивание карты
         db.log_scenario_step(user_id, 'card_of_day', 'card_drawn', {
             'card_number': card_number,
+            'deck_name': deck_name,
             'session_id': session_id,
             'user_request': user_request[:100] if user_request else None
         })
@@ -532,6 +533,7 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
         # --- ИЗМЕНЕНИЕ: Обновлен лог события ---
         await logger_service.log_action(user_id, "card_drawn", {
             "card_number": card_number,
+            "deck_name": deck_name,
             "session_id": session_id
         })
         # --- КОНЕЦ ИЗМЕНЕНИЯ ---

@@ -1620,6 +1620,71 @@ class Database:
             logger.error(f"Failed to get value metrics: {e}", exc_info=True)
             return {'resource_lift': {'positive_pct': 0, 'negative_pct': 0, 'total_sessions': 0}, 'feedback_score': 0, 'total_feedback': 0}
 
+    def get_deck_popularity_metrics(self, days: int = 7):
+        """Получает метрики популярности колод."""
+        try:
+            # Получаем список исключаемых пользователей
+            try:
+                from config_local import NO_LOGS_USERS
+            except ImportError:
+                from config import NO_LOGS_USERS
+            
+            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
+            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            
+            # Статистика по колодам из scenario_logs
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    JSON_EXTRACT(metadata, '$.deck_name') as deck_name,
+                    COUNT(*) as total_draws,
+                    COUNT(DISTINCT user_id) as unique_users
+                FROM scenario_logs 
+                WHERE scenario = 'card_of_day' 
+                AND step = 'card_drawn'
+                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
+                {excluded_condition}
+                GROUP BY JSON_EXTRACT(metadata, '$.deck_name')
+            """, list(excluded_users) if excluded_users else [])
+            
+            deck_stats = {}
+            total_draws_all = 0
+            
+            for row in cursor.fetchall():
+                deck_name = row['deck_name'] or 'nature'  # Fallback для старых записей
+                total_draws = row['total_draws']
+                unique_users = row['unique_users']
+                
+                deck_stats[deck_name] = {
+                    'total_draws': total_draws,
+                    'unique_users': unique_users
+                }
+                total_draws_all += total_draws
+            
+            # Вычисляем проценты
+            for deck_name in deck_stats:
+                deck_stats[deck_name]['percentage'] = round((deck_stats[deck_name]['total_draws'] / total_draws_all * 100), 1) if total_draws_all > 0 else 0
+            
+            # Если нет данных, возвращаем нули
+            if not deck_stats:
+                deck_stats = {
+                    'nature': {'total_draws': 0, 'unique_users': 0, 'percentage': 0},
+                    'message': {'total_draws': 0, 'unique_users': 0, 'percentage': 0}
+                }
+            
+            return {
+                'decks': deck_stats,
+                'total_draws': total_draws_all
+            }
+        except sqlite3.Error as e:
+            logger.error(f"Failed to get deck popularity metrics: {e}", exc_info=True)
+            return {
+                'decks': {
+                    'nature': {'total_draws': 0, 'unique_users': 0, 'percentage': 0},
+                    'message': {'total_draws': 0, 'unique_users': 0, 'percentage': 0}
+                },
+                'total_draws': 0
+            }
+
     def get_admin_dashboard_summary(self, days: int = 7):
         """Получает сводку для главного дашборда админки."""
         try:
@@ -1630,6 +1695,7 @@ class Database:
             evening_stats = self.get_scenario_stats('evening_reflection', days)
             funnel = self.get_card_funnel_metrics(days)
             value = self.get_value_metrics(days)
+            deck_popularity = self.get_deck_popularity_metrics(days)
             
             return {
                 'retention': retention,
@@ -1638,6 +1704,7 @@ class Database:
                 'evening_stats': evening_stats,
                 'funnel': funnel,
                 'value': value,
+                'deck_popularity': deck_popularity,
                 'period_days': days
             }
         except Exception as e:

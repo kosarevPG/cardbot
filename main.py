@@ -1509,6 +1509,14 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
                 await show_admin_value(callback.message, db, logger_service, user_id, days)
             except ValueError:
                 await show_admin_value(callback.message, db, logger_service, user_id, 7)
+        elif action == "admin_decks":
+            await show_admin_decks(callback.message, db, logger_service, user_id, 7)
+        elif action.startswith("admin_decks_"):
+            try:
+                days = int(action.split("_")[-1])
+                await show_admin_decks(callback.message, db, logger_service, user_id, days)
+            except ValueError:
+                await show_admin_decks(callback.message, db, logger_service, user_id, 7)
         elif action == "admin_users":
             await show_admin_users(callback.message, db, logger_service, user_id)
         elif action == "admin_users_list":
@@ -1566,6 +1574,7 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
             [types.InlineKeyboardButton(text="📈 Метрики удержания", callback_data="admin_retention")],
             [types.InlineKeyboardButton(text="🔄 Воронка 'Карта дня'", callback_data="admin_funnel")],
             [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
+            [types.InlineKeyboardButton(text="🃏 Статистика колод", callback_data="admin_decks")],
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
             [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")]
@@ -1643,7 +1652,11 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
 
 💎 <b>Ценность:</b>
 • Положительная динамика ресурса: {summary['value']['resource_lift']['positive_pct']}%
-• Feedback Score: {summary['value']['feedback_score']}%"""
+• Feedback Score: {summary['value']['feedback_score']}%
+
+🃏 <b>Колоды:</b>
+• 🌿 Природа: {summary['deck_popularity']['decks'].get('nature', {}).get('percentage', 0)}%
+• 💌 Весточка: {summary['deck_popularity']['decks'].get('message', {}).get('percentage', 0)}%"""
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -1853,6 +1866,90 @@ async def show_admin_value(message: types.Message, db: Database, logger_service:
     except Exception as e:
         logger.error(f"Error showing admin value: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке метрик ценности"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+async def show_admin_decks(message: types.Message, db: Database, logger_service: LoggingService, user_id: int, days: int = 7):
+    """Показывает статистику по колодам карт."""
+    # ЖЕСТКАЯ ПРОВЕРКА ПРАВ АДМИНИСТРАТОРА
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("🚫 ДОСТУП ЗАПРЕЩЕН! У вас нет прав администратора.", parse_mode="HTML")
+            logger.warning(f"BLOCKED: User {user_id} attempted to access admin decks")
+            return
+    except ImportError as e:
+        logger.error(f"CRITICAL: Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("🚫 КРИТИЧЕСКАЯ ОШИБКА БЕЗОПАСНОСТИ", parse_mode="HTML")
+        return
+    
+    try:
+        # Получаем метрики популярности колод
+        deck_metrics = db.get_deck_popularity_metrics(days)
+        
+        if not deck_metrics or not deck_metrics.get('decks'):
+            text = "❌ Нет данных о колодах за указанный период"
+            keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+                [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            ])
+            await message.edit_text(text, reply_markup=keyboard)
+            return
+        
+        # Определяем период для отображения
+        period_text = "Сегодня" if days == 1 else f"{days} дней"
+        
+        decks_data = deck_metrics['decks']
+        total_draws = deck_metrics['total_draws']
+        
+        # Маппинг названий колод
+        deck_names = {
+            'nature': '🌿 Ресурсы природы',
+            'message': '💌 Ресурсная весточка'
+        }
+        
+        text = f"""🃏 <b>СТАТИСТИКА КОЛОД</b> ({period_text})
+
+📊 <b>Всего вытянуто карт:</b> {total_draws}
+
+"""
+        
+        # Добавляем статистику по каждой колоде
+        for deck_key in ['nature', 'message']:
+            deck_info = decks_data.get(deck_key, {'total_draws': 0, 'unique_users': 0, 'percentage': 0})
+            deck_name = deck_names.get(deck_key, deck_key)
+            
+            text += f"""<b>{deck_name}:</b>
+• Выбрано: {deck_info['total_draws']} раз ({deck_info['percentage']}%)
+• Уникальных пользователей: {deck_info['unique_users']}
+
+"""
+        
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [
+                types.InlineKeyboardButton(text="Сегодня", callback_data="admin_decks_1"),
+                types.InlineKeyboardButton(text="7 дней", callback_data="admin_decks_7"),
+                types.InlineKeyboardButton(text="30 дней", callback_data="admin_decks_30")
+            ],
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_decks_{days}")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_decks_viewed", {"days": days})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin decks: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке статистики колод"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
         ])
