@@ -287,7 +287,8 @@ async def handle_show_templates(callback: types.CallbackQuery, state: FSMContext
     templates_text += "\n\n<i>Подставь свою ситуацию и попробуй!</i>"
     
     await callback.message.answer(templates_text, parse_mode="HTML")
-    # Не меняем состояние, пользователь все еще может ввести свой запрос
+    # Переходим в состояние ожидания ввода запроса от пользователя
+    await state.set_state(LearnCardsFSM.trainer_user_input)
 
 
 async def handle_trainer_input(callback: types.CallbackQuery, state: FSMContext, db: Database):
