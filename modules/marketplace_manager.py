@@ -847,8 +847,13 @@ class MarketplaceManager:
         try:
             # Если не указаны конкретные товары, получаем все
             if not offer_ids:
-                products = await self.get_ozon_products_simple()
-                offer_ids = [p["offer_id"] for p in products if p.get("offer_id")]
+                result = await self.get_ozon_products_simple()
+                if result.get("success") and "products" in result:
+                    products = result["products"]
+                    offer_ids = [p["offer_id"] for p in products if p.get("offer_id")]
+                else:
+                    logger.warning("⚠️ Не удалось получить список товаров Ozon")
+                    return {}
             
             if not offer_ids:
                 logger.warning("⚠️ Нет товаров для получения цен")
@@ -909,7 +914,7 @@ class MarketplaceManager:
             # Если не указаны конкретные товары, получаем все
             if not nm_ids:
                 # Получаем список товаров из Google Sheets
-                sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, self.sheet_name)
+                sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, f"{self.sheet_name}!A:R")
                 if not sheet_data or len(sheet_data) < 2:
                     logger.warning("⚠️ Нет данных в таблице для получения цен")
                     return {}
@@ -1011,7 +1016,7 @@ class MarketplaceManager:
         """
         try:
             # Читаем данные из таблицы
-            sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, self.sheet_name)
+            sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, f"{self.sheet_name}!A:R")
             if not sheet_data or len(sheet_data) < 2:
                 logger.warning("⚠️ Нет данных в таблице")
                 return
