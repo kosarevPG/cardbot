@@ -1730,9 +1730,12 @@ class Database:
             top_users = []
             for row in cursor.fetchall():
                 user_data = self.get_user(row['user_id'])
+                username = user_data.get('username', '') if user_data else ''
+                username_display = f"@{username}" if username else "без username"
                 top_users.append({
                     'user_id': row['user_id'],
                     'name': user_data.get('name', 'Без имени') if user_data else 'Без имени',
+                    'username': username_display,
                     'reflection_count': row['reflection_count'],
                     'last_reflection': row['last_reflection']
                 })

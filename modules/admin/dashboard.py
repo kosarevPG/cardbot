@@ -431,7 +431,7 @@ async def show_admin_reflections(message: types.Message, db: Database, logger_se
         
         # Добавляем топ пользователей
         for i, user in enumerate(metrics['top_users'][:5], 1):
-            text += f"{i}. {user['name']} — {user['reflection_count']} рефлексий\n"
+            text += f"{i}. <code>{user['user_id']}</code> | {user['username']} | {user['name']} — {user['reflection_count']} рефлексий\n"
         
         if not metrics['top_users']:
             text += "Нет данных\n"

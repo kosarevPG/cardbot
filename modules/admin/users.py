@@ -61,7 +61,7 @@ def make_admin_user_profile_handler(db, logger_service):
         last_updated = last_updated_dt.astimezone(TIMEZONE).strftime("%Y-%m-%d %H:%M") if isinstance(last_updated_dt, datetime) and TIMEZONE else "N/A"
         
         text = (
-            f"👤 <b>Профиль пользователя:</b> <code>{target_user_id}</code>\n   Имя: {name}, Ник: @{username}\n\n"
+            f"👤 <b>Профиль пользователя:</b> <code>{target_user_id}</code> | @{username} | {name}\n\n"
             f"<b>Состояние & Темы:</b>\n  Настроение: {mood}\n  Тренд: {mood_trend}\n  Темы: {themes}\n\n"
             f"<b>Ресурс (последний 'Карта дня'):</b>\n  Начало: {initial_resource}\n  Конец: {final_resource}\n  Восстановление: {recharge_method}\n\n"
             f"<b>Вечерняя Рефлексия:</b>\n  Последний итог: {last_reflection_date}\n  Всего итогов: {reflection_count}\n\n"
@@ -341,7 +341,7 @@ async def show_admin_requests(message: types.Message, db: Database, logger_servi
                 
                 text += f"\n{i}. <b>{formatted_date}</b>"
                 text += f"\n   <i>«{display_text}»</i>"
-                text += f"\n   👤 ID: {req_user_id} | {user_name} | {username_display}"
+                text += f"\n   👤 <code>{req_user_id}</code> | {username_display} | {user_name}"
                 text += f"\n"
         else:
             text += "\nПока нет запросов"
@@ -416,10 +416,7 @@ async def show_admin_requests_full(message: types.Message, db: Database, logger_
                 
                 text += f"\n\n<b>{i}. {formatted_date}</b>"
                 text += f"\n🎴 Карта: {card_number}"
-                text += f"\n👤 <b>Пользователь:</b>"
-                text += f"\n   • ID: <code>{req_user_id}</code>"
-                text += f"\n   • Имя: {user_name}"
-                text += f"\n   • Username: {username_display}"
+                text += f"\n👤 <b>Пользователь:</b> <code>{req_user_id}</code> | {username_display} | {user_name}"
                 text += f"\n💬 <b>Запрос:</b>"
                 text += f"\n   «{request_text}»"
                 text += f"\n{'─' * 40}"
