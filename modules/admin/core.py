@@ -70,7 +70,8 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
         # Динамический импорт для избежания циклических зависимостей
         from modules.admin.dashboard import (
             show_admin_dashboard, show_admin_retention, show_admin_funnel,
-            show_admin_value, show_admin_decks, show_admin_reflections, show_admin_logs
+            show_admin_value, show_admin_decks, show_admin_reflections, 
+            show_admin_recent_reflections, show_admin_logs
         )
         from modules.admin.users import (
             show_admin_users, show_admin_users_list,
