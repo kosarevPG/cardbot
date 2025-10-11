@@ -99,12 +99,19 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
         excluded_users = set(NO_LOGS_USERS) if NO_LOGS_USERS else set()
         excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
         
+        # Используем VIEW v_events для подсчета активных пользователей
+        excluded_condition_view = ""
+        params_view = []
+        if excluded_users:
+            excluded_condition_view = "AND user_id NOT IN ({})".format(','.join('?' * len(excluded_users)))
+            params_view = list(excluded_users)
+        
         cursor = db.conn.execute(f"""
             SELECT COUNT(DISTINCT user_id) as active_users
-            FROM scenario_logs 
-            WHERE DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-7 days')
-            {excluded_condition}
-        """, list(excluded_users) if excluded_users else [])
+            FROM v_events 
+            WHERE d_local >= date('now', '+3 hours', '-7 days')
+            {excluded_condition_view}
+        """, params_view)
         active_users = cursor.fetchone()['active_users']
         
         activity_pct = (active_users/total_users*100) if total_users > 0 else 0

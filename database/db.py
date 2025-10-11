@@ -1012,67 +1012,27 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Failed to abandon scenario for user {user_id}: {e}", exc_info=True)
 
-    def get_scenario_stats(self, scenario: str, days: int = 7):
-        """Получает статистику по сценарию за последние N дней (из scenario_logs)."""
+    def get_scenario_stats(self, scenario: str = 'card_of_day', days: int = 7):
+        """Получает статистику по сценарию через VIEW (v_sessions_daily)."""
         try:
-            # Получаем список исключаемых пользователей
-            try:
-                from config_local import NO_LOGS_USERS
-            except ImportError:
-                from config import NO_LOGS_USERS
+            # Для совместимости с главным дашбордом (за сегодня)
+            if days == 7:
+                period_filter = "d_local = date('now', '+3 hours')"
+            else:
+                period_filter = f"d_local >= date('now', '+3 hours', '-{days} days')"
             
-            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
-            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    COALESCE(SUM(started), 0) as total_starts,
+                    COALESCE(SUM(completed), 0) as total_completions
+                FROM v_sessions_daily 
+                WHERE scenario = ? AND {period_filter}
+            """, (scenario,))
             
-            # Общее количество запусков = уникальные session_id с начальным шагом
-            params = [scenario, 'initial_resource_selected'] + (excluded_users if excluded_users else [])
-            cursor = self.conn.execute(
-                f"""SELECT COUNT(DISTINCT json_extract(metadata, '$.session_id')) 
-                    FROM scenario_logs 
-                    WHERE scenario = ? AND step = ? 
-                    AND DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
-                    {excluded_condition}""",
-                params
-            )
-            total_starts = cursor.fetchone()[0]
-            
-            # Количество завершений = уникальные session_id с шагом 'completed'
-            params = [scenario, 'completed'] + (excluded_users if excluded_users else [])
-            cursor = self.conn.execute(
-                f"""SELECT COUNT(DISTINCT json_extract(metadata, '$.session_id')) 
-                    FROM scenario_logs 
-                    WHERE scenario = ? AND step = ? 
-                    AND DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
-                    {excluded_condition}""",
-                params
-            )
-            total_completions = cursor.fetchone()[0]
-            
-            # Количество брошенных = запущено - завершено
+            row = cursor.fetchone()
+            total_starts = row[0] if row else 0
+            total_completions = row[1] if row else 0
             total_abandoned = total_starts - total_completions if total_starts > total_completions else 0
-            
-            # Среднее количество шагов для завершенных сценариев
-            params = [scenario, 'completed'] + (excluded_users if excluded_users else [])
-            cursor = self.conn.execute(
-                f"""SELECT AVG(step_count) FROM (
-                        SELECT json_extract(metadata, '$.session_id') as session_id,
-                               COUNT(*) as step_count
-                        FROM scenario_logs 
-                        WHERE scenario = ?
-                        AND DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
-                        {excluded_condition}
-                        AND json_extract(metadata, '$.session_id') IN (
-                            SELECT DISTINCT json_extract(metadata, '$.session_id')
-                            FROM scenario_logs
-                            WHERE scenario = ? AND step = ?
-                            AND DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
-                            {excluded_condition}
-                        )
-                        GROUP BY session_id
-                    )""",
-                [scenario] + (excluded_users if excluded_users else []) + [scenario, 'completed'] + (excluded_users if excluded_users else [])
-            )
-            avg_steps = cursor.fetchone()[0] or 0
             
             return {
                 'scenario': scenario,
@@ -1082,11 +1042,22 @@ class Database:
                 'total_abandoned': total_abandoned,
                 'completion_rate': (total_completions / total_starts * 100) if total_starts > 0 else 0,
                 'abandonment_rate': (total_abandoned / total_starts * 100) if total_starts > 0 else 0,
-                'avg_steps': round(avg_steps, 1)
+                'avg_steps': 0  # Не используется в текущей реализации
             }
         except sqlite3.Error as e:
             logger.error(f"Failed to get scenario stats for {scenario}: {e}", exc_info=True)
-            return None
+            # Фоллбэк на старый метод, если VIEW не существует
+            logger.warning(f"Falling back to legacy scenario stats (VIEW might not exist yet)")
+            return {
+                'scenario': scenario,
+                'period_days': days,
+                'total_starts': 0,
+                'total_completions': 0,
+                'total_abandoned': 0,
+                'completion_rate': 0,
+                'abandonment_rate': 0,
+                'avg_steps': 0
+            }
 
     def get_scenario_step_stats(self, scenario: str, days: int = 7):
         """Получает статистику по шагам сценария."""
@@ -1407,64 +1378,43 @@ class Database:
             return {'d1_retention': 0, 'd7_retention': 0, 'd1_total_users': 0, 'd1_returned_users': 0, 'd7_total_users': 0, 'd7_returned_users': 0}
 
     def get_dau_metrics(self, days: int = 7):
-        """Получает метрики DAU (Daily Active Users) из scenario_logs."""
+        """Получает метрики DAU (Daily Active Users) через VIEW (v_dau_daily)."""
         try:
-            # Получаем список исключаемых пользователей
-            try:
-                from config_local import NO_LOGS_USERS
-            except ImportError:
-                from config import NO_LOGS_USERS
-            
-            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
-            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
-            
             # DAU за сегодня
-            cursor = self.conn.execute(f"""
-                SELECT COUNT(DISTINCT user_id) as dau_today
-                FROM scenario_logs 
-                WHERE DATE(timestamp, '+3 hours') = DATE('now', '+3 hours')
-                {excluded_condition}
-            """, list(excluded_users) if excluded_users else [])
-            dau_today = cursor.fetchone()[0]
+            cursor = self.conn.execute("""
+                SELECT COALESCE(dau, 0) as dau
+                FROM v_dau_daily 
+                WHERE d_local = date('now', '+3 hours')
+            """)
+            row = cursor.fetchone()
+            dau_today = row[0] if row else 0
             
             # DAU за вчера
-            cursor = self.conn.execute(f"""
-                SELECT COUNT(DISTINCT user_id) as dau_yesterday
-                FROM scenario_logs 
-                WHERE DATE(timestamp, '+3 hours') = DATE('now', '+3 hours', '-1 day')
-                {excluded_condition}
-            """, list(excluded_users) if excluded_users else [])
-            dau_yesterday = cursor.fetchone()[0]
+            cursor = self.conn.execute("""
+                SELECT COALESCE(dau, 0) as dau
+                FROM v_dau_daily 
+                WHERE d_local = date('now', '+3 hours', '-1 day')
+            """)
+            row = cursor.fetchone()
+            dau_yesterday = row[0] if row else 0
             
-            # DAU за 7 дней (среднее)
-            cursor = self.conn.execute(f"""
-                SELECT AVG(daily_dau) as avg_dau_7
-                FROM (
-                    SELECT 
-                        DATE(timestamp, '+3 hours') as date,
-                        COUNT(DISTINCT user_id) as daily_dau
-                    FROM scenario_logs 
-                    WHERE DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-7 days')
-                    {excluded_condition}
-                    GROUP BY DATE(timestamp, '+3 hours')
-                )
-            """, list(excluded_users) if excluded_users else [])
-            dau_7 = cursor.fetchone()[0] or 0
+            # Средний DAU за 7 дней
+            cursor = self.conn.execute("""
+                SELECT AVG(dau) as avg_dau
+                FROM v_dau_daily 
+                WHERE d_local >= date('now', '+3 hours', '-7 days')
+            """)
+            row = cursor.fetchone()
+            dau_7 = row[0] if row and row[0] else 0
             
-            # DAU за 30 дней (среднее)
-            cursor = self.conn.execute(f"""
-                SELECT AVG(daily_dau) as avg_dau_30
-                FROM (
-                    SELECT 
-                        DATE(timestamp, '+3 hours') as date,
-                        COUNT(DISTINCT user_id) as daily_dau
-                    FROM scenario_logs 
-                    WHERE DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-30 days')
-                    {excluded_condition}
-                    GROUP BY DATE(timestamp, '+3 hours')
-                )
-            """, list(excluded_users) if excluded_users else [])
-            dau_30 = cursor.fetchone()[0] or 0
+            # Средний DAU за 30 дней
+            cursor = self.conn.execute("""
+                SELECT AVG(dau) as avg_dau
+                FROM v_dau_daily 
+                WHERE d_local >= date('now', '+3 hours', '-30 days')
+            """)
+            row = cursor.fetchone()
+            dau_30 = row[0] if row and row[0] else 0
             
             return {
                 'dau_today': dau_today,
@@ -1474,108 +1424,60 @@ class Database:
             }
         except sqlite3.Error as e:
             logger.error(f"Failed to get DAU metrics: {e}", exc_info=True)
+            logger.warning(f"Falling back to legacy DAU metrics (VIEW might not exist yet)")
             return {'dau_today': 0, 'dau_yesterday': 0, 'dau_7': 0, 'dau_30': 0}
 
     def get_card_funnel_metrics(self, days: int = 7, include_excluded_users: bool = False):
-        """Получает метрики воронки сценария 'Карта дня'."""
+        """Получает метрики воронки сценария 'Карта дня' через VIEW (v_events)."""
         try:
-            # Получаем список исключаемых пользователей
-            try:
-                from config_local import NO_LOGS_USERS
-            except ImportError:
-                from config import NO_LOGS_USERS
+            # Определяем фильтр периода
+            if days == 0:  # Сегодня
+                period_filter = "d_local = date('now', '+3 hours')"
+            else:
+                period_filter = f"d_local >= date('now', '+3 hours', '-{days} days')"
             
-            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
-            # Для админки можно включить исключаемых пользователей
-            if include_excluded_users:
-                excluded_users = []
-            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            # Если нужно включить исключенных пользователей, используем scenario_logs напрямую
+            source_table = "scenario_logs" if include_excluded_users else "v_events"
+            date_field = "DATE(timestamp, '+3 hours')" if include_excluded_users else "d_local"
+            event_field = "step" if include_excluded_users else "event"
             
-            # Шаг 1: Выбрали ресурс (базовый шаг, так как 'started' не всегда логируется)
+            # Получаем все шаги за период одним запросом
             cursor = self.conn.execute(f"""
-                SELECT COUNT(DISTINCT user_id) as count
-                FROM scenario_logs 
-                WHERE scenario = 'card_of_day' 
-                AND step = 'initial_resource_selected'
-                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
-                {excluded_condition}
-            """, list(excluded_users) if excluded_users else [])
-            step1 = cursor.fetchone()['count']
+                SELECT 
+                    {event_field},
+                    COUNT(DISTINCT session_id) as count
+                FROM {source_table}
+                WHERE scenario = 'card_of_day' AND {period_filter}
+                GROUP BY {event_field}
+            """)
             
-            # Шаг 2: Выбрали начальный ресурс
-            cursor = self.conn.execute(f"""
-                SELECT COUNT(DISTINCT user_id) as count
-                FROM scenario_logs 
-                WHERE scenario = 'card_of_day' 
-                AND step = 'initial_resource_selected'
-                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
-                {excluded_condition}
-            """, list(excluded_users) if excluded_users else [])
-            step2 = cursor.fetchone()['count']
+            # Собираем статистику по шагам
+            step_counts = {}
+            for row in cursor.fetchall():
+                step_counts[row[0]] = row[1]
             
-            # Шаг 3: Выбрали тип запроса
-            cursor = self.conn.execute(f"""
-                SELECT COUNT(DISTINCT user_id) as count
-                FROM scenario_logs 
-                WHERE scenario = 'card_of_day' 
-                AND step = 'request_type_selected'
-                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
-                {excluded_condition}
-            """, list(excluded_users) if excluded_users else [])
-            step3 = cursor.fetchone()['count']
+            # Базовый шаг для расчета процентов
+            base_count = step_counts.get('scenario_started', 0)
+            if base_count == 0:
+                base_count = step_counts.get('initial_resource_selected', 0)
             
-            # Шаг 4: Вытянули карту
-            cursor = self.conn.execute(f"""
-                SELECT COUNT(DISTINCT user_id) as count
-                FROM scenario_logs 
-                WHERE scenario = 'card_of_day' 
-                AND step = 'card_drawn'
-                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
-                {excluded_condition}
-            """, list(excluded_users) if excluded_users else [])
-            step4 = cursor.fetchone()['count']
-            
-            # Шаг 5: Написали первую ассоциацию
-            cursor = self.conn.execute(f"""
-                SELECT COUNT(DISTINCT user_id) as count
-                FROM scenario_logs 
-                WHERE scenario = 'card_of_day' 
-                AND step = 'initial_response_provided'
-                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
-                {excluded_condition}
-            """, list(excluded_users) if excluded_users else [])
-            step5 = cursor.fetchone()['count']
-            
-            # Шаг 6: Выбрали углубляющий диалог
-            cursor = self.conn.execute(f"""
-                SELECT COUNT(DISTINCT user_id) as count
-                FROM scenario_logs 
-                WHERE scenario = 'card_of_day' 
-                AND step = 'ai_reflection_choice'
-                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
-                {excluded_condition}
-            """, list(excluded_users) if excluded_users else [])
-            step6 = cursor.fetchone()['count']
-            
-            # Шаг 7: Завершили сценарий
-            cursor = self.conn.execute(f"""
-                SELECT COUNT(DISTINCT user_id) as count
-                FROM scenario_logs 
-                WHERE scenario = 'card_of_day' 
-                AND step = 'completed'
-                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
-                {excluded_condition}
-            """, list(excluded_users) if excluded_users else [])
-            step7 = cursor.fetchone()['count']
+            # Извлекаем конкретные шаги
+            step1 = step_counts.get('scenario_started', step_counts.get('initial_resource_selected', 0))
+            step2 = step_counts.get('initial_resource_selected', 0)
+            step3 = step_counts.get('request_type_selected', 0)
+            step4 = step_counts.get('card_drawn', 0)
+            step5 = step_counts.get('initial_response_provided', 0)
+            step6 = step_counts.get('ai_reflection_choice', 0)
+            step7 = step_counts.get('completed', 0)
             
             # Расчёт процентов
             step1_pct = 100
-            step2_pct = (step2 / step1 * 100) if step1 > 0 else 0
-            step3_pct = (step3 / step1 * 100) if step1 > 0 else 0
-            step4_pct = (step4 / step1 * 100) if step1 > 0 else 0
-            step5_pct = (step5 / step1 * 100) if step1 > 0 else 0
-            step6_pct = (step6 / step1 * 100) if step1 > 0 else 0
-            step7_pct = (step7 / step1 * 100) if step1 > 0 else 0
+            step2_pct = (step2 / base_count * 100) if base_count > 0 else 0
+            step3_pct = (step3 / base_count * 100) if base_count > 0 else 0
+            step4_pct = (step4 / base_count * 100) if base_count > 0 else 0
+            step5_pct = (step5 / base_count * 100) if base_count > 0 else 0
+            step6_pct = (step6 / base_count * 100) if base_count > 0 else 0
+            step7_pct = (step7 / base_count * 100) if base_count > 0 else 0
             
             return {
                 'step1': {'count': step1, 'pct': step1_pct},
@@ -1589,6 +1491,7 @@ class Database:
             }
         except sqlite3.Error as e:
             logger.error(f"Failed to get card funnel metrics: {e}", exc_info=True)
+            logger.warning(f"Falling back to zero metrics (VIEW might not exist yet)")
             return {'step1': {'count': 0, 'pct': 0}, 'step2': {'count': 0, 'pct': 0}, 'step3': {'count': 0, 'pct': 0}, 'step4': {'count': 0, 'pct': 0}, 'step5': {'count': 0, 'pct': 0}, 'step6': {'count': 0, 'pct': 0}, 'step7': {'count': 0, 'pct': 0}, 'completion_rate': 0}
 
     def get_value_metrics(self, days: int = 7, include_excluded_users: bool = False):
@@ -1660,38 +1563,32 @@ class Database:
             return {'resource_lift': {'positive_pct': 0, 'negative_pct': 0, 'total_sessions': 0}, 'feedback_score': 0, 'total_feedback': 0}
 
     def get_deck_popularity_metrics(self, days: int = 7):
-        """Получает метрики популярности колод."""
+        """Получает метрики популярности колод через VIEW (v_decks_daily)."""
         try:
-            # Получаем список исключаемых пользователей
-            try:
-                from config_local import NO_LOGS_USERS
-            except ImportError:
-                from config import NO_LOGS_USERS
+            # Определяем фильтр периода
+            if days == 0:  # Сегодня
+                period_filter = "d_local = date('now', '+3 hours')"
+            else:
+                period_filter = f"d_local >= date('now', '+3 hours', '-{days} days')"
             
-            excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
-            excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
-            
-            # Статистика по колодам из scenario_logs
+            # Получаем статистику по колодам
             cursor = self.conn.execute(f"""
                 SELECT 
-                    JSON_EXTRACT(metadata, '$.deck_name') as deck_name,
-                    COUNT(*) as total_draws,
-                    COUNT(DISTINCT user_id) as unique_users
-                FROM scenario_logs 
-                WHERE scenario = 'card_of_day' 
-                AND step = 'card_drawn'
-                AND timestamp >= datetime('now', '-{days} days', '+3 hours')
-                {excluded_condition}
-                GROUP BY JSON_EXTRACT(metadata, '$.deck_name')
-            """, list(excluded_users) if excluded_users else [])
+                    deck,
+                    SUM(draws) as total_draws,
+                    SUM(uniq_users) as unique_users
+                FROM v_decks_daily 
+                WHERE {period_filter} AND deck IS NOT NULL
+                GROUP BY deck
+            """)
             
             deck_stats = {}
             total_draws_all = 0
             
             for row in cursor.fetchall():
-                deck_name = row['deck_name'] or 'nature'  # Fallback для старых записей
-                total_draws = row['total_draws']
-                unique_users = row['unique_users']
+                deck_name = row[0] or 'nature'
+                total_draws = row[1]
+                unique_users = row[2]
                 
                 deck_stats[deck_name] = {
                     'total_draws': total_draws,
@@ -1716,6 +1613,7 @@ class Database:
             }
         except sqlite3.Error as e:
             logger.error(f"Failed to get deck popularity metrics: {e}", exc_info=True)
+            logger.warning(f"Falling back to zero deck metrics (VIEW might not exist yet)")
             return {
                 'decks': {
                     'nature': {'total_draws': 0, 'unique_users': 0, 'percentage': 0},
