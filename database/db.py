@@ -1574,15 +1574,17 @@ class Database:
             return {'resource_lift': {'positive_pct': 0, 'negative_pct': 0, 'total_sessions': 0}, 'feedback_score': 0, 'total_feedback': 0}
 
     def get_deck_popularity_metrics(self, days: int = 7):
-        """Получает метрики популярности колод через VIEW (v_decks_daily)."""
+        """Получает метрики популярности колод через VIEW (v_decks_daily) с fallback на scenario_logs."""
         try:
             # Определяем фильтр периода
             if days == 0:  # Сегодня
                 period_filter = "d_local = date('now', '+3 hours')"
+                period_filter_logs = "DATE(timestamp, '+3 hours') = DATE('now', '+3 hours')"
             else:
                 period_filter = f"d_local >= date('now', '+3 hours', '-{days} days')"
+                period_filter_logs = f"DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')"
             
-            # Получаем статистику по колодам
+            # Сначала пробуем VIEW
             cursor = self.conn.execute(f"""
                 SELECT 
                     deck,
@@ -1593,33 +1595,52 @@ class Database:
                 GROUP BY deck
             """)
             
-            deck_stats = {}
+            deck_stats = cursor.fetchall()
+            
+            # Если VIEW пустой, используем fallback на scenario_logs
+            if not deck_stats:
+                logger.warning("v_decks_daily is empty, falling back to scenario_logs")
+                cursor = self.conn.execute(f"""
+                    SELECT 
+                        JSON_EXTRACT(metadata, '$.deck_name') as deck,
+                        COUNT(*) as total_draws,
+                        COUNT(DISTINCT user_id) as unique_users
+                    FROM scenario_logs 
+                    WHERE scenario = 'card_of_day' 
+                    AND step = 'card_drawn'
+                    AND {period_filter_logs}
+                    AND JSON_EXTRACT(metadata, '$.deck_name') IS NOT NULL
+                    GROUP BY JSON_EXTRACT(metadata, '$.deck_name')
+                """)
+                deck_stats = cursor.fetchall()
+            
+            deck_stats_dict = {}
             total_draws_all = 0
             
-            for row in cursor.fetchall():
+            for row in deck_stats:
                 deck_name = row[0] or 'nature'
                 total_draws = row[1]
                 unique_users = row[2]
                 
-                deck_stats[deck_name] = {
+                deck_stats_dict[deck_name] = {
                     'total_draws': total_draws,
                     'unique_users': unique_users
                 }
                 total_draws_all += total_draws
             
             # Вычисляем проценты
-            for deck_name in deck_stats:
-                deck_stats[deck_name]['percentage'] = round((deck_stats[deck_name]['total_draws'] / total_draws_all * 100), 1) if total_draws_all > 0 else 0
+            for deck_name in deck_stats_dict:
+                deck_stats_dict[deck_name]['percentage'] = round((deck_stats_dict[deck_name]['total_draws'] / total_draws_all * 100), 1) if total_draws_all > 0 else 0
             
             # Если нет данных, возвращаем нули
-            if not deck_stats:
-                deck_stats = {
+            if not deck_stats_dict:
+                deck_stats_dict = {
                     'nature': {'total_draws': 0, 'unique_users': 0, 'percentage': 0},
                     'message': {'total_draws': 0, 'unique_users': 0, 'percentage': 0}
                 }
             
             return {
-                'decks': deck_stats,
+                'decks': deck_stats_dict,
                 'total_draws': total_draws_all
             }
         except sqlite3.Error as e:
