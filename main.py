@@ -1,6 +1,5 @@
 # ==== GITHUB BOOTSTRAP (place at very top of main.py) ====
 import os
-from database.db import Database # <-- Исправляем название класса
 if os.getenv("BOOTSTRAP_FROM_GITHUB", "0") == "1":
     import io, sys, shutil, tempfile, zipfile, time
     from urllib.request import urlopen, Request
@@ -77,7 +76,6 @@ except Exception:
 import subprocess
 import shlex # Также импортируем shlex для безопасной обработки аргументов
 import threading
-import os
 
 def run_sqlite_web():
     # Используем тот же путь к БД, что и для основного приложения
@@ -169,8 +167,6 @@ from modules.card_of_the_day import (
     process_emotion_choice, process_custom_response, process_deck_choice
 )
 
-from functools import partial # <-- Добавляем эту строку
-
 # Модуль Вечерней Рефлексии
 # Импортируем функцию для старта и обработчики состояний
 from modules.evening_reflection import (
@@ -201,11 +197,10 @@ from modules.admin import (
 
 # --- Стандартные импорты ---
 import random
-from datetime import datetime, timedelta, time, date # Добавляем time, date
-import os
 import json
 import logging
 import sqlite3
+from datetime import datetime, timedelta, time, date # Добавляем time, date
 
 # --- Состояния для создания постов ---
 class PostCreationStates(StatesGroup):
