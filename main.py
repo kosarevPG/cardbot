@@ -1742,7 +1742,10 @@ async def main():
     logger.info("🔄 Applying database migrations...")
     from tools.auto_migrate_on_startup import apply_metrics_migration
     try:
-        apply_metrics_migration(db_path='data/bot.db')
+        # Используем тот же путь к БД, что и для основного соединения
+        migration_db_path = db_path if 'db_path' in globals() else os.path.join(DATA_DIR, "bot.db")
+        logger.info(f"Applying migrations to: {migration_db_path}")
+        apply_metrics_migration(db_path=migration_db_path)
         logger.info("✅ Database migrations applied successfully")
     except Exception as e:
         logger.warning(f"⚠️ Database migration warning: {e}")
