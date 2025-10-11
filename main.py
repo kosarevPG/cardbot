@@ -1740,7 +1740,7 @@ async def main():
     
     # 🔄 Применяем миграции базы данных
     logger.info("🔄 Applying database migrations...")
-    from tools.auto_migrate_on_startup import apply_metrics_migration
+    from auto_migrate_on_startup import apply_metrics_migration
     try:
         # Используем тот же путь к БД, что и для основного соединения
         migration_db_path = db_path if 'db_path' in globals() else os.path.join(DATA_DIR, "bot.db")
