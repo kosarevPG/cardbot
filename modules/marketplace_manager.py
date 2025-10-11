@@ -68,7 +68,8 @@ class MarketplaceManager:
             "stock_fbo": "J",     # Остаток Ozon, FBO (колонка J)
             "stock_fbs": "K",     # Остаток Ozon, FBS (колонка K)
             "sales": "M",         # Продажи Ozon (колонка M)
-            "revenue": "O"        # Выручка Ozon (колонка O)
+            "revenue": "O",       # Выручка Ozon (колонка O)
+            "price": "Q"          # Цена Ozon (колонка Q)
         }
         
         # Структура таблицы для Wildberries (соответствует "Форбс.Учет 2.0")
@@ -76,7 +77,8 @@ class MarketplaceManager:
             "nm_id": "C",        # Баркод WB (колонка C)
             "stock": "F",        # Остаток WB (всего) (колонка F)
             "sales": "L",        # Продажи WB (колонка L)
-            "revenue": "N"       # Выручка WB (колонка N)
+            "revenue": "N",      # Выручка WB (колонка N)
+            "price": "P"         # Цена WB (колонка P)
         }
         
         # Ozon API эндпоинты
@@ -85,7 +87,8 @@ class MarketplaceManager:
             "product_list": "/v3/product/list",     # ✅ Список товаров (требует visibility)
             "analytics": "/v1/analytics/data",      # ✅ Аналитика
             "stocks": "/v4/product/info/stocks",    # ✅ Остатки конкретных товаров
-            "product_info": "/v3/product/list"      # ✅ Информация о товарах (требует visibility)
+            "product_info": "/v3/product/list",     # ✅ Информация о товарах (требует visibility)
+            "prices": "/v4/product/info/prices"     # ✅ Цены товаров
         }
         
         # Проверка настроек
@@ -817,6 +820,241 @@ class MarketplaceManager:
         except Exception as e:
             logger.error(f"Ошибка обновления листа Wildberries: {e}")
     
+    async def get_ozon_prices(self, offer_ids: List[str] = None) -> Dict[str, Dict]:
+        """
+        Получает цены товаров с Ozon.
+        
+        Args:
+            offer_ids: Список offer_id для получения цен (если None - все товары)
+            
+        Returns:
+            Dict[str, Dict]: Словарь {offer_id: {price: float, currency: str}}
+        """
+        logger.info("💰 Получение цен товаров Ozon...")
+        
+        try:
+            # Если не указаны конкретные товары, получаем все
+            if not offer_ids:
+                products = await self.get_ozon_products_simple()
+                offer_ids = [p["offer_id"] for p in products if p.get("offer_id")]
+            
+            if not offer_ids:
+                logger.warning("⚠️ Нет товаров для получения цен")
+                return {}
+            
+            # Подготовка запроса (Ozon принимает до 100 товаров за раз)
+            prices_data = {}
+            batch_size = 100
+            
+            for i in range(0, len(offer_ids), batch_size):
+                batch = offer_ids[i:i + batch_size]
+                logger.info(f"📦 Обработка батча цен {i//batch_size + 1}: {len(batch)} товаров")
+                
+                request_data = {
+                    "filter": {
+                        "offer_id": batch
+                    },
+                    "limit": 100
+                }
+                
+                response = await self._ozon_request("POST", self.ozon_endpoints["prices"], request_data)
+                
+                if response and "result" in response:
+                    for item in response["result"].get("items", []):
+                        offer_id = item.get("offer_id")
+                        if offer_id:
+                            prices_data[offer_id] = {
+                                "price": item.get("price", 0),
+                                "currency": item.get("currency_code", "RUB"),
+                                "old_price": item.get("old_price"),
+                                "premium_price": item.get("premium_price"),
+                                "auto_action_enabled": item.get("auto_action_enabled", False)
+                            }
+                
+                # Небольшая пауза между запросами
+                await asyncio.sleep(0.5)
+            
+            logger.info(f"✅ Получены цены для {len(prices_data)} товаров")
+            return prices_data
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения цен Ozon: {e}", exc_info=True)
+            return {}
+
+    async def get_wb_prices(self, nm_ids: List[int] = None) -> Dict[int, Dict]:
+        """
+        Получает цены товаров с Wildberries.
+        
+        Args:
+            nm_ids: Список nm_id для получения цен (если None - все товары)
+            
+        Returns:
+            Dict[int, Dict]: Словарь {nm_id: {price: float, currency: str}}
+        """
+        logger.info("💰 Получение цен товаров Wildberries...")
+        
+        try:
+            # Если не указаны конкретные товары, получаем все
+            if not nm_ids:
+                # Получаем список товаров из Google Sheets
+                sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, self.sheet_name)
+                if not sheet_data or len(sheet_data) < 2:
+                    logger.warning("⚠️ Нет данных в таблице для получения цен")
+                    return {}
+                
+                # Извлекаем nm_id из колонки C (Баркод WB)
+                nm_ids = []
+                for row in sheet_data[1:]:  # Пропускаем заголовок
+                    if len(row) > 2 and row[2]:  # Колонка C
+                        try:
+                            nm_id = int(row[2])
+                            nm_ids.append(nm_id)
+                        except (ValueError, IndexError):
+                            continue
+            
+            if not nm_ids:
+                logger.warning("⚠️ Нет товаров для получения цен")
+                return {}
+            
+            # Получаем цены через API WB
+            prices_data = {}
+            
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                for nm_id in nm_ids:
+                    try:
+                        # API для получения информации о товаре (включая цену)
+                        response = await client.get(
+                            f"{self.wb_content_base}/content/v1/cards/filter",
+                            headers={
+                                "Authorization": self.wb_api_key,
+                                "Content-Type": "application/json"
+                            },
+                            params={
+                                "nm": nm_id
+                            }
+                        )
+                        
+                        if response.status_code == 200:
+                            data = response.json()
+                            if data and "data" in data and data["data"]:
+                                product = data["data"][0]
+                                prices_data[nm_id] = {
+                                    "price": product.get("price", 0),
+                                    "currency": "RUB",
+                                    "old_price": product.get("old_price"),
+                                    "sale_price": product.get("sale_price")
+                                }
+                        
+                        # Небольшая пауза между запросами
+                        await asyncio.sleep(0.2)
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Ошибка получения цены для nm_id {nm_id}: {e}")
+                        continue
+            
+            logger.info(f"✅ Получены цены для {len(prices_data)} товаров WB")
+            return prices_data
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения цен WB: {e}", exc_info=True)
+            return {}
+
+    async def update_prices_in_sheets(self) -> Dict:
+        """
+        Обновляет цены товаров в Google Sheets.
+        
+        Returns:
+            Dict: Результат обновления цен
+        """
+        logger.info("💰 Обновление цен в Google Sheets...")
+        
+        try:
+            # Получаем цены Ozon
+            ozon_prices = await self.get_ozon_prices()
+            
+            # Получаем цены WB
+            wb_prices = await self.get_wb_prices()
+            
+            # Обновляем цены в таблице
+            await self._update_prices_sheet(ozon_prices, wb_prices)
+            
+            logger.info("✅ Цены обновлены успешно")
+            return {
+                "success": True,
+                "ozon_prices_count": len(ozon_prices),
+                "wb_prices_count": len(wb_prices)
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления цен: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+
+    async def _update_prices_sheet(self, ozon_prices: Dict[str, Dict], wb_prices: Dict[int, Dict]):
+        """
+        Обновляет цены в Google Sheets.
+        
+        Args:
+            ozon_prices: Цены товаров Ozon {offer_id: {price: float}}
+            wb_prices: Цены товаров WB {nm_id: {price: float}}
+        """
+        try:
+            # Читаем данные из таблицы
+            sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, self.sheet_name)
+            if not sheet_data or len(sheet_data) < 2:
+                logger.warning("⚠️ Нет данных в таблице")
+                return
+            
+            # Обновляем цены Ozon (колонка Q)
+            ozon_price_updates = []
+            wb_price_updates = []
+            
+            for i, row in enumerate(sheet_data[1:], start=2):  # Пропускаем заголовок, начинаем с строки 2
+                if len(row) > 3:  # Проверяем наличие колонки D (Арт. Ozon)
+                    offer_id = row[3] if len(row) > 3 else None
+                    nm_id = row[2] if len(row) > 2 else None
+                    
+                    # Цена Ozon
+                    if offer_id and offer_id in ozon_prices:
+                        price = ozon_prices[offer_id]["price"]
+                        ozon_price_updates.append([price])
+                    else:
+                        ozon_price_updates.append([""])
+                    
+                    # Цена WB
+                    if nm_id:
+                        try:
+                            nm_id_int = int(nm_id)
+                            if nm_id_int in wb_prices:
+                                price = wb_prices[nm_id_int]["price"]
+                                wb_price_updates.append([price])
+                            else:
+                                wb_price_updates.append([""])
+                        except (ValueError, TypeError):
+                            wb_price_updates.append([""])
+                    else:
+                        wb_price_updates.append([""])
+            
+            # Записываем цены Ozon в колонку Q
+            if ozon_price_updates:
+                await self.sheets_api.write_data_range(
+                    self.spreadsheet_id,
+                    f"{self.sheet_name}!{self.ozon_columns['price']}2:{self.ozon_columns['price']}{len(ozon_price_updates)+1}",
+                    ozon_price_updates
+                )
+            
+            # Записываем цены WB в колонку P
+            if wb_price_updates:
+                await self.sheets_api.write_data_range(
+                    self.spreadsheet_id,
+                    f"{self.sheet_name}!{self.wb_columns['price']}2:{self.wb_columns['price']}{len(wb_price_updates)+1}",
+                    wb_price_updates
+                )
+            
+            logger.info(f"✅ Обновлены цены: Ozon - {len(ozon_price_updates)}, WB - {len(wb_price_updates)}")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления цен в таблице: {e}", exc_info=True)
+
     # ==================== УТИЛИТЫ ====================
     
     async def get_ozon_products_detailed(self, product_ids: List[int]) -> Dict[str, Union[bool, str, Dict]]:

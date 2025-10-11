@@ -54,6 +54,9 @@ async def show_admin_marketplaces(message: types.Message, db: Database, logger_s
 • <code>/sheets_info SPREADSHEET_ID</code> - Информация о таблице
 • <code>/sheets_read SPREADSHEET_ID [SHEET_NAME]</code> - Чтение данных
 
+<b>🔸 Цены товаров:</b>
+• <code>/get_prices</code> - Получить актуальные цены всех товаров
+
 <i>💡 Все команды доступны только администраторам</i>"""
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[

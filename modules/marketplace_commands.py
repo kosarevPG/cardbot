@@ -90,6 +90,30 @@ async def cmd_wb_stats(message: types.Message):
         logger.error(f"Ошибка в команде wb_stats: {e}", exc_info=True)
         await message.answer(f"❌ Произошла критическая ошибка: {str(e)}")
 
+@dp.message_handler(commands=['get_prices'])
+async def cmd_get_prices(message: types.Message):
+    """Получение актуальных цен товаров"""
+    if not is_admin(message.from_user.id):
+        await message.reply("❌ Доступ запрещен. Только для администраторов.")
+        return
+    
+    try:
+        await message.reply("💰 Получаю актуальные цены товаров...")
+        
+        manager = MarketplaceManager()
+        result = await manager.update_prices_in_sheets()
+        
+        if result.get("success"):
+            await message.reply(f"✅ Цены обновлены успешно!\n"
+                              f"🛒 Цены Ozon: {result.get('ozon_prices_count', 0)}\n"
+                              f"🛍️ Цены WB: {result.get('wb_prices_count', 0)}")
+        else:
+            await message.reply(f"❌ Ошибка получения цен: {result.get('error', 'Неизвестная ошибка')}")
+            
+    except Exception as e:
+        logger.error(f"Ошибка в команде get_prices: {e}", exc_info=True)
+        await message.reply("❌ Произошла ошибка при получении цен.")
+
 async def cmd_marketplace_help(message: types.Message):
     """Справка по командам маркетплейсов"""
     help_text = """
@@ -107,6 +131,9 @@ async def cmd_marketplace_help(message: types.Message):
 • `/ozon_simple_test` - Простой тест получения товаров
 • `/ozon_stats` - Статистика продаж и заказов
 • `/ozon_products` - Список товаров (первые 5, расширенная информация)
+
+**Цены товаров:**
+• `/get_prices` - Получить актуальные цены всех товаров
 • `/ozon_products_all` - Полный список всех товаров
 • `/ozon_products_detailed` - Детальная информация о всех товарах
 • `/ozon_stocks` - Остатки товаров (первые 5, с названиями)
