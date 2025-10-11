@@ -229,6 +229,19 @@ else:
     db_path = os.path.join(DATA_DIR, "bot.db")
 logger.info(f"Initializing database at: {db_path}")
 print(f"Initializing database at: {db_path}")
+
+# 🔄 Применяем миграции базы данных ПЕРЕД созданием объекта Database
+logger.info("🔄 Applying database migrations...")
+print("🔄 Applying database migrations...")
+try:
+    from auto_migrate_on_startup import apply_metrics_migration
+    apply_metrics_migration(db_path=db_path)
+    logger.info("✅ Database migrations applied successfully")
+    print("✅ Database migrations applied successfully")
+except Exception as migration_error:
+    logger.warning(f"⚠️ Database migration warning: {migration_error}")
+    print(f"⚠️ Database migration warning: {migration_error}")
+
 try:
     db = Database(path=db_path)
     db.conn.execute("SELECT 1"); logger.info(f"Database connection established successfully: {db.conn}")
