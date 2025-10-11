@@ -1731,8 +1731,8 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         logger.warning(f"Unknown message '{message.text}' from user {user_id} with no state.")
 
     # Register fallback handlers LAST
-    dp.message.register(partial(handle_unknown_message_state, db=db, logging_service=logging_service), StateFilter("*"))
-    dp.message.register(partial(handle_unknown_message_no_state, db=db, logging_service=logging_service)) # Catches any other text message
+    dp.message.register(handle_unknown_message_state, StateFilter("*"))
+    dp.message.register(handle_unknown_message_no_state) # Catches any other text message
 
     logger.info("Handlers registered successfully.")
 
