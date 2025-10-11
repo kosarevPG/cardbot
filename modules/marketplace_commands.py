@@ -1,13 +1,15 @@
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ Any ИМПОРТА
 # FORCE RESTART 2025-08-24 - ИСПРАВЛЕНИЕ ozon_stocks_detailed - теперь использует правильный метод
 # Команды для работы с маркетплейсами
-from aiogram import types
+from aiogram import types, Dispatcher
 import logging
 import json
 from .marketplace_manager import MarketplaceManager
 from .google_sheets import test_google_sheets_connection, get_sheets_info, read_sheet_data
 
 logger = logging.getLogger(__name__)
+
+# Убираем dp - используем функцию регистрации
 
 # Импортируем ADMIN_IDS из config для согласованности
 try:
@@ -90,7 +92,6 @@ async def cmd_wb_stats(message: types.Message):
         logger.error(f"Ошибка в команде wb_stats: {e}", exc_info=True)
         await message.answer(f"❌ Произошла критическая ошибка: {str(e)}")
 
-@dp.message_handler(commands=['get_prices'])
 async def cmd_get_prices(message: types.Message):
     """Получение актуальных цен товаров"""
     if not is_admin(message.from_user.id):
@@ -1200,6 +1201,9 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_ozon_sync_all, Command("ozon_sync_all"))
     dp.message.register(cmd_ozon_sync_single, Command("ozon_sync_single"))
     dp.message.register(cmd_ozon_debug_stocks, Command("ozon_debug_stocks"))
+    
+    # Команды цен
+    dp.message.register(cmd_get_prices, Command("get_prices"))
     
     # Команды Google Sheets
     dp.message.register(cmd_google_sheets_test, Command("sheets_test"))
