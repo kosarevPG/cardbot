@@ -1610,6 +1610,7 @@ class Database:
                     AND step = 'card_drawn'
                     AND {period_filter_logs}
                     AND JSON_EXTRACT(metadata, '$.deck_name') IS NOT NULL
+                    AND user_id NOT IN (SELECT user_id FROM ignored_users)
                     GROUP BY JSON_EXTRACT(metadata, '$.deck_name')
                 """)
                 deck_stats = cursor.fetchall()
