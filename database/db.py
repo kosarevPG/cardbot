@@ -1013,7 +1013,7 @@ class Database:
             logger.error(f"Failed to abandon scenario for user {user_id}: {e}", exc_info=True)
 
     def get_scenario_stats(self, scenario: str, days: int = 7):
-        """Получает статистику по сценарию за последние N дней."""
+        """Получает статистику по сценарию за последние N дней (из scenario_logs)."""
         try:
             # Получаем список исключаемых пользователей
             try:
@@ -1024,32 +1024,53 @@ class Database:
             excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
             excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
             
-            # Общее количество запусков
-            params = [scenario] + (excluded_users if excluded_users else [])
+            # Общее количество запусков = уникальные session_id с начальным шагом
+            params = [scenario, 'initial_resource_selected'] + (excluded_users if excluded_users else [])
             cursor = self.conn.execute(
-                f"SELECT COUNT(*) FROM user_scenarios WHERE scenario = ? AND started_at >= datetime('now', '-{days} days') {excluded_condition}",
+                f"""SELECT COUNT(DISTINCT json_extract(metadata, '$.session_id')) 
+                    FROM scenario_logs 
+                    WHERE scenario = ? AND step = ? 
+                    AND DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
+                    {excluded_condition}""",
                 params
             )
             total_starts = cursor.fetchone()[0]
             
-            # Количество завершений
+            # Количество завершений = уникальные session_id с шагом 'completed'
+            params = [scenario, 'completed'] + (excluded_users if excluded_users else [])
             cursor = self.conn.execute(
-                f"SELECT COUNT(*) FROM user_scenarios WHERE scenario = ? AND status = 'completed' AND started_at >= datetime('now', '-{days} days') {excluded_condition}",
+                f"""SELECT COUNT(DISTINCT json_extract(metadata, '$.session_id')) 
+                    FROM scenario_logs 
+                    WHERE scenario = ? AND step = ? 
+                    AND DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
+                    {excluded_condition}""",
                 params
             )
             total_completions = cursor.fetchone()[0]
             
-            # Количество брошенных
-            cursor = self.conn.execute(
-                f"SELECT COUNT(*) FROM user_scenarios WHERE scenario = ? AND status = 'abandoned' AND started_at >= datetime('now', '-{days} days') {excluded_condition}",
-                params
-            )
-            total_abandoned = cursor.fetchone()[0]
+            # Количество брошенных = запущено - завершено
+            total_abandoned = total_starts - total_completions if total_starts > total_completions else 0
             
             # Среднее количество шагов для завершенных сценариев
+            params = [scenario, 'completed'] + (excluded_users if excluded_users else [])
             cursor = self.conn.execute(
-                f"SELECT AVG(steps_count) FROM user_scenarios WHERE scenario = ? AND status = 'completed' AND started_at >= datetime('now', '-{days} days') {excluded_condition}",
-                params
+                f"""SELECT AVG(step_count) FROM (
+                        SELECT json_extract(metadata, '$.session_id') as session_id,
+                               COUNT(*) as step_count
+                        FROM scenario_logs 
+                        WHERE scenario = ?
+                        AND DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
+                        {excluded_condition}
+                        AND json_extract(metadata, '$.session_id') IN (
+                            SELECT DISTINCT json_extract(metadata, '$.session_id')
+                            FROM scenario_logs
+                            WHERE scenario = ? AND step = ?
+                            AND DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
+                            {excluded_condition}
+                        )
+                        GROUP BY session_id
+                    )""",
+                [scenario] + (excluded_users if excluded_users else []) + [scenario, 'completed'] + (excluded_users if excluded_users else [])
             )
             avg_steps = cursor.fetchone()[0] or 0
             
@@ -1312,7 +1333,7 @@ class Database:
     # --- НОВЫЕ МЕТОДЫ ДЛЯ АДМИН-ПАНЕЛИ ---
     
     def get_retention_metrics(self, days: int = 7):
-        """Получает метрики удержания (D1, D7)."""
+        """Получает метрики удержания (D1, D7) из scenario_logs."""
         try:
             # Получаем список исключаемых пользователей
             try:
@@ -1321,19 +1342,28 @@ class Database:
                 from config import NO_LOGS_USERS
             
             excluded_users = NO_LOGS_USERS if NO_LOGS_USERS else []
-            excluded_condition = f"AND u1.user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+            excluded_condition = f"AND l1.user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
             
             # D1 Retention: пользователи, вернувшиеся на следующий день
             cursor = self.conn.execute(f"""
+                WITH user_first_day AS (
+                    SELECT user_id, MIN(DATE(timestamp, '+3 hours')) as first_day
+                    FROM scenario_logs
+                    WHERE DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
+                    GROUP BY user_id
+                ),
+                user_next_day AS (
+                    SELECT DISTINCT l.user_id
+                    FROM scenario_logs l
+                    INNER JOIN user_first_day ufd ON l.user_id = ufd.user_id
+                    WHERE DATE(l.timestamp, '+3 hours') = DATE(ufd.first_day, '+1 day')
+                )
                 SELECT 
-                    COUNT(DISTINCT u1.user_id) as total_users,
-                    COUNT(DISTINCT u2.user_id) as returned_users
-                FROM user_scenarios u1
-                LEFT JOIN user_scenarios u2 ON u1.user_id = u2.user_id 
-                    AND u2.started_at >= datetime(u1.started_at, '+1 day')
-                    AND u2.started_at < datetime(u1.started_at, '+2 days')
-                WHERE u1.started_at >= datetime('now', '-{days} days')
-                {excluded_condition}
+                    COUNT(DISTINCT ufd.user_id) as total_users,
+                    COUNT(DISTINCT und.user_id) as returned_users
+                FROM user_first_day ufd
+                LEFT JOIN user_next_day und ON ufd.user_id = und.user_id
+                WHERE 1=1 {excluded_condition.replace('l1', 'ufd')}
             """, list(excluded_users) if excluded_users else [])
             
             d1_data = cursor.fetchone()
@@ -1341,15 +1371,24 @@ class Database:
             
             # D7 Retention: пользователи, вернувшиеся на 7-й день
             cursor = self.conn.execute(f"""
+                WITH user_first_day AS (
+                    SELECT user_id, MIN(DATE(timestamp, '+3 hours')) as first_day
+                    FROM scenario_logs
+                    WHERE DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-{days} days')
+                    GROUP BY user_id
+                ),
+                user_7th_day AS (
+                    SELECT DISTINCT l.user_id
+                    FROM scenario_logs l
+                    INNER JOIN user_first_day ufd ON l.user_id = ufd.user_id
+                    WHERE DATE(l.timestamp, '+3 hours') = DATE(ufd.first_day, '+7 days')
+                )
                 SELECT 
-                    COUNT(DISTINCT u1.user_id) as total_users,
-                    COUNT(DISTINCT u2.user_id) as returned_users
-                FROM user_scenarios u1
-                LEFT JOIN user_scenarios u2 ON u1.user_id = u2.user_id 
-                    AND u2.started_at >= datetime(u1.started_at, '+7 days')
-                    AND u2.started_at < datetime(u1.started_at, '+8 days')
-                WHERE u1.started_at >= datetime('now', '-{days} days')
-                {excluded_condition}
+                    COUNT(DISTINCT ufd.user_id) as total_users,
+                    COUNT(DISTINCT u7d.user_id) as returned_users
+                FROM user_first_day ufd
+                LEFT JOIN user_7th_day u7d ON ufd.user_id = u7d.user_id
+                WHERE 1=1 {excluded_condition.replace('l1', 'ufd')}
             """, list(excluded_users) if excluded_users else [])
             
             d7_data = cursor.fetchone()
@@ -1368,7 +1407,7 @@ class Database:
             return {'d1_retention': 0, 'd7_retention': 0, 'd1_total_users': 0, 'd1_returned_users': 0, 'd7_total_users': 0, 'd7_returned_users': 0}
 
     def get_dau_metrics(self, days: int = 7):
-        """Получает метрики DAU (Daily Active Users)."""
+        """Получает метрики DAU (Daily Active Users) из scenario_logs."""
         try:
             # Получаем список исключаемых пользователей
             try:
@@ -1382,8 +1421,8 @@ class Database:
             # DAU за сегодня
             cursor = self.conn.execute(f"""
                 SELECT COUNT(DISTINCT user_id) as dau_today
-                FROM user_scenarios 
-                WHERE DATE(started_at, '+3 hours') = DATE('now', '+3 hours')
+                FROM scenario_logs 
+                WHERE DATE(timestamp, '+3 hours') = DATE('now', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             dau_today = cursor.fetchone()[0]
@@ -1391,8 +1430,8 @@ class Database:
             # DAU за вчера
             cursor = self.conn.execute(f"""
                 SELECT COUNT(DISTINCT user_id) as dau_yesterday
-                FROM user_scenarios 
-                WHERE DATE(started_at, '+3 hours') = DATE('now', '+3 hours', '-1 day')
+                FROM scenario_logs 
+                WHERE DATE(timestamp, '+3 hours') = DATE('now', '+3 hours', '-1 day')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])
             dau_yesterday = cursor.fetchone()[0]
@@ -1402,12 +1441,12 @@ class Database:
                 SELECT AVG(daily_dau) as avg_dau_7
                 FROM (
                     SELECT 
-                        DATE(started_at, '+3 hours') as date,
+                        DATE(timestamp, '+3 hours') as date,
                         COUNT(DISTINCT user_id) as daily_dau
-                    FROM user_scenarios 
-                    WHERE DATE(started_at, '+3 hours') >= DATE('now', '+3 hours', '-7 days')
+                    FROM scenario_logs 
+                    WHERE DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-7 days')
                     {excluded_condition}
-                    GROUP BY DATE(started_at, '+3 hours')
+                    GROUP BY DATE(timestamp, '+3 hours')
                 )
             """, list(excluded_users) if excluded_users else [])
             dau_7 = cursor.fetchone()[0] or 0
@@ -1417,12 +1456,12 @@ class Database:
                 SELECT AVG(daily_dau) as avg_dau_30
                 FROM (
                     SELECT 
-                        DATE(started_at, '+3 hours') as date,
+                        DATE(timestamp, '+3 hours') as date,
                         COUNT(DISTINCT user_id) as daily_dau
-                    FROM user_scenarios 
-                    WHERE DATE(started_at, '+3 hours') >= DATE('now', '+3 hours', '-30 days')
+                    FROM scenario_logs 
+                    WHERE DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-30 days')
                     {excluded_condition}
-                    GROUP BY DATE(started_at, '+3 hours')
+                    GROUP BY DATE(timestamp, '+3 hours')
                 )
             """, list(excluded_users) if excluded_users else [])
             dau_30 = cursor.fetchone()[0] or 0
@@ -2071,7 +2110,7 @@ class Database:
             return False
 
     def get_new_users_stats(self, days: int = 7) -> dict:
-        """Получает статистику по новым пользователям за указанное количество дней."""
+        """Получает статистику по новым пользователям за указанное количество дней (с учетом МСК +3)."""
         try:
             cursor = self.conn.execute("""
                 SELECT 
@@ -2079,7 +2118,7 @@ class Database:
                     COUNT(CASE WHEN first_seen IS NOT NULL THEN 1 END) as users_with_first_seen,
                     COUNT(CASE WHEN first_seen IS NULL THEN 1 END) as users_without_first_seen
                 FROM users 
-                WHERE first_seen >= datetime('now', '-{} days')
+                WHERE DATE(first_seen, '+3 hours') >= DATE('now', '+3 hours', '-{} days')
             """.format(days))
             
             result = cursor.fetchone()

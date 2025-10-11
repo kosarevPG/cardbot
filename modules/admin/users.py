@@ -95,14 +95,14 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
         filtered_users = [uid for uid in all_users if uid not in excluded_users]
         total_users = len(filtered_users)
         
-        # Активные пользователи за последние 7 дней
+        # Активные пользователи за последние 7 дней (из scenario_logs)
         excluded_users = set(NO_LOGS_USERS) if NO_LOGS_USERS else set()
         excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
         
         cursor = db.conn.execute(f"""
             SELECT COUNT(DISTINCT user_id) as active_users
-            FROM user_scenarios 
-            WHERE started_at >= datetime('now', '-7 days')
+            FROM scenario_logs 
+            WHERE DATE(timestamp, '+3 hours') >= DATE('now', '+3 hours', '-7 days')
             {excluded_condition}
         """, list(excluded_users) if excluded_users else [])
         active_users = cursor.fetchone()['active_users']
