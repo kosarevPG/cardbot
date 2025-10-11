@@ -166,8 +166,7 @@ from modules.card_of_the_day import (
     process_exploration_choice_callback, process_first_grok_response,
     process_second_grok_response, process_third_grok_response,
     process_final_resource_callback, process_recharge_method, process_recharge_method_choice, process_card_feedback,
-    process_emotion_choice, process_custom_response, process_deck_choice,
-    get_card_of_the_day_command
+    process_emotion_choice, process_custom_response, process_deck_choice
 )
 
 from functools import partial # <-- Добавляем эту строку
@@ -2028,12 +2027,12 @@ if __name__ == "__main__":
 
     # NEW: Обработчик для кнопки "Получить карту дня"
     @dp.message(F.text == "✨ Получить карту дня")
-    async def handle_get_card_of_the_day(message: types.Message, state: FSMContext, db: Database, logging_service: LoggingService): # <-- Добавляем db и logging_service
+    async def handle_get_card_of_the_day(message: types.Message, state: FSMContext, db: Database, logging_service: LoggingService):
         user_id = message.from_user.id
         logger.info(f"User {user_id} requested Card of the Day via button.")
         # Очищаем текущее состояние, чтобы команда сработала корректно
         await state.clear()
-        # Вызываем команду получения карты дня
-        await get_card_of_the_day_command(message, state, db, logging_service)
+        # Вызываем функцию получения карты дня
+        await handle_card_request(message, state, db, logging_service)
 
     # --- ИЗМЕНЕНИЕ: Доработанный обработчик для логгирования "отвалов" ---
