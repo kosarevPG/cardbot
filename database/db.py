@@ -1034,6 +1034,17 @@ class Database:
             total_completions = row[1] if row else 0
             total_abandoned = total_starts - total_completions if total_starts > total_completions else 0
             
+            # Рассчитываем среднее количество шагов
+            cursor = self.conn.execute(f"""
+                SELECT 
+                    AVG(step_count) as avg_steps
+                FROM v_sessions 
+                WHERE scenario = ? AND {period_filter.replace('d_local', 'started_date')}
+            """, (scenario,))
+            
+            avg_steps_row = cursor.fetchone()
+            avg_steps = round(avg_steps_row[0], 1) if avg_steps_row and avg_steps_row[0] else 0
+            
             return {
                 'scenario': scenario,
                 'period_days': days,
@@ -1042,7 +1053,7 @@ class Database:
                 'total_abandoned': total_abandoned,
                 'completion_rate': (total_completions / total_starts * 100) if total_starts > 0 else 0,
                 'abandonment_rate': (total_abandoned / total_starts * 100) if total_starts > 0 else 0,
-                'avg_steps': 0  # Не используется в текущей реализации
+                'avg_steps': avg_steps
             }
         except sqlite3.Error as e:
             logger.error(f"Failed to get scenario stats for {scenario}: {e}", exc_info=True)

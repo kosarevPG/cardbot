@@ -144,6 +144,13 @@ async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, 
     # создаём сессию после выбора колоды
     session_id = db.start_user_scenario(user_id, f"card_of_day_{deck_name}")
     await state.update_data(session_id=session_id)
+    
+    # Логируем выбор колоды
+    db.log_scenario_step(user_id, 'card_of_day', 'deck_selected', {
+        'deck_name': deck_name,
+        'session_id': session_id
+    })
+    
     await callback.answer()
     try:
         await callback.message.edit_reply_markup(reply_markup=None)
