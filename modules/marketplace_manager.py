@@ -88,7 +88,7 @@ class MarketplaceManager:
             "analytics": "/v1/analytics/data",      # ✅ Аналитика
             "stocks": "/v4/product/info/stocks",    # ✅ Остатки конкретных товаров
             "product_info": "/v3/product/list",     # ✅ Информация о товарах (требует visibility)
-            "prices": "/v4/product/info/prices"     # ✅ Цены товаров
+            "prices": "/v2/product/info"           # ✅ Информация о товарах (включая цены)
         }
         
         # Проверка настроек
@@ -115,6 +115,30 @@ class MarketplaceManager:
             "Api-Key": self.ozon_api_key,
             "Content-Type": "application/json"
         }
+
+    async def _ozon_request(self, method: str, endpoint: str, data: Dict = None) -> Dict:
+        """Выполняет запрос к Ozon API"""
+        import httpx
+        
+        url = f"{self.ozon_base_url}{endpoint}"
+        headers = self._get_ozon_headers()
+        
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                if method.upper() == "GET":
+                    response = await client.get(url, headers=headers, params=data)
+                else:
+                    response = await client.post(url, headers=headers, json=data)
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.error(f"Ozon API error {response.status_code}: {response.text}")
+                    return {}
+                    
+        except Exception as e:
+            logger.error(f"Ошибка запроса к Ozon API: {e}")
+            return {}
     
     async def get_ozon_product_mapping(self, page_size: int = 1000, max_pages: int = 100) -> Dict[str, Union[bool, str, Dict]]:
         """Получение соответствия offer_id → product_id для Ozon
@@ -868,10 +892,7 @@ class MarketplaceManager:
                 logger.info(f"📦 Обработка батча цен {i//batch_size + 1}: {len(batch)} товаров")
                 
                 request_data = {
-                    "filter": {
-                        "offer_id": batch
-                    },
-                    "limit": 100
+                    "offer_id": batch
                 }
                 
                 response = await self._ozon_request("POST", self.ozon_endpoints["prices"], request_data)
@@ -914,7 +935,7 @@ class MarketplaceManager:
             # Если не указаны конкретные товары, получаем все
             if not nm_ids:
                 # Получаем список товаров из Google Sheets
-                sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, f"{self.sheet_name}!A:R")
+                sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, f"{self.sheet_name}!A1:R100")
                 if not sheet_data or len(sheet_data) < 2:
                     logger.warning("⚠️ Нет данных в таблице для получения цен")
                     return {}
@@ -1016,7 +1037,7 @@ class MarketplaceManager:
         """
         try:
             # Читаем данные из таблицы
-            sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, f"{self.sheet_name}!A:R")
+            sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, f"{self.sheet_name}!A1:R100")
             if not sheet_data or len(sheet_data) < 2:
                 logger.warning("⚠️ Нет данных в таблице")
                 return
