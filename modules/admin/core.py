@@ -131,6 +131,12 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
                 await show_admin_reflections(callback.message, db, logger_service, user_id, days)
             except ValueError:
                 await show_admin_reflections(callback.message, db, logger_service, user_id, 7)
+        elif action.startswith("admin_recent_reflections_"):
+            try:
+                days = int(action.split("_")[-1])
+                await show_admin_recent_reflections(callback.message, db, logger_service, user_id, days)
+            except ValueError:
+                await show_admin_recent_reflections(callback.message, db, logger_service, user_id, 7)
         elif action.startswith("admin_reflection_detail_"):
             try:
                 user_reflection_id = int(action.split("_")[-1])

@@ -17,6 +17,7 @@ from modules.admin.dashboard import (
     show_admin_value,
     show_admin_decks,
     show_admin_reflections,
+    show_admin_recent_reflections,
     show_admin_logs
 )
 
@@ -49,6 +50,7 @@ __all__ = [
     'show_admin_value',
     'show_admin_decks',
     'show_admin_reflections',
+    'show_admin_recent_reflections',
     'show_admin_logs',
     
     # Users

@@ -469,6 +469,107 @@ async def show_admin_reflections(message: types.Message, db: Database, logger_se
                 raise
 
 
+async def show_admin_recent_reflections(message: types.Message, db: Database, logger_service: LoggingService, user_id: int, days: int = 7):
+    """Показывает последние рефлексии."""
+    # Проверяем права администратора
+    try:
+        from config import ADMIN_IDS
+        if str(user_id) not in ADMIN_IDS:
+            await message.edit_text("❌ У вас нет доступа к этой функции.", parse_mode="HTML")
+            return
+    except ImportError as e:
+        logger.error(f"Failed to import ADMIN_IDS: {e}")
+        await message.edit_text("❌ Ошибка проверки прав доступа.", parse_mode="HTML")
+        return
+    
+    try:
+        # Получаем последние рефлексии
+        excluded_users = set(NO_LOGS_USERS) if NO_LOGS_USERS else set()
+        excluded_condition = f"AND er.user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
+        
+        period_filter = "er.date >= date('now', '+3 hours', '-1 day')" if days == 1 else f"er.date >= date('now', '+3 hours', '-{days} days')"
+        
+        cursor = db.conn.execute(f"""
+            SELECT 
+                er.user_id,
+                u.name,
+                u.username,
+                er.date,
+                er.good_moments,
+                er.gratitude,
+                er.hard_moments,
+                er.ai_summary
+            FROM evening_reflections er
+            LEFT JOIN users u ON u.user_id = er.user_id
+            WHERE {period_filter}
+            {excluded_condition}
+            ORDER BY er.date DESC, er.id DESC
+            LIMIT 20
+        """, list(excluded_users) if excluded_users else [])
+        
+        reflections = cursor.fetchall()
+        
+        if not reflections:
+            text = f"📋 <b>ПОСЛЕДНИЕ РЕФЛЕКСИИ ({days} дней)</b>\n\n"
+            text += "ℹ️ За указанный период рефлексии не найдены."
+        else:
+            text = f"📋 <b>ПОСЛЕДНИЕ РЕФЛЕКСИИ ({days} дней)</b>\n\n"
+            
+            for i, reflection in enumerate(reflections[:10], 1):  # Показываем только первые 10
+                user_id_ref = reflection['user_id']
+                name = reflection['name'] or "N/A"
+                username = reflection['username'] or "без username"
+                date = reflection['date']
+                good_moments = reflection['good_moments'] or ""
+                gratitude = reflection['gratitude'] or ""
+                hard_moments = reflection['hard_moments'] or ""
+                ai_summary = reflection['ai_summary'] or ""
+                
+                text += f"{i}. <code>{user_id_ref}</code> | @{username} | {name}\n"
+                text += f"📅 {date}\n"
+                
+                if good_moments:
+                    text += f"✨ Хорошие моменты: {good_moments[:100]}{'...' if len(good_moments) > 100 else ''}\n"
+                if gratitude:
+                    text += f"🙏 Благодарность: {gratitude[:100]}{'...' if len(gratitude) > 100 else ''}\n"
+                if hard_moments:
+                    text += f"😔 Сложности: {hard_moments[:100]}{'...' if len(hard_moments) > 100 else ''}\n"
+                if ai_summary:
+                    text += f"🤖 AI-резюме: {ai_summary[:150]}{'...' if len(ai_summary) > 150 else ''}\n"
+                
+                text += "\n"
+        
+        # Кнопки
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [
+                types.InlineKeyboardButton(text="Сегодня", callback_data="admin_recent_reflections_1"),
+                types.InlineKeyboardButton(text="7 дней", callback_data="admin_recent_reflections_7"),
+                types.InlineKeyboardButton(text="30 дней", callback_data="admin_recent_reflections_30")
+            ],
+            [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_recent_reflections_{days}")],
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_reflections")]
+        ])
+        
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+        await logger_service.log_action(user_id, "admin_recent_reflections_viewed", {"days": days})
+        
+    except Exception as e:
+        logger.error(f"Error showing admin recent reflections: {e}", exc_info=True)
+        text = "❌ Ошибка при загрузке последних рефлексий"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_reflections")]
+        ])
+        try:
+            await message.edit_text(text, reply_markup=keyboard)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
+
+
 async def show_admin_logs(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает детальные логи."""
     # Проверяем права администратора
