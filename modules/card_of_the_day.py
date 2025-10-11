@@ -77,6 +77,18 @@ async def handle_card_request(message: types.Message, state: FSMContext, db: Dat
     now = datetime.now(TIMEZONE)
     today = now.date()
 
+    # Генерируем уникальный session_id для всей сессии
+    session_id = str(uuid.uuid4())
+    
+    # Логируем старт сценария (обязательное событие)
+    db.log_scenario_step(user_id, 'card_of_day', 'scenario_started', {
+        'session_id': session_id,
+        'user_name': name
+    })
+    
+    # Сохраняем session_id в состоянии
+    await state.update_data(session_id=session_id)
+
     # Кнопки выбора колоды
     buttons = [[types.InlineKeyboardButton(text=deck["title"], callback_data=f"deck_choice_{key}")] for key, deck in DECKS.items()]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -89,6 +101,10 @@ async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, 
     parts = callback.data.split("_")
     deck_name = parts[-1] if len(parts) >= 3 else "nature"
     today = datetime.now(TIMEZONE).date()
+    
+    # Получаем session_id из состояния
+    state_data = await state.get_data()
+    session_id = state_data.get('session_id', str(uuid.uuid4()))
 
     if user_id not in NO_CARD_LIMIT_USERS and not db.is_deck_available(user_id, deck_name, today):
         # Получаем данные пользователя для формирования сообщения
@@ -895,6 +911,14 @@ async def process_card_feedback(callback: types.CallbackQuery, state: FSMContext
 
             try: await callback.message.edit_reply_markup(reply_markup=None)
             except Exception as e: logger.warning(f"Could not edit message reply markup (feedback buttons) for user {user_id}: {e}")
+
+            # Логируем завершение сценария (обязательное событие)
+            db.log_scenario_step(user_id, 'card_of_day', 'completed', {
+                'session_id': session_id,
+                'feedback_type': feedback_type,
+                'card_number': card_number,
+                'final_status': 'feedback_provided'
+            })
 
             try:
                 await callback.message.answer(text, reply_markup=await get_main_menu(user_id, db))

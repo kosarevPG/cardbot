@@ -1737,6 +1737,16 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
 # --- Запуск бота ---
 async def main():
     logger.info("Starting bot...")
+    
+    # 🔄 Применяем миграции базы данных
+    logger.info("🔄 Applying database migrations...")
+    from tools.auto_migrate_on_startup import apply_metrics_migration
+    try:
+        apply_metrics_migration(db_path='data/bot.db')
+        logger.info("✅ Database migrations applied successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Database migration warning: {e}")
+    
     commands = [
         types.BotCommand(command="start", description="🔄 Перезагрузка"),
         types.BotCommand(command="name", description="👩🏼 Указать имя"),
