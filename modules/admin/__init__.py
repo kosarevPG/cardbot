@@ -37,6 +37,10 @@ from modules.admin.posts import (
     process_mailings_now
 )
 
+from modules.admin.marketplaces import (
+    show_admin_marketplaces
+)
+
 __all__ = [
     # Core
     'make_admin_handler',
@@ -65,6 +69,9 @@ __all__ = [
     'start_post_creation',
     'show_posts_list',
     'show_mailings_list',
-    'process_mailings_now'
+    'process_mailings_now',
+    
+    # Marketplaces
+    'show_admin_marketplaces'
 ]
 

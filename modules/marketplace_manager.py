@@ -113,8 +113,13 @@ class MarketplaceManager:
             "Content-Type": "application/json"
         }
     
-    async def get_ozon_product_mapping(self, page_size: int = 1000) -> Dict[str, Union[bool, str, Dict]]:
-        """Получение соответствия offer_id → product_id для Ozon"""
+    async def get_ozon_product_mapping(self, page_size: int = 1000, max_pages: int = 100) -> Dict[str, Union[bool, str, Dict]]:
+        """Получение соответствия offer_id → product_id для Ozon
+        
+        Args:
+            page_size: Размер страницы (по умолчанию 1000)
+            max_pages: Максимальное количество страниц для защиты от зависания (по умолчанию 100)
+        """
         if not self.ozon_api_key or not self.ozon_client_id:
             logger.error(f"Ozon API не настроен: api_key={bool(self.ozon_api_key)}, client_id={bool(self.ozon_client_id)}")
             return {"success": False, "error": "Ozon API не настроен"}
@@ -122,6 +127,7 @@ class MarketplaceManager:
         try:
             last_id = ""
             mapping = {}
+            page_count = 0
             
             # Логируем детали запроса
             logger.info(f"Запрос к Ozon API: {self.ozon_base_url}{self.ozon_endpoints['product_list']}")
@@ -129,7 +135,7 @@ class MarketplaceManager:
             logger.info(f"Client ID: {'***' + self.ozon_client_id[-4:] if self.ozon_client_id else 'НЕТ'}")
             
             async with httpx.AsyncClient(timeout=20.0) as client:
-                while True:
+                while page_count < max_pages:
                     payload = {
                         "filter": {
                             "visibility": "ALL"  # ✅ Обязательное поле согласно документации Ozon
@@ -163,8 +169,13 @@ class MarketplaceManager:
                                 mapping[offer_id] = product_id
                         
                         last_id = data.get("result", {}).get("last_id", "")
+                        page_count += 1
+                        
                         if not last_id or len(products) < page_size:
                             break
+                
+                    if page_count >= max_pages:
+                        logger.warning(f"Достигнут лимит страниц ({max_pages}), возможно есть еще товары")
                     else:
                         logger.error(f"Ошибка Ozon API: {response.status_code} - {response.text}")
                         return {
@@ -184,8 +195,13 @@ class MarketplaceManager:
             logger.error(f"Ошибка получения Ozon product_mapping: {e}")
             return {"success": False, "error": str(e)}
     
-    async def get_ozon_products_simple(self, page_size: int = 1000) -> Dict[str, Union[bool, str, List]]:
-        """Простое получение списка товаров Ozon без остатков (только для тестирования)"""
+    async def get_ozon_products_simple(self, page_size: int = 1000, max_pages: int = 100) -> Dict[str, Union[bool, str, List]]:
+        """Простое получение списка товаров Ozon без остатков (только для тестирования)
+        
+        Args:
+            page_size: Размер страницы (по умолчанию 1000)
+            max_pages: Максимальное количество страниц для защиты от зависания (по умолчанию 100)
+        """
         if not self.ozon_api_key or not self.ozon_client_id:
             logger.error(f"Ozon API не настроен: api_key={bool(self.ozon_api_key)}, client_id={bool(self.ozon_client_id)}")
             return {"success": False, "error": "Ozon API не настроен"}
@@ -193,12 +209,13 @@ class MarketplaceManager:
         try:
             last_id = ""
             products = []
+            page_count = 0
             
             # Логируем детали запроса
             logger.info(f"Простой запрос к Ozon API: {self.ozon_base_url}{self.ozon_endpoints['product_list']}")
             
             async with httpx.AsyncClient(timeout=20.0) as client:
-                while True:
+                while page_count < max_pages:
                     payload = {
                         "filter": {
                             "visibility": "ALL"  # ✅ Обязательное поле согласно документации Ozon
@@ -227,8 +244,13 @@ class MarketplaceManager:
                         products.extend(items)
                         
                         last_id = data.get("result", {}).get("last_id", "")
+                        page_count += 1
+                        
                         if not last_id or len(items) < page_size:
                             break
+                
+                    if page_count >= max_pages:
+                        logger.warning(f"Достигнут лимит страниц ({max_pages}) для простого запроса")
                     else:
                         logger.error(f"Ошибка простого запроса: {response.status_code} - {response.text}")
                         return {
@@ -442,28 +464,28 @@ class MarketplaceManager:
         }
     
     async def _wb_request(self, path: str, *, suppliers: bool = True, method: str = "GET", bearer: bool = False, **kwargs):
-        """Делает запрос к WB, при ошибке DNS повторяет на фиксированный IP.
+        """Делает запрос к WB.
 
         path – строка вроде "/api/v3/warehouses"
-        suppliers=True  → suppliers-api.wildberries.ru
+        suppliers=True  → marketplace-api.wildberries.ru
         bearer=True     → добавляем префикс "Bearer " в Authorization
+        
+        Note: Fallback на IP удален, так как переменные wb_suppliers_ip и wb_content_ip не инициализированы.
         """
         base = self.wb_marketplace_base if suppliers else self.wb_content_base
-        domain = base.replace("https://", "")
-        url    = f"{base}{path}"
+        url = f"{base}{path}"
         headers = kwargs.pop("headers", self._get_wb_headers(bearer=bearer))
+        
         try:
             async with httpx.AsyncClient(timeout=20.0, verify=True) as client:
                 resp = await client.request(method, url, headers=headers, **kwargs)
                 return resp
         except httpx.ConnectError as e:
-            # Если ошибка DNS, пробуем на IP
-            logger.warning("WB DNS fail for %s → fallback to IP (%s): %s", domain, e, domain)
-            fallback_ip = self.wb_suppliers_ip if suppliers else self.wb_content_ip
-            ip_url = f"https://{fallback_ip}{path}"
-            headers["Host"] = domain  # SNI всё равно будет IP, поэтому выключаем verify
-            async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
-                return await client.request(method, ip_url, headers=headers, **kwargs)
+            logger.error(f"WB connection error for {url}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"WB request error for {url}: {e}")
+            raise
 
     async def get_wb_analytics(self, date_from: str, date_to: str) -> Dict[str, Union[bool, str, Dict]]:
         """Получение аналитики Wildberries"""
@@ -478,7 +500,7 @@ class MarketplaceManager:
             
             async with httpx.AsyncClient(timeout=20.0) as client:
                 response = await client.get(
-                    f"{self.wb_base_url}/api/v1/supplier/reportDetailByPeriod",
+                    f"{self.wb_marketplace_base}/api/v1/supplier/reportDetailByPeriod",
                     headers=self._get_wb_headers(),
                     params=params
                 )
@@ -769,22 +791,22 @@ class MarketplaceManager:
                 ])
             
             # Записываем в таблицу (колонки C, E, I, K)
-            await self.sheets_api.write_data(
+            await self.sheets_api.write_data_range(
                 self.spreadsheet_id,
                 f"{self.sheet_name}!{self.wb_columns['nm_id']}2:{self.wb_columns['nm_id']}{len(rows)+1}",
                 [[item["nm_id"]] for item in data]
             )
-            await self.sheets_api.write_data(
+            await self.sheets_api.write_data_range(
                 self.spreadsheet_id,
                 f"{self.sheet_name}!{self.wb_columns['stock']}2:{self.wb_columns['stock']}{len(rows)+1}",
                 [[item["stock"]] for item in data]
             )
-            await self.sheets_api.write_data(
+            await self.sheets_api.write_data_range(
                 self.spreadsheet_id,
                 f"{self.sheet_name}!{self.wb_columns['sales']}2:{self.wb_columns['sales']}{len(rows)+1}",
                 [[item["sales"]] for item in data]
             )
-            await self.sheets_api.write_data(
+            await self.sheets_api.write_data_range(
                 self.spreadsheet_id,
                 f"{self.sheet_name}!{self.wb_columns['revenue']}2:{self.wb_columns['revenue']}{len(rows)+1}",
                 [[item["revenue"]] for item in data]

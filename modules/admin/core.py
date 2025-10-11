@@ -41,7 +41,8 @@ def make_admin_handler(db: Database, logger_service: LoggingService):
             [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
-            [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")]
+            [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
+            [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")]
         ])
         
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
@@ -81,6 +82,7 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
             show_admin_posts, start_post_creation, show_posts_list,
             show_mailings_list, process_mailings_now
         )
+        from modules.admin.marketplaces import show_admin_marketplaces
         
         action = callback.data
         
@@ -176,7 +178,10 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
         elif action == "admin_process_mailings":
             await process_mailings_now(callback.message, db, logger_service, user_id)
         
-        elif action == "admin_back":
+        elif action == "admin_marketplaces":
+            await show_admin_marketplaces(callback.message, db, logger_service, user_id)
+        
+        elif action == "admin_back" or action == "admin_main":
             await show_admin_main_menu(callback.message, db, logger_service, user_id)
         
         await callback.answer()
@@ -212,7 +217,8 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
             [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
-            [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")]
+            [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
+            [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")]
         ])
         
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")

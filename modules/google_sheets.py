@@ -268,8 +268,8 @@ class GoogleSheetsAPI:
             logger.error(f"Ошибка чтения данных: {e}")
             return []
     
-    async def write_data(self, spreadsheet_id: str, range_name: str, data: List[List]) -> bool:
-        """Записывает данные в указанный диапазон таблицы
+    async def write_data_range(self, spreadsheet_id: str, range_name: str, data: List[List]) -> bool:
+        """Записывает данные в указанный диапазон таблицы (с поддержкой range notation)
         
         Args:
             spreadsheet_id: ID таблицы

@@ -7,14 +7,19 @@ import json
 from .marketplace_manager import MarketplaceManager
 from .google_sheets import test_google_sheets_connection, get_sheets_info, read_sheet_data
 
-# ID администраторов (замените на ваши)
-ADMIN_IDS = [6682555021]  # ID пользователя для доступа к командам маркетплейсов
-
 logger = logging.getLogger(__name__)
+
+# Импортируем ADMIN_IDS из config для согласованности
+try:
+    from config import ADMIN_IDS
+except ImportError:
+    # Fallback если config недоступен
+    ADMIN_IDS = []
+    logger.warning("Не удалось импортировать ADMIN_IDS из config.py")
 
 def is_admin(user_id: int) -> bool:
     """Проверяет, является ли пользователь администратором"""
-    return user_id in ADMIN_IDS
+    return str(user_id) in ADMIN_IDS
 
 async def cmd_wb_test(message: types.Message):
     """Тест подключения к WB API"""
@@ -897,8 +902,16 @@ async def cmd_ozon_sync_single(message: types.Message):
         offer_id = command_parts[1]
         await message.answer(f"🔄 Синхронизирую данные для {offer_id}...")
         
-        result = await sync_single_ozon_offer(offer_id)
-        await message.answer(result, parse_mode="Markdown")
+        # TODO: Реализовать функцию sync_single_ozon_offer в marketplace_manager
+        manager = MarketplaceManager()
+        
+        # Временно используем синхронизацию всех товаров
+        result = await manager.sync_ozon_data()
+        
+        if result['success']:
+            await message.answer(f"✅ Синхронизация завершена", parse_mode="Markdown")
+        else:
+            await message.answer(f"❌ Ошибка: {result.get('error', 'Неизвестная ошибка')}", parse_mode="Markdown")
         
     except Exception as e:
         logger.error(f"Ошибка в команде ozon_sync_single: {e}")
