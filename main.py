@@ -189,6 +189,7 @@ from modules.marketplace_commands import register_marketplace_handlers  # Ком
 # Модули покупки и обучения
 from modules.purchase_menu import handle_purchase_menu, handle_purchase_callbacks, get_purchase_menu
 from modules.learn_cards import register_learn_cards_handlers, start_learning
+from modules.constants import UNIVERSE_ADVICE
 
 # Админская панель (рефакторинг - модульная структура)
 from modules.admin import (

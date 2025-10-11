@@ -162,30 +162,11 @@ async def process_hard_moments(message: types.Message, state: FSMContext, db: Da
     data = await state.get_data()
     ai_summary_text = None # Инициализируем переменную для резюме
     
-    # --- НОВЫЙ КОД: Получение информации о карте дня ---
-    card_name = None
-    card_meaning = None
-    try:
-        # Получаем номер карты дня
-        card_number = db.get_today_card_of_the_day(user_id)
-        if card_number:
-            # Импортируем функцию для получения информации о карте
-            from modules.card_of_the_day import get_card_info
-            card_info = get_card_info(card_number)
-            card_name = card_info.get("name")
-            card_meaning = card_info.get("meaning")
-            logger.info(f"Found today's card for user {user_id}: {card_name} ({card_number})")
-        else:
-            logger.info(f"No card found for user {user_id} today")
-    except Exception as card_err:
-        logger.error(f"Error getting card info for user {user_id}: {card_err}", exc_info=True)
-        # Продолжаем без карты в случае ошибки
-    # --- КОНЕЦ НОВОГО КОДА ---
-    
     try:
         # Показываем "печатает..." пока генерируется резюме
         await message.bot.send_chat_action(user_id, 'typing') # <--- Индикатор "печатает..."
-        ai_summary_text = await get_reflection_summary_and_card_synergy(user_id, data, db, card_name, card_meaning)
+        # Карты не имеют названий/значений, поэтому всегда используем обычное резюме без карты
+        ai_summary_text = await get_reflection_summary_and_card_synergy(user_id, data, db, None, None)
 
         if ai_summary_text:
             await message.answer(f"{MSG_AI_SUMMARY_PREFIX}<i>{ai_summary_text}</i>", parse_mode="HTML") # Добавлен parse_mode HTML
