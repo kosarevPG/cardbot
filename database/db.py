@@ -1452,12 +1452,12 @@ class Database:
                 excluded_users = []
             excluded_condition = f"AND user_id NOT IN ({','.join(['?'] * len(excluded_users))})" if excluded_users else ""
             
-            # Шаг 1: Начали сессию
+            # Шаг 1: Выбрали ресурс (базовый шаг, так как 'started' не всегда логируется)
             cursor = self.conn.execute(f"""
                 SELECT COUNT(DISTINCT user_id) as count
                 FROM scenario_logs 
                 WHERE scenario = 'card_of_day' 
-                AND step = 'started'
+                AND step = 'initial_resource_selected'
                 AND timestamp >= datetime('now', '-{days} days', '+3 hours')
                 {excluded_condition}
             """, list(excluded_users) if excluded_users else [])

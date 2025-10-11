@@ -198,16 +198,15 @@ async def show_admin_funnel(message: types.Message, db: Database, logger_service
         text = f"""🔄 <b>ВОРОНКА 'КАРТА ДНЯ'</b> (за {period_text})
 
 📊 <b>Completion Rate: {funnel['completion_rate']}%</b>
-Цель: >60%
+🎯 Цель: >60%
 
 📈 <b>Детальная воронка:</b>
-1️⃣ Начали сессию: {funnel['step1']['count']} ({funnel['step1']['pct']}%)
-2️⃣ Выбрали ресурс: {funnel['step2']['count']} ({funnel['step2']['pct']}%)
-3️⃣ Выбрали тип запроса: {funnel['step3']['count']} ({funnel['step3']['pct']}%)
-4️⃣ Вытянули карту: {funnel['step4']['count']} ({funnel['step4']['pct']}%)
-5️⃣ Написали ассоциацию: {funnel['step5']['count']} ({funnel['step5']['pct']}%)
-6️⃣ Выбрали углубляющий диалог: {funnel['step6']['count']} ({funnel['step6']['pct']}%)
-7️⃣ Завершили сценарий: {funnel['step7']['count']} ({funnel['step7']['pct']}%)"""
+1️⃣ Выбрали ресурс: {funnel['step1']['count']} ({funnel['step1']['pct']}%)
+2️⃣ Выбрали тип запроса: {funnel['step2']['count']} ({funnel['step2']['pct']}%)
+3️⃣ Вытянули карту: {funnel['step3']['count']} ({funnel['step3']['pct']}%)
+4️⃣ Написали ассоциацию: {funnel['step4']['count']} ({funnel['step4']['pct']}%)
+5️⃣ Выбрали углубляющий диалог: {funnel['step5']['count']} ({funnel['step5']['pct']}%)
+6️⃣ Завершили сценарий: {funnel['step6']['count']} ({funnel['step6']['pct']}%)"""
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="📅 Сегодня", callback_data="admin_funnel_1")],
