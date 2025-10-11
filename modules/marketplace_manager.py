@@ -720,24 +720,32 @@ class MarketplaceManager:
     async def _update_ozon_sheet(self, data: Dict[str, Dict[str, Any]]) -> None:
         """Обновляет лист Ozon в Google таблице с помощью пакетного обновления"""
         try:
-            # Читаем столбец с offer_id, чтобы найти номера строк
-            offer_ids_in_sheet = await self.sheets_api.read_data(
-                self.spreadsheet_id,
-                f"{self.sheet_name}!{self.ozon_columns['offer_id']}:{self.ozon_columns['offer_id']}"
-            )
+            # Читаем весь лист, чтобы правильно сопоставить товары
+            sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, self.sheet_name)
+            if not sheet_data or len(sheet_data) < 2:
+                logger.warning("⚠️ Нет данных в таблице для обновления Ozon")
+                return
             
-            # Создаем mapping: offer_id -> номер строки
-            offer_to_row = {
-                offer[0]: i + 1 
-                for i, offer in enumerate(offer_ids_in_sheet) 
-                if offer and offer[0]
-            }
+            # Создаем mapping: offer_id -> номер строки (пропускаем заголовок)
+            offer_to_row = {}
+            for i, row in enumerate(sheet_data[1:], start=2):  # Пропускаем заголовок, начинаем с строки 2
+                if len(row) > 3 and row[3]:  # Колонка D (Арт. Ozon)
+                    offer_id = row[3].strip()
+                    offer_to_row[offer_id] = i
+            
+            logger.info(f"📋 Найдено {len(offer_to_row)} товаров в таблице: {list(offer_to_row.keys())}")
+            logger.info(f"📦 Данных для обновления: {list(data.keys())}")
             
             # Подготавливаем данные для пакетного обновления
             updates = []
+            matched_count = 0
+            
             for offer_id, info in data.items():
                 if offer_id in offer_to_row:
                     row = offer_to_row[offer_id]
+                    matched_count += 1
+                    
+                    logger.info(f"📦 Обновляю товар {offer_id} в строке {row}: остаток={info.get('total_stock', 0)}")
                     
                     # Обновляем остатки, продажи, выручку
                     updates.append({
@@ -764,6 +772,10 @@ class MarketplaceManager:
                             "range": f"{self.ozon_columns['revenue']}{row}",
                             "values": [[info.get("revenue", 0)]]
                         })
+                else:
+                    logger.warning(f"⚠️ Товар {offer_id} не найден в таблице")
+            
+            logger.info(f"✅ Сопоставлено {matched_count} из {len(data)} товаров")
 
             # Выполняем пакетное обновление
             if updates:
@@ -1010,13 +1022,14 @@ class MarketplaceManager:
             
             for i, row in enumerate(sheet_data[1:], start=2):  # Пропускаем заголовок, начинаем с строки 2
                 if len(row) > 3:  # Проверяем наличие колонки D (Арт. Ozon)
-                    offer_id = row[3] if len(row) > 3 else None
-                    nm_id = row[2] if len(row) > 2 else None
+                    offer_id = row[3].strip() if len(row) > 3 and row[3] else None
+                    nm_id = row[2].strip() if len(row) > 2 and row[2] else None
                     
                     # Цена Ozon
                     if offer_id and offer_id in ozon_prices:
                         price = ozon_prices[offer_id]["price"]
                         ozon_price_updates.append([price])
+                        logger.debug(f"💰 Цена Ozon для {offer_id}: {price}")
                     else:
                         ozon_price_updates.append([""])
                     
@@ -1027,6 +1040,7 @@ class MarketplaceManager:
                             if nm_id_int in wb_prices:
                                 price = wb_prices[nm_id_int]["price"]
                                 wb_price_updates.append([price])
+                                logger.debug(f"💰 Цена WB для {nm_id}: {price}")
                             else:
                                 wb_price_updates.append([""])
                         except (ValueError, TypeError):
