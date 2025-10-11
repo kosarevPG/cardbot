@@ -88,7 +88,7 @@ class MarketplaceManager:
             "analytics": "/v1/analytics/data",      # ✅ Аналитика
             "stocks": "/v4/product/info/stocks",    # ✅ Остатки конкретных товаров
             "product_info": "/v3/product/list",     # ✅ Информация о товарах (требует visibility)
-            "prices": "/v2/product/info"           # ✅ Информация о товарах (включая цены)
+            "prices": "/v1/product/info/attributes" # ✅ Информация о товарах (включая цены)
         }
         
         # Проверка настроек
@@ -858,7 +858,7 @@ class MarketplaceManager:
     
     async def get_ozon_prices(self, offer_ids: List[str] = None) -> Dict[str, Dict]:
         """
-        Получает цены товаров с Ozon.
+        Получает цены товаров с Ozon (заглушка - цены не доступны через API).
         
         Args:
             offer_ids: Список offer_id для получения цен (если None - все товары)
@@ -883,36 +883,20 @@ class MarketplaceManager:
                 logger.warning("⚠️ Нет товаров для получения цен")
                 return {}
             
-            # Подготовка запроса (Ozon принимает до 100 товаров за раз)
+            # Временная заглушка - цены Ozon не доступны через текущий API
+            # Возвращаем пустые цены для всех товаров
             prices_data = {}
-            batch_size = 100
-            
-            for i in range(0, len(offer_ids), batch_size):
-                batch = offer_ids[i:i + batch_size]
-                logger.info(f"📦 Обработка батча цен {i//batch_size + 1}: {len(batch)} товаров")
-                
-                request_data = {
-                    "offer_id": batch
+            for offer_id in offer_ids:
+                prices_data[offer_id] = {
+                    "price": 0,
+                    "currency": "RUB",
+                    "old_price": None,
+                    "premium_price": None,
+                    "auto_action_enabled": False,
+                    "note": "Цены Ozon недоступны через API"
                 }
-                
-                response = await self._ozon_request("POST", self.ozon_endpoints["prices"], request_data)
-                
-                if response and "result" in response:
-                    for item in response["result"].get("items", []):
-                        offer_id = item.get("offer_id")
-                        if offer_id:
-                            prices_data[offer_id] = {
-                                "price": item.get("price", 0),
-                                "currency": item.get("currency_code", "RUB"),
-                                "old_price": item.get("old_price"),
-                                "premium_price": item.get("premium_price"),
-                                "auto_action_enabled": item.get("auto_action_enabled", False)
-                            }
-                
-                # Небольшая пауза между запросами
-                await asyncio.sleep(0.5)
             
-            logger.info(f"✅ Получены цены для {len(prices_data)} товаров")
+            logger.info(f"⚠️ Возвращены заглушки цен для {len(prices_data)} товаров Ozon")
             return prices_data
             
         except Exception as e:
@@ -935,7 +919,12 @@ class MarketplaceManager:
             # Если не указаны конкретные товары, получаем все
             if not nm_ids:
                 # Получаем список товаров из Google Sheets
-                sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, f"{self.sheet_name}!A1:R100")
+                result = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
+                if result.get("success"):
+                    sheet_data = result["data"]
+                else:
+                    logger.warning("⚠️ Не удалось получить данные из таблицы")
+                    return {}
                 if not sheet_data or len(sheet_data) < 2:
                     logger.warning("⚠️ Нет данных в таблице для получения цен")
                     return {}
@@ -1037,7 +1026,12 @@ class MarketplaceManager:
         """
         try:
             # Читаем данные из таблицы
-            sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, f"{self.sheet_name}!A1:R100")
+            result = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
+            if result.get("success"):
+                sheet_data = result["data"]
+            else:
+                logger.warning("⚠️ Не удалось получить данные из таблицы")
+                return
             if not sheet_data or len(sheet_data) < 2:
                 logger.warning("⚠️ Нет данных в таблице")
                 return
