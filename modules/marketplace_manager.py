@@ -59,24 +59,24 @@ class MarketplaceManager:
         # Google Sheets настройки
         self.sheets_api = GoogleSheetsAPI(service_account_info=google_creds)
         self.spreadsheet_id = "1RoWWv9BgiwlSu9H-KJNsFItQxlUVhG1WMbyB0eFxzYM"
-        self.sheet_name = "marketplaces"
+        self.sheet_name = "Лист1"
         
-        # Структура таблицы для Ozon
+        # Структура таблицы для Ozon (соответствует "Форбс.Учет 2.0")
         self.ozon_columns = {
-            "offer_id": "D",      # Арт. Ozon
-            "stock": "I",         # Остаток Ozon, всего (новый столбец)
-            "stock_fbo": "J",     # Остаток Ozon, FBO
-            "stock_fbs": "K",     # Остаток Ozon, FBS
-            "sales": "M",         # Продажи Ozon
-            "revenue": "O"        # Выручка Ozon
+            "offer_id": "D",      # Арт. Ozon (колонка D)
+            "stock": "I",         # Остаток Ozon, всего (колонка I)
+            "stock_fbo": "J",     # Остаток Ozon, FBO (колонка J)
+            "stock_fbs": "K",     # Остаток Ozon, FBS (колонка K)
+            "sales": "M",         # Продажи Ozon (колонка M)
+            "revenue": "O"        # Выручка Ozon (колонка O)
         }
         
-        # Обновлённые колонки Google Sheet (см. новый макет)
+        # Структура таблицы для Wildberries (соответствует "Форбс.Учет 2.0")
         self.wb_columns = {
-            "nm_id": "C",        # Баркод / Артикул WB
-            "stock": "F",        # Остаток WB (всего)
-            "sales": "L",        # Продажи WB
-            "revenue": "N"       # Выручка WB
+            "nm_id": "C",        # Баркод WB (колонка C)
+            "stock": "F",        # Остаток WB (всего) (колонка F)
+            "sales": "L",        # Продажи WB (колонка L)
+            "revenue": "N"       # Выручка WB (колонка N)
         }
         
         # Ozon API эндпоинты
