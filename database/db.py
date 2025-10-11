@@ -1448,19 +1448,26 @@ class Database:
                 period_filter = f"d_local >= date('now', '+3 hours', '-{days} days')"
             
             # Если нужно включить исключенных пользователей, используем scenario_logs напрямую
-            source_table = "scenario_logs" if include_excluded_users else "v_events"
-            date_field = "DATE(timestamp, '+3 hours')" if include_excluded_users else "d_local"
-            event_field = "step" if include_excluded_users else "event"
-            
-            # Получаем все шаги за период одним запросом
-            cursor = self.conn.execute(f"""
-                SELECT 
-                    {event_field},
-                    COUNT(DISTINCT session_id) as count
-                FROM {source_table}
-                WHERE scenario = 'card_of_day' AND {period_filter}
-                GROUP BY {event_field}
-            """)
+            if include_excluded_users:
+                # Используем scenario_logs с JSON_EXTRACT для session_id
+                cursor = self.conn.execute(f"""
+                    SELECT 
+                        step,
+                        COUNT(DISTINCT JSON_EXTRACT(metadata, '$.session_id')) as count
+                    FROM scenario_logs
+                    WHERE scenario = 'card_of_day' AND DATE(timestamp, '+3 hours') = DATE('now', '+3 hours')
+                    GROUP BY step
+                """)
+            else:
+                # Используем v_events (по умолчанию)
+                cursor = self.conn.execute(f"""
+                    SELECT 
+                        event,
+                        COUNT(DISTINCT session_id) as count
+                    FROM v_events
+                    WHERE scenario = 'card_of_day' AND d_local = date('now', '+3 hours')
+                    GROUP BY event
+                """)
             
             # Собираем статистику по шагам
             step_counts = {}
