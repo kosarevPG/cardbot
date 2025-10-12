@@ -199,7 +199,7 @@ async def get_or_create_progress(db: Database, user_id: int) -> dict:
 async def show_entry_poll_q1(message: types.Message, state: FSMContext):
     """Показывает первый вопрос входного опросника."""
     keyboard = create_inline_keyboard([
-        (opt, f"entry_q1_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q1"])
+        (f"1. {opt}", f"entry_q1_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q1"])
     ])
     question_text = f"<b>Вопрос 1/4</b>\n\n{TEXTS['entry_poll_q1']}"
     await message.answer(question_text, reply_markup=keyboard, parse_mode="HTML")
@@ -221,7 +221,7 @@ async def handle_entry_poll_q1(callback: types.CallbackQuery, state: FSMContext)
     
     # Переходим к вопросу 2
     keyboard = create_inline_keyboard([
-        (opt, f"entry_q2_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q2"])
+        (f"1. {opt}", f"entry_q2_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q2"])
     ])
     question_text = f"<b>Вопрос 2/4</b>\n\n{TEXTS['entry_poll_q2']}"
     await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
@@ -243,7 +243,7 @@ async def handle_entry_poll_q2(callback: types.CallbackQuery, state: FSMContext)
     
     # Переходим к вопросу 3
     keyboard = create_inline_keyboard([
-        (opt, f"entry_q3_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q3"])
+        (f"1. {opt}", f"entry_q3_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q3"])
     ])
     question_text = f"<b>Вопрос 3/4</b>\n\n{TEXTS['entry_poll_q3']}"
     await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
@@ -265,7 +265,7 @@ async def handle_entry_poll_q3(callback: types.CallbackQuery, state: FSMContext)
     
     # Переходим к вопросу 4
     keyboard = create_inline_keyboard([
-        (opt, f"entry_q4_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q4"])
+        (f"1. {opt}", f"entry_q4_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q4"])
     ])
     question_text = f"<b>Вопрос 4/4</b>\n\n{TEXTS['entry_poll_q4']}"
     await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
@@ -311,7 +311,7 @@ async def handle_entry_poll_q4(callback: types.CallbackQuery, state: FSMContext,
 async def show_exit_poll_q1(message: types.Message, state: FSMContext):
     """Показывает первый вопрос выходного опросника."""
     keyboard = create_inline_keyboard([
-        (opt, f"exit_q1_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q1"])
+        (f"1. {opt}", f"exit_q1_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q1"])
     ])
     question_text = f"<b>Вопрос 1/3</b>\n\n{TEXTS['exit_poll_q1']}"
     await message.answer(question_text, reply_markup=keyboard, parse_mode="HTML")
@@ -333,7 +333,7 @@ async def handle_exit_poll_q1(callback: types.CallbackQuery, state: FSMContext):
     
     # Переходим к вопросу 2
     keyboard = create_inline_keyboard([
-        (opt, f"exit_q2_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q2"])
+        (f"1. {opt}", f"exit_q2_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q2"])
     ])
     question_text = f"<b>Вопрос 2/3</b>\n\n{TEXTS['exit_poll_q2']}"
     await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
@@ -355,7 +355,7 @@ async def handle_exit_poll_q2(callback: types.CallbackQuery, state: FSMContext):
     
     # Переходим к вопросу 3
     keyboard = create_inline_keyboard([
-        (opt, f"exit_q3_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q3"])
+        (f"1. {opt}", f"exit_q3_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q3"])
     ])
     question_text = f"<b>Вопрос 3/3</b>\n\n{TEXTS['exit_poll_q3']}"
     await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
