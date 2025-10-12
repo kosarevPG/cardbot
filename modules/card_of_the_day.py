@@ -25,32 +25,55 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def get_resource_level_keyboard() -> InlineKeyboardMarkup:
-    """Возвращает клавиатуру для выбора уровня ресурса."""
+def get_resource_level_keyboard(add_back_button: bool = False, back_callback: str = "resource_back") -> InlineKeyboardMarkup:
+    """
+    Возвращает клавиатуру для выбора уровня ресурса.
+    
+    Args:
+        add_back_button: Добавить ли кнопку "Назад"
+        back_callback: Callback для кнопки "Назад"
+    """
     buttons = [types.InlineKeyboardButton(text=label.split()[0], callback_data=key) for key, label in RESOURCE_LEVELS.items()]
-    return types.InlineKeyboardMarkup(inline_keyboard=[buttons])
+    keyboard_rows = [buttons]
+    
+    # Добавляем кнопку "Назад", если нужно
+    if add_back_button:
+        keyboard_rows.append([types.InlineKeyboardButton(text="← Назад", callback_data=back_callback)])
+    
+    return types.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
 # --- Основная клавиатура (ИЗМЕНЕНО) ---
 async def get_main_menu(user_id, db: Database):
-    """Возвращает основную клавиатуру меню. (ИЗМЕНЕНО)"""
-    keyboard = [
-        [types.KeyboardButton(text="🌙 Подвести итог дня")],
-        [types.KeyboardButton(text="🎓 Как разговаривать с картой")]
-    ]
-    # Кнопка 'Получить карту дня' всегда доступна в главном меню
-    keyboard.insert(0, [types.KeyboardButton(text="✨ Получить карту дня")])
+    """
+    Возвращает основную клавиатуру меню (ВАРИАНТ C - ГИБРИДНЫЙ).
     
-    # Добавляем кнопку 'Приобрести МАК' в главное меню
-    keyboard.append([types.KeyboardButton(text="🛍 Приобрести МАК")])
+    Структура:
+    Ряд 1: 🌙 Карта дня | 📝 Рефлексия
+    Ряд 2: 🎓 Обучение  | ⚙️ Еще...
+    [Опционально: 💌 Подсказка Вселенной]
+    """
+    # Основное меню: 4 кнопки в 2 ряда
+    keyboard = [
+        # Ряд 1: Основные функции
+        [
+            types.KeyboardButton(text="🌙 Карта дня"),
+            types.KeyboardButton(text="📝 Рефлексия")
+        ],
+        # Ряд 2: Дополнительные функции
+        [
+            types.KeyboardButton(text="🎓 Обучение"),
+            types.KeyboardButton(text="⚙️ Еще...")
+        ]
+    ]
+    
     try:
         user_data = db.get_user(user_id)
-        # --- ИЗМЕНЕНИЕ: Добавляем кнопку в конец, если бонус доступен ---
+        # Добавляем бонусную кнопку, если доступна
         if user_data and user_data.get("bonus_available"):
-            # Используем append вместо insert(1, ...)
             keyboard.append([types.KeyboardButton(text="💌 Подсказка Вселенной")])
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
     except Exception as e:
         logger.error(f"Error getting user data for main menu (user {user_id}): {e}", exc_info=True)
+    
     # Используем persistent=True для постоянного отображения
     return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
 
@@ -90,8 +113,10 @@ async def handle_card_request(message: types.Message, state: FSMContext, db: Dat
     # Сохраняем session_id в состоянии
     await state.update_data(session_id=session_id)
 
-    # Кнопки выбора колоды
+    # Кнопки выбора колоды + кнопка "Назад"
     buttons = [[types.InlineKeyboardButton(text=deck["title"], callback_data=f"deck_choice_{key}")] for key, deck in DECKS.items()]
+    # Добавляем кнопку "Назад в меню"
+    buttons.append([types.InlineKeyboardButton(text="← Назад в меню", callback_data="deck_choice_back")])
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     user_id = message.from_user.id
     text = get_personalized_text('card_of_day.deck_selection', CARDS_TEXTS, user_id, db)
@@ -101,6 +126,15 @@ async def handle_card_request(message: types.Message, state: FSMContext, db: Dat
 async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, db: Database, logger_service):
     """Обрабатывает выбор колоды."""
     user_id = callback.from_user.id
+    
+    # Обработка кнопки "Назад"
+    if callback.data == "deck_choice_back":
+        await callback.answer()
+        await callback.message.edit_text("Возвращаемся в главное меню...")
+        await callback.message.answer("Выбери действие:", reply_markup=await get_main_menu(user_id, db))
+        await state.clear()
+        return
+    
     parts = callback.data.split("_")
     deck_name = parts[-1] if len(parts) >= 3 else "nature"
     today = datetime.now(TIMEZONE).date()

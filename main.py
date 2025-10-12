@@ -185,6 +185,7 @@ from modules.marketplace_commands import register_marketplace_handlers  # Ком
 # Модули покупки и обучения
 from modules.purchase_menu import handle_purchase_menu, handle_purchase_callbacks, get_purchase_menu
 from modules.learn_cards import register_learn_cards_handlers, start_learning
+from modules.settings_menu import show_settings_menu, handle_settings_callback
 from modules.constants import UNIVERSE_ADVICE
 
 # Админская панель (рефакторинг - модульная структура)
@@ -844,6 +845,35 @@ def make_feedback_handler(db, logger_service):
          await logger_service.log_action(user_id, "feedback_initiated")
      return wrapped_handler
 
+def make_help_handler(db, logger_service):
+    """Создает обработчик команды /help"""
+    async def wrapped_handler(message: types.Message):
+        user_id = message.from_user.id
+        
+        text = (
+            "❓ <b>Помощь и FAQ</b>\n\n"
+            "🌙 <b>Карта дня</b> - получи карту для самопознания и рефлексии\n"
+            "📝 <b>Рефлексия</b> - подведи итоги дня в формате вечерней практики\n"
+            "🎓 <b>Обучение</b> - научись правильно формулировать запросы к картам\n"
+            "⚙️ <b>Еще...</b> - настройки, профиль, приглашения и другое\n\n"
+            "<b>📖 Часто задаваемые вопросы:</b>\n\n"
+            "<i>1. Что такое МАК-карты?</i>\n"
+            "Это метафорические ассоциативные карты для самопознания. "
+            "Они помогают заглянуть внутрь себя через образы.\n\n"
+            "<i>2. Сколько раз можно получать карту?</i>\n"
+            "Столько, сколько захочешь! Но рекомендую делать паузу между запросами.\n\n"
+            "<i>3. Как настроить напоминания?</i>\n"
+            "Нажми ⚙️ Еще... → 🔔 Напоминания\n\n"
+            "<i>4. Где посмотреть свой профиль?</i>\n"
+            "Нажми ⚙️ Еще... → 👤 Мой профиль\n\n"
+            "💬 Остались вопросы? Нажми ⚙️ Еще... → 💬 Обратная связь"
+        )
+        
+        await message.answer(text, parse_mode="HTML")
+        await logger_service.log_action(user_id, "help_viewed")
+    
+    return wrapped_handler
+
 def make_user_profile_handler(db, logger_service):
      async def wrapped_handler(message: types.Message, state: FSMContext):
         await state.clear()
@@ -1376,7 +1406,7 @@ def make_process_name_handler(db, logger_service, user_manager):
          name = message.text.strip()
          if not name: await message.answer("Имя не может быть пустым..."); return
          if len(name) > 50: await message.answer("Слишком длинное имя..."); return
-         reserved_names = ["✨ Получить карту дня", "💌 Подсказка Вселенной", "🌙 Подвести итог дня", "🎓 Как разговаривать с картой", "🛍 Приобрести МАК"]
+         reserved_names = ["🌙 Карта дня", "📝 Рефлексия", "🎓 Обучение", "⚙️ Еще...", "💌 Подсказка Вселенной"]
          if name in reserved_names:
              await message.answer(f"Имя '{name}' использовать нельзя, оно совпадает с кнопкой меню.")
              return
@@ -1547,6 +1577,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     process_skip_name_handler = make_process_skip_name_handler(db, logging_service, user_manager)
     feedback_handler = make_feedback_handler(db, logging_service)
     process_feedback_handler = make_process_feedback_handler(db, logging_service)
+    help_handler = make_help_handler(db, logging_service)
     user_profile_handler = make_user_profile_handler(db, logging_service)
     bonus_request_handler = make_bonus_request_handler(db, logging_service, user_manager)
     users_handler = make_users_handler(db, logging_service)
@@ -1565,9 +1596,11 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.message.register(share_handler, Command("share"))
     dp.message.register(remind_handler, Command("remind"))
     dp.message.register(remind_off_handler, Command("remind_off"))
+    # Основные команды (оставляем для обратной совместимости, но не показываем в меню)
     dp.message.register(name_handler, Command("name"))
     dp.message.register(feedback_handler, Command("feedback"))
     dp.message.register(user_profile_handler, Command("user_profile"))
+    dp.message.register(help_handler, Command("help"))
     dp.message.register(users_handler, Command("users"))
     dp.message.register(logs_handler, Command("logs"))
     dp.message.register(admin_user_profile_handler, Command("admin_user_profile"))
@@ -1583,12 +1616,25 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.callback_query.register(admin_callback_handler, F.data.startswith("admin_"))
 
     dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной")
-    dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Получить карту дня")
-    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Подвести итог дня")
-    dp.message.register(partial(start_learning, db=db), F.text == "🎓 Как разговаривать с картой")
+    # Обработчики кнопок главного меню (ОБНОВЛЕНО: Вариант C)
+    dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "🌙 Карта дня")
+    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "📝 Рефлексия")
+    dp.message.register(partial(start_learning, db=db), F.text == "🎓 Обучение")
     
-    # Регистрируем обработчики для меню покупки
-    dp.message.register(partial(handle_purchase_menu, db=db, logging_service=logging_service), F.text == "🛍 Приобрести МАК")
+    # Обработчик кнопки "⚙️ Еще..." (НОВОЕ)
+    async def handle_settings_button(message: types.Message):
+        user_id = message.from_user.id
+        await show_settings_menu(message, db, user_id)
+    
+    dp.message.register(handle_settings_button, F.text == "⚙️ Еще...")
+    
+    # Обработчики callback'ов из меню "Еще..."
+    dp.callback_query.register(
+        partial(handle_settings_callback, db=db, logger_service=logging_service),
+        F.data.startswith("settings_")
+    )
+    
+    # Регистрируем обработчики для меню покупки (оставляем для обратной совместимости)
     dp.callback_query.register(partial(handle_purchase_callbacks, db=db), F.data == "back_to_main_menu")
     
     # Регистрируем обработчики модуля обучения
@@ -1667,7 +1713,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             from config import ADMIN_IDS
             if (str(user_id) in ADMIN_IDS and message.text and 
                 not message.text.startswith('/') and
-                message.text not in ["✨ Получить карту дня", "🌙 Подвести итог дня", "🎓 Как разговаривать с картой", "🛍 Приобрести МАК"]):
+                message.text not in ["🌙 Карта дня", "📝 Рефлексия", "🎓 Обучение", "⚙️ Еще...", "💌 Подсказка Вселенной"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} in state {current_state_str}")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return
@@ -1730,7 +1776,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             from config import ADMIN_IDS
             if (str(user_id) in ADMIN_IDS and message.text and 
                 not message.text.startswith('/') and
-                message.text not in ["✨ Получить карту дня", "🌙 Подвести итог дня", "🎓 Как разговаривать с картой", "🛍 Приобрести МАК"]):
+                message.text not in ["🌙 Карта дня", "📝 Рефлексия", "🎓 Обучение", "⚙️ Еще...", "💌 Подсказка Вселенной"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} (no state)")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return
@@ -1763,22 +1809,16 @@ async def main():
     except Exception as e:
         logger.warning(f"⚠️ Database migration warning: {e}")
     
+    # ОБНОВЛЕНО: Упрощенное меню команд (Вариант C - только самое важное)
+    # Второстепенные функции (имя, напоминания, и т.д.) переехали в меню "⚙️ Еще..."
     commands = [
-        types.BotCommand(command="start", description="🔄 Перезагрузка"),
-        types.BotCommand(command="name", description="👩🏼 Указать имя"),
-        types.BotCommand(command="remind", description="⏰ Настроить напоминания"),
-        types.BotCommand(command="remind_off", description="🔕 Выключить все напоминания"),
-        types.BotCommand(command="share", description="🎁 Поделиться с другом"),
-        types.BotCommand(command="feedback", description="✉️ Оставить отзыв / Идею"),
-        types.BotCommand(command="user_profile", description="📊 Мой профиль")
+        types.BotCommand(command="start", description="🏠 Главное меню"),
+        types.BotCommand(command="help", description="❓ Помощь и FAQ")
     ]
     
-    # Добавляем админские команды
+    # Админские команды (только /admin, остальное через админ-панель)
     admin_commands = [
-        types.BotCommand(command="create_post", description="📝 Создать пост (админ)"),
-        types.BotCommand(command="list_posts", description="📋 Список постов (админ)"),
-        types.BotCommand(command="send_post", description="📤 Отправить пост (админ)"),
-        types.BotCommand(command="process_mailings", description="🔄 Обработать рассылки (админ)")
+        types.BotCommand(command="admin", description="🛠️ Админ-панель")
     ]
     try:
         await bot.set_my_commands(commands)
@@ -1923,22 +1963,15 @@ async def main() -> None:
     # Загрузка конфигурации
     setup_logging()  # Настройка логирования
     logger.info("Starting bot...")
+    # ОБНОВЛЕНО: Упрощенное меню команд (Вариант C - только самое важное)
     commands = [
-        types.BotCommand(command="start", description="🔄 Перезагрузка"),
-        types.BotCommand(command="name", description="👩🏼 Указать имя"),
-        types.BotCommand(command="remind", description="⏰ Настроить напоминания"),
-        types.BotCommand(command="remind_off", description="🔕 Выключить все напоминания"),
-        types.BotCommand(command="share", description="🎁 Поделиться с другом"),
-        types.BotCommand(command="feedback", description="✉️ Оставить отзыв / Идею"),
-        types.BotCommand(command="user_profile", description="📊 Мой профиль")
+        types.BotCommand(command="start", description="🏠 Главное меню"),
+        types.BotCommand(command="help", description="❓ Помощь и FAQ")
     ]
     
-    # Добавляем админские команды
+    # Админские команды (только /admin, остальное через админ-панель)
     admin_commands = [
-        types.BotCommand(command="create_post", description="📝 Создать пост (админ)"),
-        types.BotCommand(command="list_posts", description="📋 Список постов (админ)"),
-        types.BotCommand(command="send_post", description="📤 Отправить пост (админ)"),
-        types.BotCommand(command="process_mailings", description="🔄 Обработать рассылки (админ)")
+        types.BotCommand(command="admin", description="🛠️ Админ-панель")
     ]
     try:
         await bot.set_my_commands(commands)
