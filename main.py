@@ -1406,7 +1406,7 @@ def make_process_name_handler(db, logger_service, user_manager):
          name = message.text.strip()
          if not name: await message.answer("Имя не может быть пустым..."); return
          if len(name) > 50: await message.answer("Слишком длинное имя..."); return
-             reserved_names = ["✨ Карта дня", "🌙 Итог дня", "🟦 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]
+         reserved_names = ["✨ Карта дня", "🌙 Итог дня", "🟦 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]
          if name in reserved_names:
              await message.answer(f"Имя '{name}' использовать нельзя, оно совпадает с кнопкой меню.")
              return
