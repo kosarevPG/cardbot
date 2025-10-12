@@ -201,7 +201,8 @@ async def show_entry_poll_q1(message: types.Message, state: FSMContext):
     keyboard = create_inline_keyboard([
         (opt, f"entry_q1_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q1"])
     ])
-    await message.answer(TEXTS["entry_poll_q1"], reply_markup=keyboard, parse_mode="HTML")
+    question_text = f"<b>Вопрос 1/4</b>\n\n{TEXTS['entry_poll_q1']}"
+    await message.answer(question_text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(LearnCardsFSM.entry_poll_q1)
 
 
@@ -222,7 +223,8 @@ async def handle_entry_poll_q1(callback: types.CallbackQuery, state: FSMContext)
     keyboard = create_inline_keyboard([
         (opt, f"entry_q2_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q2"])
     ])
-    await callback.message.edit_text(TEXTS["entry_poll_q2"], reply_markup=keyboard, parse_mode="HTML")
+    question_text = f"<b>Вопрос 2/4</b>\n\n{TEXTS['entry_poll_q2']}"
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(LearnCardsFSM.entry_poll_q2)
 
 
@@ -243,7 +245,8 @@ async def handle_entry_poll_q2(callback: types.CallbackQuery, state: FSMContext)
     keyboard = create_inline_keyboard([
         (opt, f"entry_q3_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q3"])
     ])
-    await callback.message.edit_text(TEXTS["entry_poll_q3"], reply_markup=keyboard, parse_mode="HTML")
+    question_text = f"<b>Вопрос 3/4</b>\n\n{TEXTS['entry_poll_q3']}"
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(LearnCardsFSM.entry_poll_q3)
 
 
@@ -264,7 +267,8 @@ async def handle_entry_poll_q3(callback: types.CallbackQuery, state: FSMContext)
     keyboard = create_inline_keyboard([
         (opt, f"entry_q4_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q4"])
     ])
-    await callback.message.edit_text(TEXTS["entry_poll_q4"], reply_markup=keyboard, parse_mode="HTML")
+    question_text = f"<b>Вопрос 4/4</b>\n\n{TEXTS['entry_poll_q4']}"
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(LearnCardsFSM.entry_poll_q4)
 
 
@@ -309,7 +313,8 @@ async def show_exit_poll_q1(message: types.Message, state: FSMContext):
     keyboard = create_inline_keyboard([
         (opt, f"exit_q1_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q1"])
     ])
-    await message.answer(TEXTS["exit_poll_q1"], reply_markup=keyboard, parse_mode="HTML")
+    question_text = f"<b>Вопрос 1/3</b>\n\n{TEXTS['exit_poll_q1']}"
+    await message.answer(question_text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(LearnCardsFSM.exit_poll_q1)
 
 
@@ -330,7 +335,8 @@ async def handle_exit_poll_q1(callback: types.CallbackQuery, state: FSMContext):
     keyboard = create_inline_keyboard([
         (opt, f"exit_q2_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q2"])
     ])
-    await callback.message.edit_text(TEXTS["exit_poll_q2"], reply_markup=keyboard, parse_mode="HTML")
+    question_text = f"<b>Вопрос 2/3</b>\n\n{TEXTS['exit_poll_q2']}"
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(LearnCardsFSM.exit_poll_q2)
 
 
@@ -351,7 +357,8 @@ async def handle_exit_poll_q2(callback: types.CallbackQuery, state: FSMContext):
     keyboard = create_inline_keyboard([
         (opt, f"exit_q3_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q3"])
     ])
-    await callback.message.edit_text(TEXTS["exit_poll_q3"], reply_markup=keyboard, parse_mode="HTML")
+    question_text = f"<b>Вопрос 3/3</b>\n\n{TEXTS['exit_poll_q3']}"
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(LearnCardsFSM.exit_poll_q3)
 
 
@@ -443,10 +450,14 @@ async def start_learning(message: types.Message, state: FSMContext, db: Database
     if progress and progress.get('theory_passed'):
         # Пользователь уже проходил обучение, предлагаем выбор
         keyboard = create_inline_keyboard([
+            ("🔁 С входным опросом", "learn_with_poll"),
             ("🔁 Теория заново", "learn_theory"),
             ("🧪 Сразу к практике", "learn_practice")
         ])
-        await message.answer(TEXTS["choice_menu"], reply_markup=keyboard)
+        await message.answer(
+            "Ты уже проходил обучение раньше.\nХочешь повторить?",
+            reply_markup=keyboard
+        )
         await state.set_state(LearnCardsFSM.choice_menu)
     else:
         # Первый раз - начинаем с входного опросника
@@ -898,6 +909,15 @@ async def handle_finish(callback: types.CallbackQuery, state: FSMContext, db: Da
 
 # === ОБРАБОТЧИКИ ВЫБОРА (ТЕОРИЯ/ПРАКТИКА) ===
 
+async def handle_choice_with_poll(callback: types.CallbackQuery, state: FSMContext):
+    """Выбор прохождения с входным опросом."""
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    
+    # Начинаем с входного опросника
+    await show_entry_poll_q1(callback.message, state)
+
+
 async def handle_choice_theory(callback: types.CallbackQuery, state: FSMContext, db: Database):
     """Выбор повторного прохождения теории."""
     await callback.answer()
@@ -1084,6 +1104,11 @@ def register_learn_cards_handlers(dp, db: Database, logger_service, user_manager
     )
     
     # Обработчики выбора теория/практика
+    dp.callback_query.register(
+        handle_choice_with_poll,
+        F.data == "learn_with_poll"
+    )
+    
     dp.callback_query.register(
         partial(handle_choice_theory, db=db),
         F.data == "learn_theory"
