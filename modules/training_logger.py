@@ -16,9 +16,9 @@ class TrainingLogger:
     def __init__(self, db: Database):
         self.db = db
         
-    async def log_training_step(self, user_id: int, training_type: str, step: str, 
-                              username: str = None, first_name: str = None, last_name: str = None,
-                              session_id: str = None, details: Dict = None):
+    def log_training_step(self, user_id: int, training_type: str, step: str, 
+                          username: str = None, first_name: str = None, last_name: str = None,
+                          session_id: str = None, details: Dict = None):
         """
         Логирует шаг обучения пользователя
         
@@ -34,12 +34,16 @@ class TrainingLogger:
         """
         try:
             # Проверяем, включено ли логирование обучения
-            settings = await self.db.get_setting('training_logs_enabled')
+            cursor = self.db.conn.execute("SELECT value FROM settings WHERE key = ?", ('training_logs_enabled',))
+            result = cursor.fetchone()
+            settings = {'value': result['value']} if result else None
             if settings and settings.get('value') != 'true':
                 return
                 
             # Проверяем, исключать ли админов
-            exclude_admins = await self.db.get_setting('training_exclude_admins')
+            cursor = self.db.conn.execute("SELECT value FROM settings WHERE key = ?", ('training_exclude_admins',))
+            result = cursor.fetchone()
+            exclude_admins = {'value': result['value']} if result else None
             if exclude_admins and exclude_admins.get('value') == 'true':
                 # Проверяем, является ли пользователь админом
                 from config import ADMIN_IDS
@@ -57,17 +61,18 @@ class TrainingLogger:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """
             
-            await self.db.execute_query(query, (
-                user_id, username, first_name, last_name, 
-                training_type, step, details_json, session_id
-            ))
+            with self.db.conn:
+                self.db.conn.execute(query, (
+                    user_id, username, first_name, last_name, 
+                    training_type, step, details_json, session_id
+                ))
             
             logger.info(f"Записан лог обучения: user_id={user_id}, training={training_type}, step={step}")
             
         except Exception as e:
             logger.error(f"Ошибка логирования обучения: {e}", exc_info=True)
     
-    async def get_training_stats(self, training_type: str = None, days: int = 30) -> Dict:
+    def get_training_stats(self, training_type: str = None, days: int = 30) -> Dict:
         """
         Получает статистику обучения
         
@@ -102,7 +107,8 @@ class TrainingLogger:
             ORDER BY training_type, step
             """
             
-            stats = await self.db.fetch_all(query, params)
+            cursor = self.db.conn.execute(query, params)
+            stats = cursor.fetchall()
             
             # Статистика по дням
             daily_query = f"""
@@ -117,7 +123,8 @@ class TrainingLogger:
             ORDER BY date DESC
             """
             
-            daily_stats = await self.db.fetch_all(daily_query, params)
+            cursor = self.db.conn.execute(daily_query, params)
+            daily_stats = cursor.fetchall()
             
             return {
                 "success": True,
@@ -131,8 +138,8 @@ class TrainingLogger:
             logger.error(f"Ошибка получения статистики обучения: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
     
-    async def get_training_users(self, training_type: str = None, step: str = None, 
-                               limit: int = 100) -> List[Dict]:
+    def get_training_users(self, training_type: str = None, step: str = None, 
+                           limit: int = 100) -> List[Dict]:
         """
         Получает список пользователей, проходивших обучение
         
@@ -176,7 +183,8 @@ class TrainingLogger:
             
             params.append(limit)
             
-            users = await self.db.fetch_all(query, params)
+            cursor = self.db.conn.execute(query, params)
+            users = cursor.fetchall()
             
             return users
             
@@ -184,7 +192,7 @@ class TrainingLogger:
             logger.error(f"Ошибка получения пользователей обучения: {e}", exc_info=True)
             return []
     
-    async def get_user_training_history(self, user_id: int) -> List[Dict]:
+    def get_user_training_history(self, user_id: int) -> List[Dict]:
         """
         Получает историю обучения конкретного пользователя
         
@@ -207,7 +215,8 @@ class TrainingLogger:
             ORDER BY timestamp DESC
             """
             
-            history = await self.db.fetch_all(query, (user_id,))
+            cursor = self.db.conn.execute(query, (user_id,))
+            history = cursor.fetchall()
             
             return history
             

@@ -16,7 +16,7 @@ async def show_admin_training_logs(message: types.Message, db: Database, logger_
         training_logger = TrainingLogger(db)
         
         # Получаем статистику за последние 7 дней
-        stats = await training_logger.get_training_stats(days=7)
+        stats = training_logger.get_training_stats(days=7)
         
         if not stats.get("success"):
             await message.edit_text("❌ Ошибка получения статистики обучения.", parse_mode="HTML")
@@ -56,7 +56,7 @@ async def show_admin_training_logs(message: types.Message, db: Database, logger_
             text += "📝 За последние 7 дней обучение не проходил никто.\n"
         
         # Получаем последние пользователи
-        recent_users = await training_logger.get_training_users(limit=10)
+        recent_users = training_logger.get_training_users(limit=10)
         
         if recent_users:
             text += "\n👥 <b>Последние участники:</b>\n"
@@ -108,8 +108,8 @@ async def show_admin_training_stats(message: types.Message, db: Database, logger
         training_logger = TrainingLogger(db)
         
         # Получаем статистику за разные периоды
-        stats_7d = await training_logger.get_training_stats(days=7)
-        stats_30d = await training_logger.get_training_stats(days=30)
+        stats_7d = training_logger.get_training_stats(days=7)
+        stats_30d = training_logger.get_training_stats(days=30)
         
         text = "📊 <b>ДЕТАЛЬНАЯ СТАТИСТИКА ОБУЧЕНИЯ</b>\n\n"
         
@@ -172,7 +172,7 @@ async def show_admin_training_users(message: types.Message, db: Database, logger
         training_logger = TrainingLogger(db)
         
         # Получаем всех пользователей
-        users = await training_logger.get_training_users(limit=50)
+        users = training_logger.get_training_users(limit=50)
         
         text = "👥 <b>УЧАСТНИКИ ОБУЧЕНИЯ</b>\n\n"
         
