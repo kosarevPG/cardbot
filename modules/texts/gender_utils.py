@@ -237,35 +237,7 @@ def personalize_text(base_text: str, user_info: Dict[str, Any]) -> str:
     
     return text
 
-def get_personalized_text(text_key: str, texts_dict: Dict, user_id: int, db: Database) -> str:
-    """
-    Получает персонализированный текст по ключу
-    
-    Args:
-        text_key: Ключ текста (например, "intro.welcome")
-        texts_dict: Словарь с текстами
-        user_id: ID пользователя
-        db: Экземпляр базы данных
-        
-    Returns:
-        str: Персонализированный текст
-    """
-    try:
-        # Получаем базовый текст по ключу
-        base_text = get_nested_value(texts_dict, text_key)
-        if not base_text:
-            return f"[Текст не найден: {text_key}]"
-        
-        # Получаем информацию о пользователе
-        user_info = get_user_info_for_text(user_id, db)
-        
-        # Персонализируем текст
-        return personalize_text(base_text, user_info)
-        
-    except Exception as e:
-        return f"[Ошибка персонализации: {text_key}]"
-
-def get_nested_value(data: Dict, key: str, separator: str = '.') -> Any:
+def _get_nested_value(data: Dict, key: str, separator: str = '.') -> Any:
     """
     Получает значение из вложенного словаря по ключу с разделителем
     
