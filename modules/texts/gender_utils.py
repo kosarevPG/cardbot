@@ -287,6 +287,47 @@ def get_nested_value(data: Dict, key: str, separator: str = '.') -> Any:
     except (KeyError, TypeError):
         return None
 
+
+def get_personalized_text(text_key: str, texts_dict: Dict, user_id: int, db) -> str:
+    """
+    Получает персонализированный текст из словаря текстов.
+    
+    Args:
+        text_key: Ключ текста (может быть вложенным, например "intro.welcome")
+        texts_dict: Словарь с текстами (LEARNING_TEXTS, CARDS_TEXTS, и т.д.)
+        user_id: ID пользователя
+        db: Экземпляр базы данных (может быть None для некоторых случаев)
+        
+    Returns:
+        Персонализированный текст
+        
+    Example:
+        >>> text = get_personalized_text('intro.welcome', LEARNING_TEXTS, 12345, db)
+        >>> print(text)
+        "Привет, Анна! Ты готова начать?"
+    """
+    # Получаем шаблон текста из словаря
+    template = _get_nested_value(texts_dict, text_key)
+    
+    if template is None:
+        # Если текст не найден, возвращаем ключ для отладки
+        return f"[TEXT_NOT_FOUND: {text_key}]"
+    
+    if not isinstance(template, str):
+        # Если это не строка (например, словарь), возвращаем как есть
+        return str(template)
+    
+    # Получаем информацию о пользователе
+    user_info = get_user_info_for_text(user_id, db) if db else {
+        'gender': 'neutral',
+        'name': None,
+        'has_name': False
+    }
+    
+    # Применяем персонализацию
+    return personalize_text(template, user_info)
+
+
 # Примеры использования:
 if __name__ == "__main__":
     # Тестирование
