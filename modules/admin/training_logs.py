@@ -7,6 +7,7 @@ from aiogram.exceptions import TelegramBadRequest
 from database.db import Database
 from modules.logging_service import LoggingService
 from modules.training_logger import TrainingLogger
+from modules.texts import get_personalized_text, ERROR_TEXTS
 
 logger = logging.getLogger(__name__)
 
@@ -97,11 +98,13 @@ async def show_admin_training_logs(message: types.Message, db: Database, logger_
         except TelegramBadRequest as e:
             if "message is not modified" not in str(e):
                 logger.error(f"Error editing message in show_admin_training_logs: {e}", exc_info=True)
-                await message.answer("❌ Ошибка при загрузке логов обучения.")
+                text = get_personalized_text('admin.training_logs_load_error', ERROR_TEXTS, user_id, db)
+                await message.answer(text)
                 
     except Exception as e:
         logger.error(f"Error showing admin training logs: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка при загрузке логов обучения.")
+        text = get_personalized_text('admin.training_logs_critical_error', ERROR_TEXTS, user_id, db)
+        await message.answer(text)
 
 async def show_admin_training_stats(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает детальную статистику обучения."""
@@ -165,7 +168,8 @@ async def show_admin_training_stats(message: types.Message, db: Database, logger
                 
     except Exception as e:
         logger.error(f"Error showing admin training stats: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка при загрузке статистики.")
+        text = get_personalized_text('admin.training_stats_error', ERROR_TEXTS, user_id, db)
+        await message.answer(text)
 
 async def show_admin_training_users(message: types.Message, db: Database, logger_service: LoggingService, user_id: int):
     """Показывает список всех участников обучения."""
@@ -226,4 +230,5 @@ async def show_admin_training_users(message: types.Message, db: Database, logger
                 
     except Exception as e:
         logger.error(f"Error showing admin training users: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка при загрузке участников.")
+        text = get_personalized_text('admin.training_users_error', ERROR_TEXTS, user_id, db)
+        await message.answer(text)

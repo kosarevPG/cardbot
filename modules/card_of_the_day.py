@@ -20,6 +20,7 @@ from datetime import datetime, date # Добавили date
 from modules.user_management import UserState
 from database.db import Database
 from modules.constants import DECKS, RESOURCE_LEVELS
+from modules.texts import get_personalized_text, CARDS_TEXTS
 import logging
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,9 @@ async def handle_card_request(message: types.Message, state: FSMContext, db: Dat
     # Кнопки выбора колоды
     buttons = [[types.InlineKeyboardButton(text=deck["title"], callback_data=f"deck_choice_{key}")] for key, deck in DECKS.items()]
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
-    await message.answer("Выбери колоду, из которой хочешь получить карту:", reply_markup=keyboard)
+    user_id = message.from_user.id
+    text = get_personalized_text('card_of_day.deck_selection', CARDS_TEXTS, user_id, db)
+    await message.answer(text, reply_markup=keyboard)
     await state.set_state(UserState.waiting_for_deck_choice)
 
 async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, db: Database, logger_service):
@@ -196,7 +199,9 @@ async def process_initial_resource_callback(callback: types.CallbackQuery, state
         "resource": resource_choice_label,
         "session_id": session_id
     })
-    await callback.answer(f"Понял, твое состояние: {resource_choice_label.split()[0]}")
+    user_id = callback.from_user.id
+    text = get_personalized_text('card_of_day.resource_confirmation', CARDS_TEXTS, user_id, db).format(resource=resource_choice_label.split()[0])
+    await callback.answer(text)
     try: await callback.message.edit_reply_markup(reply_markup=None)
     except Exception as e: logger.warning(f"Could not edit message reply markup (initial resource) for user {user_id}: {e}")
     await ask_request_type_choice(callback, state, db, logger_service)
@@ -244,12 +249,18 @@ async def process_request_type_callback(callback: types.CallbackQuery, state: FS
     except Exception as e: logger.warning(f"Could not edit message reply markup (request type) for user {user_id}: {e}")
 
     if request_type == "request_type_mental":
-        await callback.answer("Хорошо, держи запрос в голове.")
-        await callback.message.answer("Понял. Сейчас вытяну для тебя карту...")
+        user_id = callback.from_user.id
+        text1 = get_personalized_text('card_of_day.keep_request_in_mind', CARDS_TEXTS, user_id, db)
+        text2 = get_personalized_text('card_of_day.drawing_card', CARDS_TEXTS, user_id, db)
+        await callback.answer(text1)
+        await callback.message.answer(text2)
         await draw_card_direct(callback.message, state, db, logger_service, user_id=user_id)
     elif request_type == "request_type_typed":
-        await callback.answer("Отлично, жду твой запрос.")
-        await callback.message.answer("Напиши, пожалуйста, свой запрос к карте (1-2 предложения):")
+        user_id = callback.from_user.id
+        text1 = get_personalized_text('card_of_day.waiting_for_request', CARDS_TEXTS, user_id, db)
+        text2 = get_personalized_text('card_of_day.request_input_prompt', CARDS_TEXTS, user_id, db)
+        await callback.answer(text1)
+        await callback.message.answer(text2)
         await state.set_state(UserState.waiting_for_request_text_input)
 
 # --- Шаг 3: Обработка текстового запроса ---
@@ -257,8 +268,15 @@ async def process_request_text(message: types.Message, state: FSMContext, db: Da
     """Шаг 3а: Получает текстовый запрос пользователя и тянет карту."""
     user_id = message.from_user.id
     request_text = message.text.strip()
-    if not request_text: await message.answer("Запрос не может быть пустым..."); return
-    if len(request_text) < 5: await message.answer("Пожалуйста, сформулируй запрос чуть подробнее..."); return
+    user_id = message.from_user.id
+    if not request_text: 
+        text = get_personalized_text('errors.empty_request_error', CARDS_TEXTS, user_id, db)
+        await message.answer(text)
+        return
+    if len(request_text) < 5: 
+        text = get_personalized_text('errors.short_request_error', CARDS_TEXTS, user_id, db)
+        await message.answer(text)
+        return
     
     # --- ИЗМЕНЕНИЕ: Получение ID сессии и новое событие ---
     fsm_data = await state.get_data()

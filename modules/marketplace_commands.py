@@ -6,6 +6,7 @@ import logging
 import json
 from .marketplace_manager import MarketplaceManager
 from .google_sheets import test_google_sheets_connection, get_sheets_info, read_sheet_data
+from modules.texts import get_personalized_text, MARKETPLACE_TEXTS
 
 logger = logging.getLogger(__name__)
 
@@ -95,25 +96,38 @@ async def cmd_wb_stats(message: types.Message):
 async def cmd_get_prices(message: types.Message):
     """Получение актуальных цен товаров"""
     if not is_admin(message.from_user.id):
-        await message.reply("❌ Доступ запрещен. Только для администраторов.")
+        user_id = message.from_user.id
+        text = get_personalized_text('errors.access_denied', MARKETPLACE_TEXTS, user_id, None)
+        await message.reply(text)
         return
     
     try:
-        await message.reply("💰 Получаю актуальные цены товаров...")
+        user_id = message.from_user.id
+        text = get_personalized_text('getting_prices', MARKETPLACE_TEXTS, user_id, None)
+        await message.reply(text)
         
         manager = MarketplaceManager()
         result = await manager.update_prices_in_sheets()
         
         if result.get("success"):
-            await message.reply(f"✅ Цены обновлены успешно!\n"
-                              f"🛒 Цены Ozon: {result.get('ozon_prices_count', 0)}\n"
-                              f"🛍️ Цены WB: {result.get('wb_prices_count', 0)}")
+            user_id = message.from_user.id
+            text = get_personalized_text('prices_updated_success', MARKETPLACE_TEXTS, user_id, None).format(
+                ozon_count=result.get('ozon_prices_count', 0),
+                wb_count=result.get('wb_prices_count', 0)
+            )
+            await message.reply(text)
         else:
-            await message.reply(f"❌ Ошибка получения цен: {result.get('error', 'Неизвестная ошибка')}")
+            user_id = message.from_user.id
+            text = get_personalized_text('prices_update_error', MARKETPLACE_TEXTS, user_id, None).format(
+                error=result.get('error', 'Неизвестная ошибка')
+            )
+            await message.reply(text)
             
     except Exception as e:
         logger.error(f"Ошибка в команде get_prices: {e}", exc_info=True)
-        await message.reply("❌ Произошла ошибка при получении цен.")
+        user_id = message.from_user.id
+        text = get_personalized_text('prices_critical_error', MARKETPLACE_TEXTS, user_id, None)
+        await message.reply(text)
 
 async def cmd_marketplace_help(message: types.Message):
     """Справка по командам маркетплейсов"""
