@@ -141,6 +141,7 @@ async def show_entry_poll_q1(message: types.Message, state: FSMContext, db: Data
 
 async def handle_entry_poll_q1(callback: types.CallbackQuery, state: FSMContext, db: Database):
     """Обрабатывает ответ на вопрос 1."""
+    user_id = callback.from_user.id
     answer_index = int(callback.data.split("_")[-1])
     answer_text = ENTRY_POLL_OPTIONS["q1"][answer_index]
     
@@ -163,6 +164,7 @@ async def handle_entry_poll_q1(callback: types.CallbackQuery, state: FSMContext,
 
 async def handle_entry_poll_q2(callback: types.CallbackQuery, state: FSMContext, db: Database):
     """Обрабатывает ответ на вопрос 2."""
+    user_id = callback.from_user.id
     answer_index = int(callback.data.split("_")[-1])
     answer_text = ENTRY_POLL_OPTIONS["q2"][answer_index]
     
@@ -185,6 +187,7 @@ async def handle_entry_poll_q2(callback: types.CallbackQuery, state: FSMContext,
 
 async def handle_entry_poll_q3(callback: types.CallbackQuery, state: FSMContext, db: Database):
     """Обрабатывает ответ на вопрос 3."""
+    user_id = callback.from_user.id
     answer_index = int(callback.data.split("_")[-1])
     answer_text = ENTRY_POLL_OPTIONS["q3"][answer_index]
     
@@ -255,6 +258,7 @@ async def show_exit_poll_q1(message: types.Message, state: FSMContext, db: Datab
 
 async def handle_exit_poll_q1(callback: types.CallbackQuery, state: FSMContext, db: Database):
     """Обрабатывает ответ на выходной вопрос 1."""
+    user_id = callback.from_user.id
     answer_index = int(callback.data.split("_")[-1])
     answer_text = EXIT_POLL_OPTIONS["q1"][answer_index]
     
@@ -277,6 +281,7 @@ async def handle_exit_poll_q1(callback: types.CallbackQuery, state: FSMContext, 
 
 async def handle_exit_poll_q2(callback: types.CallbackQuery, state: FSMContext, db: Database):
     """Обрабатывает ответ на выходной вопрос 2."""
+    user_id = callback.from_user.id
     answer_index = int(callback.data.split("_")[-1])
     answer_text = EXIT_POLL_OPTIONS["q2"][answer_index]
     
