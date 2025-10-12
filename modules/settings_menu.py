@@ -126,8 +126,8 @@ async def handle_settings_callback(callback: types.CallbackQuery, db: Database, 
         elif action == "settings_purchase":
             # Перенаправляем на меню покупки МАК
             from modules.purchase_menu import handle_purchase_menu
-            await handle_purchase_menu(callback.message, db, logger_service, from_callback=True)
             await callback.answer()
+            await handle_purchase_menu(callback.message, db, logger_service)
             
         elif action == "settings_about":
             # О боте
