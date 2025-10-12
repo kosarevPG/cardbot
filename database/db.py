@@ -107,6 +107,11 @@ class Database:
                     'last_request_nature': 'TEXT',
                     'last_request_message': 'TEXT'
                 })
+                
+                # Добавляем столбец gender для персонализации текстов
+                self._add_columns_if_not_exist('users', {
+                    'gender': 'TEXT DEFAULT "neutral"'  # male, female, neutral
+                })
                 # Таблица user_cards
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS user_cards (
