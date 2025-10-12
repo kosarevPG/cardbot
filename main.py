@@ -850,7 +850,7 @@ def make_help_handler(db, logger_service):
     async def wrapped_handler(message: types.Message):
         user_id = message.from_user.id
         
-             text = (
+        text = (
                  "❓ <b>Помощь и FAQ</b>\n\n"
                  "✨ <b>Карта дня</b> - получи карту для самопознания и рефлексии\n"
                  "🌙 <b>Итог дня</b> - подведи итоги дня в формате вечерней практики\n"
