@@ -139,7 +139,7 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
             [types.InlineKeyboardButton(text="📋 Список пользователей", callback_data="admin_users_list")],
             [types.InlineKeyboardButton(text="💬 Запросы пользователей", callback_data="admin_requests")],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         
         try:
@@ -153,7 +153,7 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
         logger.error(f"Error showing admin users: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке данных пользователей"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -186,7 +186,7 @@ async def show_admin_users_list(message: types.Message, db: Database, logger_ser
             text = "👥 <b>СПИСОК ПОЛЬЗОВАТЕЛЕЙ</b>\n\nПока нет пользователей в базе данных."
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users_list")],
-                [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+                [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_users")]
             ])
             await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
             return

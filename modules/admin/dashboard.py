@@ -38,7 +38,7 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
             text = "❌ Ошибка при получении данных дашборда"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
                 [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_dashboard")],
-                [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+                [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
             ])
             await message.edit_text(text, reply_markup=keyboard)
             return
@@ -87,7 +87,7 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
                 types.InlineKeyboardButton(text="30 дней", callback_data="admin_dashboard_30")
             ],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_dashboard_{days}")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         
         try:
@@ -101,7 +101,7 @@ async def show_admin_dashboard(message: types.Message, db: Database, logger_serv
         logger.error(f"Error showing admin dashboard: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке дашборда"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -147,7 +147,7 @@ async def show_admin_retention(message: types.Message, db: Database, logger_serv
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_retention")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         
         try:
@@ -161,7 +161,7 @@ async def show_admin_retention(message: types.Message, db: Database, logger_serv
         logger.error(f"Error showing admin retention: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке метрик удержания"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -213,7 +213,7 @@ async def show_admin_funnel(message: types.Message, db: Database, logger_service
             [types.InlineKeyboardButton(text="📅 7 дней", callback_data="admin_funnel_7")],
             [types.InlineKeyboardButton(text="📅 30 дней", callback_data="admin_funnel_30")],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_funnel_{days}")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         
         try:
@@ -227,7 +227,7 @@ async def show_admin_funnel(message: types.Message, db: Database, logger_service
         logger.error(f"Error showing admin funnel: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке воронки"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -277,7 +277,7 @@ async def show_admin_value(message: types.Message, db: Database, logger_service:
                 types.InlineKeyboardButton(text="30 дней", callback_data="admin_value_30")
             ],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_value_{days}")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         
         try:
@@ -291,7 +291,7 @@ async def show_admin_value(message: types.Message, db: Database, logger_service:
         logger.error(f"Error showing admin value: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке метрик ценности"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -321,7 +321,7 @@ async def show_admin_decks(message: types.Message, db: Database, logger_service:
         if not deck_metrics or not deck_metrics.get('decks'):
             text = "❌ Нет данных о колодах за указанный период"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+                [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
             ])
             await message.edit_text(text, reply_markup=keyboard)
             return
@@ -362,7 +362,7 @@ async def show_admin_decks(message: types.Message, db: Database, logger_service:
                 types.InlineKeyboardButton(text="30 дней", callback_data="admin_decks_30")
             ],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_decks_{days}")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         
         try:
@@ -376,7 +376,7 @@ async def show_admin_decks(message: types.Message, db: Database, logger_service:
         logger.error(f"Error showing admin decks: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке статистики колод"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -406,7 +406,7 @@ async def show_admin_reflections(message: types.Message, db: Database, logger_se
         if not metrics:
             text = "❌ Нет данных о рефлексиях за указанный период"
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+                [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
             ])
             await message.edit_text(text, reply_markup=keyboard)
             return
@@ -446,7 +446,7 @@ async def show_admin_reflections(message: types.Message, db: Database, logger_se
             ],
             [types.InlineKeyboardButton(text="📋 Последние рефлексии", callback_data=f"admin_recent_reflections_{days}")],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_reflections_{days}")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         
         try:
@@ -460,7 +460,7 @@ async def show_admin_reflections(message: types.Message, db: Database, logger_se
         logger.error(f"Error showing admin reflections: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке метрик рефлексии"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -547,7 +547,7 @@ async def show_admin_recent_reflections(message: types.Message, db: Database, lo
                 types.InlineKeyboardButton(text="30 дней", callback_data="admin_recent_reflections_30")
             ],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data=f"admin_recent_reflections_{days}")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_reflections")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_reflections")]
         ])
         
         try:
@@ -561,7 +561,7 @@ async def show_admin_recent_reflections(message: types.Message, db: Database, lo
         logger.error(f"Error showing admin recent reflections: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке последних рефлексий"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_reflections")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_reflections")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -612,7 +612,7 @@ async def show_admin_logs(message: types.Message, db: Database, logger_service: 
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="📊 Статистика сценариев", callback_data="admin_scenario_stats")],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_logs")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -622,7 +622,7 @@ async def show_admin_logs(message: types.Message, db: Database, logger_service: 
         logger.error(f"Error showing admin logs: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке логов"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         await message.edit_text(text, reply_markup=keyboard)
 

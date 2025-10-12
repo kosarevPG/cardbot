@@ -238,7 +238,7 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
         logger.error(f"Error showing admin main menu: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке меню администратора"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)

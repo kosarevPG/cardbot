@@ -72,7 +72,7 @@ async def show_admin_posts(message: types.Message, db: Database, logger_service:
             [types.InlineKeyboardButton(text="📋 Список постов", callback_data="admin_list_posts")],
             [types.InlineKeyboardButton(text="📤 Список рассылок", callback_data="admin_list_mailings")],
             [types.InlineKeyboardButton(text="🔄 Обработать рассылки", callback_data="admin_process_mailings")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -82,7 +82,7 @@ async def show_admin_posts(message: types.Message, db: Database, logger_service:
         text = "❌ Ошибка при получении данных о постах"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_posts")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_back")]
         ])
         await message.edit_text(text, reply_markup=keyboard)
 
@@ -131,7 +131,7 @@ async def show_posts_list(message: types.Message, db: Database, logger_service: 
                 text += f"{i}. {preview}\n\n"
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_posts")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_posts")]
         ])
         
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -166,7 +166,7 @@ async def show_mailings_list(message: types.Message, db: Database, logger_servic
                 text += f"📊 Отправлено: {stats['sent_count']}, Ошибок: {stats['failed_count']}\n\n"
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_posts")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_posts")]
         ])
         
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -217,7 +217,7 @@ async def process_mailings_now(message: types.Message, db: Database, logger_serv
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="📤 Список рассылок", callback_data="admin_list_mailings")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_posts")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_posts")]
         ])
         
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -226,7 +226,7 @@ async def process_mailings_now(message: types.Message, db: Database, logger_serv
         logger.error(f"Error processing mailings: {e}", exc_info=True)
         text = "❌ Ошибка при обработке рассылок"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_posts")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_posts")]
         ])
         await message.edit_text(text, reply_markup=keyboard)
 

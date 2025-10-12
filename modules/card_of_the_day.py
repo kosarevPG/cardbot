@@ -38,7 +38,7 @@ def get_resource_level_keyboard(add_back_button: bool = False, back_callback: st
     
     # Добавляем кнопку "Назад", если нужно
     if add_back_button:
-        keyboard_rows.append([types.InlineKeyboardButton(text="← Назад", callback_data=back_callback)])
+        keyboard_rows.append([types.InlineKeyboardButton(text="⬅️ Назад", callback_data=back_callback)])
     
     return types.InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
@@ -116,7 +116,7 @@ async def handle_card_request(message: types.Message, state: FSMContext, db: Dat
     # Кнопки выбора колоды + кнопка "Назад"
     buttons = [[types.InlineKeyboardButton(text=deck["title"], callback_data=f"deck_choice_{key}")] for key, deck in DECKS.items()]
     # Добавляем кнопку "Назад в меню"
-    buttons.append([types.InlineKeyboardButton(text="← Назад в меню", callback_data="deck_choice_back")])
+    buttons.append([types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="deck_choice_back")])
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     user_id = message.from_user.id
     text = get_personalized_text('card_of_day.deck_selection', CARDS_TEXTS, user_id, db)

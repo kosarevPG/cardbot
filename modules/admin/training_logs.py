@@ -89,7 +89,7 @@ async def show_admin_training_logs(message: types.Message, db: Database, logger_
             [types.InlineKeyboardButton(text="🔍 Поиск пользователя", callback_data="admin_training_search")],
             [types.InlineKeyboardButton(text="⚙️ Настройки", callback_data="admin_training_settings")],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_training_logs")],
-            [types.InlineKeyboardButton(text="← Назад в Админ-панель", callback_data="admin_main")]
+            [types.InlineKeyboardButton(text="⬅️ Назад в Админ-панель", callback_data="admin_main")]
         ])
         
         try:
@@ -156,7 +156,7 @@ async def show_admin_training_stats(message: types.Message, db: Database, logger
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_training_stats")],
-            [types.InlineKeyboardButton(text="← Назад к логам", callback_data="admin_training_logs")]
+            [types.InlineKeyboardButton(text="⬅️ Назад к логам", callback_data="admin_training_logs")]
         ])
         
         try:
@@ -218,7 +218,7 @@ async def show_admin_training_users(message: types.Message, db: Database, logger
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_training_users")],
-            [types.InlineKeyboardButton(text="← Назад к логам", callback_data="admin_training_logs")]
+            [types.InlineKeyboardButton(text="⬅️ Назад к логам", callback_data="admin_training_logs")]
         ])
         
         try:

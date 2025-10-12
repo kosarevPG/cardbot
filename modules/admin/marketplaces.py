@@ -61,7 +61,7 @@ async def show_admin_marketplaces(message: types.Message, db: Database, logger_s
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_marketplaces")],
-            [types.InlineKeyboardButton(text="← Назад в меню", callback_data="admin_main")]
+            [types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="admin_main")]
         ])
         
         try:
@@ -76,7 +76,7 @@ async def show_admin_marketplaces(message: types.Message, db: Database, logger_s
         logger.error(f"Error showing admin marketplaces: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке меню маркетплейсов"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад в меню", callback_data="admin_main")]
+            [types.InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="admin_main")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
