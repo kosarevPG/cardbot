@@ -39,7 +39,15 @@ class UserState(StatesGroup):
 
 # --- Состояния для обучающего модуля "Как разговаривать с картой" ---
 class LearnCardsFSM(StatesGroup):
+    # Входной опросник
+    entry_poll_q1 = State()  # Вопрос 1: Что знаешь о МАК
+    entry_poll_q2 = State()  # Вопрос 2: Как формулируешь запрос
+    entry_poll_q3 = State()  # Вопрос 3: Ожидания
+    entry_poll_q4 = State()  # Вопрос 4: Что ближе
+    
+    # Основное обучение
     intro = State()  # Вступление
+    choice_menu = State()  # Выбор: теория или тренажер
     theory_1 = State()  # Что такое МАК-карты
     theory_2 = State()  # Зачем нужен запрос
     theory_3 = State()  # Типичные ошибки
@@ -49,6 +57,12 @@ class LearnCardsFSM(StatesGroup):
     trainer_user_input = State()  # Ввод запроса пользователем
     trainer_feedback = State()  # Анализ ИИ
     trainer_user_retry = State()  # Переформулировка
+    
+    # Выходной опросник
+    exit_poll_q1 = State()  # Вопрос 1: Насколько понятно
+    exit_poll_q2 = State()  # Вопрос 2: Что изменилось
+    exit_poll_q3 = State()  # Вопрос 3: Как чувствуешь себя
+    exit_feedback_invite = State()  # Приглашение на фидбек
     training_done = State()  # Завершение
 
 
