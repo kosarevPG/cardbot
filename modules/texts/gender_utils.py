@@ -218,9 +218,9 @@ def personalize_text(base_text: str, user_info: Dict[str, Any]) -> str:
         # Если имени нет, убираем плейсхолдеры имени
         text = text.replace('{name}', '')
         text = text.replace('{name_part}', '')
-        # Убираем лишние запятые и пробелы
-        text = re.sub(r',\s*', '', text)
-        text = re.sub(r'\s+', ' ', text)
+        # Убираем только ДВОЙНЫЕ запятые и пробелы (артефакты удаления плейсхолдеров)
+        text = re.sub(r',\s*,', ',', text)  # Двойные запятые
+        text = re.sub(r'\s+', ' ', text)    # Множественные пробелы
     
     # 2. Применяем склонения по полу (ВАЖНО: до обработки {your})
     text = GenderDeclension.apply_declension(text, gender)
