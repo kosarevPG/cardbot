@@ -47,11 +47,12 @@ async def show_settings_menu(message: types.Message, db: Database, user_id: int)
         await message.answer("Произошла ошибка при открытии меню настроек.")
 
 
-async def handle_settings_callback(callback: types.CallbackQuery, db: Database, logger_service, user_id: int):
+async def handle_settings_callback(callback: types.CallbackQuery, db: Database, logger_service):
     """
     Обрабатывает callback'и из меню "Еще...".
     """
     try:
+        user_id = callback.from_user.id
         action = callback.data
         
         if action == "settings_profile":
