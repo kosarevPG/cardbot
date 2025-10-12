@@ -1616,17 +1616,18 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.callback_query.register(admin_callback_handler, F.data.startswith("admin_"))
 
     dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной")
-         # Обработчики кнопок главного меню (ОБНОВЛЕНО: Вариант C + новые названия)
-         dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Карта дня")
-         dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Итог дня")
-         dp.message.register(partial(start_learning, db=db), F.text == "🟦 Гид по картам")
+    
+    # Обработчики кнопок главного меню (ОБНОВЛЕНО: Вариант C + новые названия)
+    dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Карта дня")
+    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Итог дня")
+    dp.message.register(partial(start_learning, db=db), F.text == "🟦 Гид по картам")
     
     # Обработчик кнопки "⚙️ Настройки" (НОВОЕ)
     async def handle_settings_button(message: types.Message):
         user_id = message.from_user.id
         await show_settings_menu(message, db, user_id)
     
-         dp.message.register(handle_settings_button, F.text == "⚙️ Настройки")
+    dp.message.register(handle_settings_button, F.text == "⚙️ Настройки")
     
     # Обработчики callback'ов из меню "Настройки"
     dp.callback_query.register(
