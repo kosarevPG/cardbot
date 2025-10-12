@@ -240,56 +240,93 @@ async def process_initial_resource_callback(callback: types.CallbackQuery, state
     except Exception as e: logger.warning(f"Could not edit message reply markup (initial resource) for user {user_id}: {e}")
     await ask_request_type_choice(callback, state, db, logger_service)
 
-# --- Шаг 2: Выбор типа запроса ---
+# --- Шаг 2: Запрос (УПРОЩЕННЫЙ - опциональный ввод) ---
 async def ask_request_type_choice(event: types.Message | types.CallbackQuery, state: FSMContext, db: Database, logger_service):
-    """Шаг 2: Спрашивает, как пользователь хочет сформулировать запрос."""
+    """
+    Шаг 2 (ОБНОВЛЕНО): Предлагает написать запрос или пропустить.
+    
+    Упрощение UX:
+    - Убран выбор "В уме / Написать"
+    - Сразу показываем поле ввода
+    - Кнопка "Пропустить" для тех, кто держит запрос в уме
+    """
     if isinstance(event, types.CallbackQuery):
         user_id = event.from_user.id; message = event.message
     else:
         user_id = event.from_user.id; message = event
-    user_data = db.get_user(user_id) or {}
-    name = user_data.get("name") or ""; name = name.strip() if isinstance(name, str) else ""
-    text = (f"{name}, теперь подумай о своем запросе или теме дня.\n" if name else "Теперь подумай о своем запросе или теме дня.\n") + ("Как тебе удобнее?\n\n1️⃣ Сформулировать запрос <b>в уме</b>?\n2️⃣ <b>Написать</b> запрос прямо здесь в чат?\n\n<i>(Если напишешь, я смогу задать более точные вопросы к твоим ассоциациям ✨).</i>")
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[[ types.InlineKeyboardButton(text="1️⃣ В уме", callback_data="request_type_mental"), types.InlineKeyboardButton(text="2️⃣ Написать", callback_data="request_type_typed"), ]])
+    
+    user_id = event.from_user.id if isinstance(event, types.CallbackQuery) else event.from_user.id
+    text = get_personalized_text('card_of_day.request_prompt', CARDS_TEXTS, user_id, db)
+    
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="⏭️ Пропустить (держу в уме)", callback_data="request_skip")]
+    ])
+    
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
-    await state.set_state(UserState.waiting_for_request_type_choice)
+    await state.set_state(UserState.waiting_for_request_text_input)
 
 # --- Обработка Шага 2 ---
 async def process_request_type_callback(callback: types.CallbackQuery, state: FSMContext, db: Database, logger_service):
-    """Шаг 2.5: Обрабатывает выбор типа запроса."""
+    """
+    Шаг 2.5 (ОБНОВЛЕНО): Обрабатывает пропуск запроса или старый выбор типа.
+    
+    Теперь поддерживает:
+    - request_skip - пропустить запрос (держит в уме)
+    - request_type_mental - старый вариант (для обратной совместимости)
+    - request_type_typed - старый вариант (для обратной совместимости)
+    """
     user_id = callback.from_user.id
     request_type = callback.data
     
-    # --- ИЗМЕНЕНИЕ: Получение ID сессии и новое событие ---
+    # --- ИЗМЕНЕНИЕ: Получение ID сессии ---
     fsm_data = await state.get_data()
     session_id = fsm_data.get("session_id", "unknown")
-    choice_mode = "mental" if request_type == "request_type_mental" else "typed"
     
-    await state.update_data(request_type=request_type)
-    
-    # Логируем выбор типа запроса
-    db.log_scenario_step(user_id, 'card_of_day', 'request_type_selected', {
-        'request_type': choice_mode,
-        'session_id': session_id
-    })
-    
-    await logger_service.log_action(user_id, "question_mode_chosen", {
-        "mode": choice_mode,
-        "session_id": session_id
-    })
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+    try: 
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception as e: 
+        logger.warning(f"Could not edit message reply markup (request type) for user {user_id}: {e}")
 
-    try: await callback.message.edit_reply_markup(reply_markup=None)
-    except Exception as e: logger.warning(f"Could not edit message reply markup (request type) for user {user_id}: {e}")
-
-    if request_type == "request_type_mental":
+    # НОВОЕ: Обработка пропуска запроса
+    if request_type == "request_skip":
+        choice_mode = "mental"
+        
+        # Логируем пропуск запроса
+        db.log_scenario_step(user_id, 'card_of_day', 'request_skipped', {
+            'session_id': session_id
+        })
+        
         user_id = callback.from_user.id
         text1 = get_personalized_text('card_of_day.keep_request_in_mind', CARDS_TEXTS, user_id, db)
         text2 = get_personalized_text('card_of_day.drawing_card', CARDS_TEXTS, user_id, db)
         await callback.answer(text1)
         await callback.message.answer(text2)
         await draw_card_direct(callback.message, state, db, logger_service, user_id=user_id)
+    
+    # Старые варианты (для обратной совместимости)
+    elif request_type == "request_type_mental":
+        choice_mode = "mental"
+        
+        db.log_scenario_step(user_id, 'card_of_day', 'request_type_selected', {
+            'request_type': choice_mode,
+            'session_id': session_id
+        })
+        
+        user_id = callback.from_user.id
+        text1 = get_personalized_text('card_of_day.keep_request_in_mind', CARDS_TEXTS, user_id, db)
+        text2 = get_personalized_text('card_of_day.drawing_card', CARDS_TEXTS, user_id, db)
+        await callback.answer(text1)
+        await callback.message.answer(text2)
+        await draw_card_direct(callback.message, state, db, logger_service, user_id=user_id)
+    
     elif request_type == "request_type_typed":
+        choice_mode = "typed"
+        
+        db.log_scenario_step(user_id, 'card_of_day', 'request_type_selected', {
+            'request_type': choice_mode,
+            'session_id': session_id
+        })
+        
         user_id = callback.from_user.id
         text1 = get_personalized_text('card_of_day.waiting_for_request', CARDS_TEXTS, user_id, db)
         text2 = get_personalized_text('card_of_day.request_input_prompt', CARDS_TEXTS, user_id, db)

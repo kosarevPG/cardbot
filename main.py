@@ -1648,6 +1648,8 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.message.register(process_evening_reminder_time_handler, UserState.waiting_for_evening_reminder_time)
 
     dp.callback_query.register(partial(process_initial_resource_callback, db=db, logger_service=logging_service), UserState.waiting_for_initial_resource, F.data.startswith("resource_"))
+    # ОБНОВЛЕНО: Обработчик пропуска запроса (UX упрощение)
+    dp.callback_query.register(partial(process_request_type_callback, db=db, logger_service=logging_service), UserState.waiting_for_request_text_input, F.data == "request_skip")
     dp.callback_query.register(partial(process_request_type_callback, db=db, logger_service=logging_service), UserState.waiting_for_request_type_choice, F.data.startswith("request_type_"))
     dp.message.register(partial(process_request_text, db=db, logger_service=logging_service), UserState.waiting_for_request_text_input)
     dp.message.register(partial(process_initial_response, db=db, logger_service=logging_service), UserState.waiting_for_initial_response)
