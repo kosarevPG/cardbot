@@ -100,7 +100,8 @@ def apply_metrics_migration(db_path: str = 'data/bot.db'):
         MAX(CASE WHEN event = 'completed' THEN ts_local END) AS completed_at,
         CASE WHEN MAX(CASE WHEN event = 'completed' THEN 1 ELSE 0 END) > 0 
              THEN 1 ELSE 0 END AS is_completed,
-        COUNT(*) AS total_events
+        COUNT(*) AS total_events,
+        COUNT(*) AS step_count  -- Количество шагов в сессии
     FROM v_events
     WHERE session_id IS NOT NULL
     GROUP BY scenario, session_id;
