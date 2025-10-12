@@ -61,9 +61,10 @@ async def show_admin_training_logs(message: types.Message, db: Database, logger_
         if recent_users:
             text += "\n👥 <b>Последние участники:</b>\n"
             for user in recent_users[:5]:  # Показываем только 5 последних
-                username = user.get("username", "")
-                first_name = user.get("first_name", "")
-                last_name = user.get("last_name", "")
+                # sqlite3.Row обращается как к словарю
+                username = user["username"] if user["username"] else ""
+                first_name = user["first_name"] if user["first_name"] else ""
+                last_name = user["last_name"] if user["last_name"] else ""
                 
                 # Форматируем имя пользователя
                 display_name = f"{first_name} {last_name}".strip()
@@ -178,9 +179,10 @@ async def show_admin_training_users(message: types.Message, db: Database, logger
         
         if users:
             for i, user in enumerate(users, 1):
-                username = user.get("username", "")
-                first_name = user.get("first_name", "")
-                last_name = user.get("last_name", "")
+                # sqlite3.Row обращается как к словарю
+                username = user["username"] if user["username"] else ""
+                first_name = user["first_name"] if user["first_name"] else ""
+                last_name = user["last_name"] if user["last_name"] else ""
                 user_id_display = user["user_id"]
                 
                 # Форматируем имя пользователя
