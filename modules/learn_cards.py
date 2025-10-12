@@ -853,7 +853,7 @@ async def handle_finish(callback: types.CallbackQuery, state: FSMContext, db: Da
 
 # === ОБРАБОТЧИКИ ВЫБОРА (ТЕОРИЯ/ПРАКТИКА) ===
 
-async def handle_choice_with_poll(callback: types.CallbackQuery, state: FSMContext):
+async def handle_choice_with_poll(callback: types.CallbackQuery, state: FSMContext, db: Database):
     """Выбор прохождения с входным опросом."""
     await callback.answer()
     await callback.message.edit_reply_markup(reply_markup=None)
@@ -1050,7 +1050,7 @@ def register_learn_cards_handlers(dp, db: Database, logger_service, user_manager
     
     # Обработчики выбора теория/практика
     dp.callback_query.register(
-        handle_choice_with_poll,
+        partial(handle_choice_with_poll, db=db),
         F.data == "learn_with_poll"
     )
     
