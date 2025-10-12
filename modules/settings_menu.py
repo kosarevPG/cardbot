@@ -1,5 +1,5 @@
 """
-Модуль меню "Еще..." - дополнительные настройки и функции
+Модуль меню "Настройки" - дополнительные настройки и функции
 """
 import logging
 from aiogram import types
@@ -11,26 +11,26 @@ logger = logging.getLogger(__name__)
 
 async def show_settings_menu(message: types.Message, db: Database, user_id: int):
     """
-    Показывает меню "Еще..." с дополнительными настройками.
+    Показывает меню "Настройки" с дополнительными настройками.
     
     Структура:
-    - 👤 Мой профиль
+    - 👤 Профиль
     - 🔔 Напоминания
-    - 🎁 Пригласить друга
-    - 💬 Обратная связь
-    - 🛍 Купить колоду МАК
+    - 📣 Поделиться ботом
+    - 💬 Отзыв и идеи
+    - 🛍️ Купить МАК-колоду
     - ℹ️ О боте
-    - ← Назад в меню
+    - ⬅️ Назад
     """
     try:
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="👤 Мой профиль", callback_data="settings_profile")],
+            [types.InlineKeyboardButton(text="👤 Профиль", callback_data="settings_profile")],
             [types.InlineKeyboardButton(text="🔔 Напоминания", callback_data="settings_reminders")],
-            [types.InlineKeyboardButton(text="🎁 Пригласить друга", callback_data="settings_invite")],
-            [types.InlineKeyboardButton(text="💬 Обратная связь", callback_data="settings_feedback")],
-            [types.InlineKeyboardButton(text="🛍 Купить колоду МАК", callback_data="settings_purchase")],
+            [types.InlineKeyboardButton(text="📣 Поделиться ботом", callback_data="settings_invite")],
+            [types.InlineKeyboardButton(text="💬 Отзыв и идеи", callback_data="settings_feedback")],
+            [types.InlineKeyboardButton(text="🛍️ Купить МАК-колоду", callback_data="settings_purchase")],
             [types.InlineKeyboardButton(text="ℹ️ О боте", callback_data="settings_about")],
-            [types.InlineKeyboardButton(text="← Назад в меню", callback_data="settings_back")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_back")]
         ])
         
         text = (
@@ -49,7 +49,7 @@ async def show_settings_menu(message: types.Message, db: Database, user_id: int)
 
 async def handle_settings_callback(callback: types.CallbackQuery, db: Database, logger_service):
     """
-    Обрабатывает callback'и из меню "Еще...".
+    Обрабатывает callback'и из меню "Настройки".
     """
     try:
         user_id = callback.from_user.id
@@ -94,7 +94,7 @@ async def handle_settings_callback(callback: types.CallbackQuery, db: Database, 
             await callback.answer()
             
         elif action == "settings_invite":
-            # Пригласить друга
+            # Поделиться ботом
             text = (
                 "🎁 <b>Пригласи друга!</b>\n\n"
                 "Поделись ботом с друзьями и получи бонус!\n\n"
@@ -109,9 +109,9 @@ async def handle_settings_callback(callback: types.CallbackQuery, db: Database, 
             await callback.answer()
             
         elif action == "settings_feedback":
-            # Обратная связь
+            # Отзыв и идеи
             text = (
-                "💬 <b>Обратная связь</b>\n\n"
+                "💬 <b>Отзыв и идеи</b>\n\n"
                 "Мы будем рады услышать твои идеи и пожелания!\n\n"
                 "Используй команду /feedback, чтобы оставить отзыв."
             )

@@ -850,23 +850,23 @@ def make_help_handler(db, logger_service):
     async def wrapped_handler(message: types.Message):
         user_id = message.from_user.id
         
-        text = (
-            "❓ <b>Помощь и FAQ</b>\n\n"
-            "🌙 <b>Карта дня</b> - получи карту для самопознания и рефлексии\n"
-            "📝 <b>Рефлексия</b> - подведи итоги дня в формате вечерней практики\n"
-            "🎓 <b>Обучение</b> - научись правильно формулировать запросы к картам\n"
-            "⚙️ <b>Еще...</b> - настройки, профиль, приглашения и другое\n\n"
+             text = (
+                 "❓ <b>Помощь и FAQ</b>\n\n"
+                 "✨ <b>Карта дня</b> - получи карту для самопознания и рефлексии\n"
+                 "🌙 <b>Итог дня</b> - подведи итоги дня в формате вечерней практики\n"
+                 "🟦 <b>Гид по картам</b> - научись правильно формулировать запросы к картам\n"
+                 "⚙️ <b>Настройки</b> - профиль, напоминания, приглашения и другое\n\n"
             "<b>📖 Часто задаваемые вопросы:</b>\n\n"
             "<i>1. Что такое МАК-карты?</i>\n"
             "Это метафорические ассоциативные карты для самопознания. "
             "Они помогают заглянуть внутрь себя через образы.\n\n"
             "<i>2. Сколько раз можно получать карту?</i>\n"
             "Столько, сколько захочешь! Но рекомендую делать паузу между запросами.\n\n"
-            "<i>3. Как настроить напоминания?</i>\n"
-            "Нажми ⚙️ Еще... → 🔔 Напоминания\n\n"
-            "<i>4. Где посмотреть свой профиль?</i>\n"
-            "Нажми ⚙️ Еще... → 👤 Мой профиль\n\n"
-            "💬 Остались вопросы? Нажми ⚙️ Еще... → 💬 Обратная связь"
+             "<i>3. Как настроить напоминания?</i>\n"
+             "Нажми ⚙️ Настройки → 🔔 Напоминания\n\n"
+             "<i>4. Где посмотреть свой профиль?</i>\n"
+             "Нажми ⚙️ Настройки → 👤 Профиль\n\n"
+             "💬 Остались вопросы? Нажми ⚙️ Настройки → 💬 Отзыв и идеи"
         )
         
         await message.answer(text, parse_mode="HTML")
@@ -938,7 +938,7 @@ def make_user_profile_handler(db, logger_service):
         text += f"  • Способ восстановления: {recharge_method}\n\n"
         
         # Вечерняя рефлексия
-        text += f"🌙 <b>Вечерняя Рефлексия:</b>\n"
+        text += f"🌙 <b>Итог дня:</b>\n"
         text += f"  • Последний итог: {last_reflection_date}\n"
         text += f"  • Всего итогов: {reflection_count}\n\n"
         
@@ -1007,7 +1007,7 @@ def make_admin_user_profile_handler(db, logger_service):
              f"👤 <b>Профиль пользователя:</b> <code>{target_user_id}</code> | @{username} | {name}\n\n"
              f"<b>Состояние & Темы:</b>\n  Настроение: {mood}\n  Тренд: {mood_trend}\n  Темы: {themes}\n\n"
              f"<b>Ресурс (последний 'Карта дня'):</b>\n  Начало: {initial_resource}\n  Конец: {final_resource}\n  Восстановление: {recharge_method}\n\n"
-             f"<b>Вечерняя Рефлексия:</b>\n  Последний итог: {last_reflection_date}\n  Всего итогов: {reflection_count}\n\n"
+             f"<b>Итог дня:</b>\n  Последний итог: {last_reflection_date}\n  Всего итогов: {reflection_count}\n\n"
              f"<b>Статистика Активности:</b>\n  Ответов (карта): {response_count}\n  Карт вытянуто: {total_cards_drawn}\n  Дней актив.: {days_active}\n\n"
              f"<b>Обновлено:</b> {last_updated} МСК"
          )
@@ -1406,7 +1406,7 @@ def make_process_name_handler(db, logger_service, user_manager):
          name = message.text.strip()
          if not name: await message.answer("Имя не может быть пустым..."); return
          if len(name) > 50: await message.answer("Слишком длинное имя..."); return
-         reserved_names = ["🌙 Карта дня", "📝 Рефлексия", "🎓 Обучение", "⚙️ Еще...", "💌 Подсказка Вселенной"]
+             reserved_names = ["✨ Карта дня", "🌙 Итог дня", "🟦 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]
          if name in reserved_names:
              await message.answer(f"Имя '{name}' использовать нельзя, оно совпадает с кнопкой меню.")
              return
@@ -1616,19 +1616,19 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.callback_query.register(admin_callback_handler, F.data.startswith("admin_"))
 
     dp.message.register(bonus_request_handler, F.text == "💌 Подсказка Вселенной")
-    # Обработчики кнопок главного меню (ОБНОВЛЕНО: Вариант C)
-    dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "🌙 Карта дня")
-    dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "📝 Рефлексия")
-    dp.message.register(partial(start_learning, db=db), F.text == "🎓 Обучение")
+         # Обработчики кнопок главного меню (ОБНОВЛЕНО: Вариант C + новые названия)
+         dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Карта дня")
+         dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Итог дня")
+         dp.message.register(partial(start_learning, db=db), F.text == "🟦 Гид по картам")
     
-    # Обработчик кнопки "⚙️ Еще..." (НОВОЕ)
+    # Обработчик кнопки "⚙️ Настройки" (НОВОЕ)
     async def handle_settings_button(message: types.Message):
         user_id = message.from_user.id
         await show_settings_menu(message, db, user_id)
     
-    dp.message.register(handle_settings_button, F.text == "⚙️ Еще...")
+         dp.message.register(handle_settings_button, F.text == "⚙️ Настройки")
     
-    # Обработчики callback'ов из меню "Еще..."
+    # Обработчики callback'ов из меню "Настройки"
     dp.callback_query.register(
         partial(handle_settings_callback, db=db, logger_service=logging_service),
         F.data.startswith("settings_")
@@ -1715,7 +1715,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             from config import ADMIN_IDS
             if (str(user_id) in ADMIN_IDS and message.text and 
                 not message.text.startswith('/') and
-                message.text not in ["🌙 Карта дня", "📝 Рефлексия", "🎓 Обучение", "⚙️ Еще...", "💌 Подсказка Вселенной"]):
+                 message.text not in ["✨ Карта дня", "🌙 Итог дня", "🟦 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} in state {current_state_str}")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return
@@ -1778,7 +1778,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             from config import ADMIN_IDS
             if (str(user_id) in ADMIN_IDS and message.text and 
                 not message.text.startswith('/') and
-                message.text not in ["🌙 Карта дня", "📝 Рефлексия", "🎓 Обучение", "⚙️ Еще...", "💌 Подсказка Вселенной"]):
+                 message.text not in ["✨ Карта дня", "🌙 Итог дня", "🟦 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} (no state)")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return
@@ -1812,7 +1812,7 @@ async def main():
         logger.warning(f"⚠️ Database migration warning: {e}")
     
     # ОБНОВЛЕНО: Упрощенное меню команд (Вариант C - только самое важное)
-    # Второстепенные функции (имя, напоминания, и т.д.) переехали в меню "⚙️ Еще..."
+    # Второстепенные функции (имя, напоминания, и т.д.) переехали в меню "⚙️ Настройки"
     commands = [
         types.BotCommand(command="start", description="🏠 Главное меню"),
         types.BotCommand(command="help", description="❓ Помощь и FAQ")
