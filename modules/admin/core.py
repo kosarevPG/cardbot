@@ -42,7 +42,8 @@ def make_admin_handler(db: Database, logger_service: LoggingService):
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
             [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
-            [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")]
+            [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")],
+            [types.InlineKeyboardButton(text="📚 Логи обучения", callback_data="admin_training_logs")]
         ])
         
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
@@ -83,6 +84,9 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
             show_mailings_list, process_mailings_now
         )
         from modules.admin.marketplaces import show_admin_marketplaces
+        from modules.admin.training_logs import (
+            show_admin_training_logs, show_admin_training_stats, show_admin_training_users
+        )
         
         action = callback.data
         
@@ -180,6 +184,13 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
         
         elif action == "admin_marketplaces":
             await show_admin_marketplaces(callback.message, db, logger_service, user_id)
+        
+        elif action == "admin_training_logs":
+            await show_admin_training_logs(callback.message, db, logger_service, user_id)
+        elif action == "admin_training_stats":
+            await show_admin_training_stats(callback.message, db, logger_service, user_id)
+        elif action == "admin_training_users":
+            await show_admin_training_users(callback.message, db, logger_service, user_id)
         
         elif action == "admin_back" or action == "admin_main":
             await show_admin_main_menu(callback.message, db, logger_service, user_id)

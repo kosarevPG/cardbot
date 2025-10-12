@@ -40,6 +40,9 @@ from modules.admin.posts import (
 from modules.admin.marketplaces import (
     show_admin_marketplaces
 )
+from modules.admin.training_logs import (
+    show_admin_training_logs, show_admin_training_stats, show_admin_training_users
+)
 
 __all__ = [
     # Core
@@ -71,7 +74,12 @@ __all__ = [
     'show_mailings_list',
     'process_mailings_now',
     
-    # Marketplaces
-    'show_admin_marketplaces'
+        # Marketplaces
+        'show_admin_marketplaces',
+        
+        # Training Logs
+        'show_admin_training_logs',
+        'show_admin_training_stats', 
+        'show_admin_training_users'
 ]
 

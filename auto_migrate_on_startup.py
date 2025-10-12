@@ -41,9 +41,32 @@ def apply_metrics_migration(db_path: str = 'data/bot.db'):
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     
-    -- Добавляем часовой пояс
+    -- 2.1. Таблица логов обучения
+    CREATE TABLE IF NOT EXISTS training_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        username TEXT,
+        first_name TEXT,
+        last_name TEXT,
+        training_type TEXT NOT NULL,  -- 'card_conversation' или другой тип обучения
+        step TEXT NOT NULL,           -- 'started', 'completed', 'abandoned'
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        details TEXT,                 -- JSON с дополнительными данными
+        session_id TEXT              -- ID сессии для группировки
+    );
+    
+    -- Индексы для быстрого поиска логов обучения
+    CREATE INDEX IF NOT EXISTS idx_training_logs_user_id ON training_logs(user_id);
+    CREATE INDEX IF NOT EXISTS idx_training_logs_training_type ON training_logs(training_type);
+    CREATE INDEX IF NOT EXISTS idx_training_logs_step ON training_logs(step);
+    CREATE INDEX IF NOT EXISTS idx_training_logs_timestamp ON training_logs(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_training_logs_session_id ON training_logs(session_id);
+    
+    -- Добавляем настройки
     INSERT OR REPLACE INTO settings (key, value, description) VALUES 
-        ('report_tz', '+03:00', 'Часовой пояс для отчетов (МСК)');
+        ('report_tz', '+03:00', 'Часовой пояс для отчетов (МСК)'),
+        ('training_logs_enabled', 'true', 'Включить логирование обучения'),
+        ('training_exclude_admins', 'true', 'Исключить админов из логов обучения');
     
     -- 3. VIEW базовых событий (с фильтрацией админов)
     DROP VIEW IF EXISTS v_events;
