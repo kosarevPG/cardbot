@@ -192,7 +192,7 @@ async def process_hard_moments(message: types.Message, state: FSMContext, db: Da
         ]
         import random
         fallback_message = random.choice(fallback_messages)
-        await message.answer(fallback_message) # Сообщаем пользователю об ошибке
+        await message.answer(fallback_message, parse_mode="HTML") # Сообщаем пользователю об ошибке
         await logger_service.log_action(user_id, "evening_reflection_summary_failed", {"reason": str(ai_err)})
         ai_summary_text = None # Убедимся, что в БД не запишется ошибка
     # --- КОНЕЦ ИНТЕГРАЦИИ AI ---

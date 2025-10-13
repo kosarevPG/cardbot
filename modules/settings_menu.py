@@ -156,7 +156,7 @@ async def handle_settings_callback(callback: types.CallbackQuery, db: Database, 
             # Возвращаемся в главное меню
             from modules.card_of_the_day import get_main_menu
             text = "Вы вернулись в главное меню."
-            await callback.message.edit_text(text)
+            await callback.message.edit_text(text, parse_mode="HTML")
             await callback.message.answer("Выбери действие:", reply_markup=await get_main_menu(user_id, db))
             await callback.answer()
         

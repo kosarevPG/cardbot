@@ -8,3 +8,4 @@ ALTER TABLE users ADD COLUMN gender TEXT DEFAULT 'neutral';
 -- Комментарий: 
 -- gender может иметь значения: 'male', 'female', 'neutral'
 -- По умолчанию устанавливается 'neutral'
+

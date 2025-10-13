@@ -120,7 +120,7 @@ async def handle_card_request(message: types.Message, state: FSMContext, db: Dat
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=buttons)
     user_id = message.from_user.id
     text = get_personalized_text('card_of_day.deck_selection', CARDS_TEXTS, user_id, db)
-    await message.answer(text, reply_markup=keyboard)
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(UserState.waiting_for_deck_choice)
 
 async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, db: Database, logger_service):
@@ -300,7 +300,7 @@ async def process_request_type_callback(callback: types.CallbackQuery, state: FS
         text1 = get_personalized_text('card_of_day.keep_request_in_mind', CARDS_TEXTS, user_id, db)
         text2 = get_personalized_text('card_of_day.drawing_card', CARDS_TEXTS, user_id, db)
         await callback.answer(text1)
-        await callback.message.answer(text2)
+        await callback.message.answer(text2, parse_mode="HTML")
         await draw_card_direct(callback.message, state, db, logger_service, user_id=user_id)
     
     # Старые варианты (для обратной совместимости)
@@ -316,7 +316,7 @@ async def process_request_type_callback(callback: types.CallbackQuery, state: FS
         text1 = get_personalized_text('card_of_day.keep_request_in_mind', CARDS_TEXTS, user_id, db)
         text2 = get_personalized_text('card_of_day.drawing_card', CARDS_TEXTS, user_id, db)
         await callback.answer(text1)
-        await callback.message.answer(text2)
+        await callback.message.answer(text2, parse_mode="HTML")
         await draw_card_direct(callback.message, state, db, logger_service, user_id=user_id)
     
     elif request_type == "request_type_typed":
@@ -331,7 +331,7 @@ async def process_request_type_callback(callback: types.CallbackQuery, state: FS
         text1 = get_personalized_text('card_of_day.waiting_for_request', CARDS_TEXTS, user_id, db)
         text2 = get_personalized_text('card_of_day.request_input_prompt', CARDS_TEXTS, user_id, db)
         await callback.answer(text1)
-        await callback.message.answer(text2)
+        await callback.message.answer(text2, parse_mode="HTML")
         await state.set_state(UserState.waiting_for_request_text_input)
 
 # --- Шаг 3: Обработка текстового запроса ---
