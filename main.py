@@ -879,7 +879,7 @@ def make_share_handler(db, logger_service):
         name = db.get_user(user_id).get("name", "Друг")
         ref_link = f"{BOT_LINK}?start=ref_{user_id}"
         text = f"{name}, {COMMON_TEXTS['referral']['share_intro']}".replace('{link}', ref_link)
-        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+        await message.answer(text, reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
         await logger_service.log_action(user_id, "share_command")
     return wrapped_handler
 
@@ -915,7 +915,7 @@ def make_feedback_handler(db, logger_service):
          user_id = message.from_user.id
          name = db.get_user(user_id).get("name", "Друг")
          text = f"{name}, {COMMON_TEXTS['feedback_request']['prompt']}"
-         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+         await message.answer(text, reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
          await state.set_state(UserState.waiting_for_feedback)
          await logger_service.log_action(user_id, "feedback_initiated")
      return wrapped_handler
@@ -1040,7 +1040,7 @@ def make_user_profile_handler(db, logger_service):
         
         text += "<i>💡 Этот профиль показывает твои паттерны использования и прогресс. Чем больше ты взаимодействуешь, тем точнее становятся данные!</i>"
         
-        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+        await message.answer(text, reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
      return wrapped_handler
 
 def make_admin_user_profile_handler(db, logger_service):
@@ -1487,7 +1487,7 @@ def make_process_name_handler(db, logger_service, user_manager):
              return
          await user_manager.set_name(user_id, name)
          await logger_service.log_action(user_id, "set_name", {"name": name})
-         await message.answer(f"Приятно познакомиться, {name}! 😊\nТеперь можешь выбрать действие в меню.", reply_markup=await get_main_menu(user_id, db))
+         await message.answer(f"Приятно познакомиться, {name}! 😊\nТеперь можешь выбрать действие в меню.", reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
          await state.clear()
      return wrapped_handler
 
@@ -1500,7 +1500,7 @@ def make_process_skip_name_handler(db, logger_service, user_manager):
              await callback.message.edit_reply_markup(reply_markup=None)
          except Exception as e:
              logger.warning(f"Could not edit message on skip_name for user {user_id}: {e}")
-         await callback.message.answer("Хорошо, буду обращаться к тебе без имени.\nВыбери действие в меню.", reply_markup=await get_main_menu(user_id, db))
+         await callback.message.answer("Хорошо, буду обращаться к тебе без имени.\nВыбери действие в меню.", reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
          await state.clear()
          await callback.answer()
      return wrapped_handler
@@ -1520,7 +1520,7 @@ def make_process_feedback_handler(db, logger_service):
                   db.conn.execute("INSERT INTO feedback (user_id, name, feedback, timestamp) VALUES (?, ?, ?, ?)",
                                    (user_id, name, feedback_text, timestamp_iso))
               await logger_service.log_action(user_id, "feedback_submitted", {"feedback_length": len(feedback_text)})
-              await message.answer(f"{name}, спасибо за твой отзыв! 🙏", reply_markup=await get_main_menu(user_id, db))
+              await message.answer(f"{name}, спасибо за твой отзыв! 🙏", reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
               try:
                   admin_notify_text = (f"📝 Новый фидбек от:\nID: <code>{user_id}</code>\nИмя: {name}\nНик: @{username}\n\n<b>Текст:</b>\n{feedback_text}")
                   await bot.send_message(ADMIN_ID, admin_notify_text[:4090])
@@ -1541,11 +1541,11 @@ def make_bonus_request_handler(db, logger_service, user_manager):
          name = user_data.get("name", "Друг")
          if not user_data.get("bonus_available"):
              text = f"{name}, эта подсказка пока не доступна. Поделись своей реферальной ссылкой (/share) с другом, чтобы ее получить! ✨"
-             await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+             await message.answer(text, reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
              return
          advice = random.choice(UNIVERSE_ADVICE)
          text = f"{name}, вот послание Вселенной для тебя:\n\n<i>{advice}</i>"
-         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+         await message.answer(text, reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
          await logger_service.log_action(user_id, "bonus_request_used", {"advice_preview": advice[:50]})
      return wrapped_handler
 
