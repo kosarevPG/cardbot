@@ -51,6 +51,7 @@ class LearnCardsFSM(StatesGroup):
     theory_1 = State()  # Что такое МАК-карты
     theory_2 = State()  # Зачем нужен запрос
     theory_3 = State()  # Типичные ошибки
+    theory_4 = State()  # Как сделать запрос живым и точным
     steps = State()  # Три шага к живому запросу
     trainer_intro = State()  # Подготовка к практике
     trainer_examples = State()  # Примеры запросов
