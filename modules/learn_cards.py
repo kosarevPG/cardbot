@@ -135,7 +135,7 @@ async def show_entry_poll_q1(message: types.Message, state: FSMContext, db: Data
         (f"{i+1}️⃣ {opt}", f"entry_q1_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q1"])
     ])
     question_text = f"<b>Вопрос 1/4</b>\n\n{get_learning_text('entry_poll.q1.question', user_id, db)}"
-    await message.answer(question_text, reply_markup=keyboard, parse_mode="HTML")
+    await message.answer(question_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.entry_poll_q1)
 
 
@@ -158,7 +158,7 @@ async def handle_entry_poll_q1(callback: types.CallbackQuery, state: FSMContext,
         (f"{i+1}️⃣ {opt}", f"entry_q2_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q2"])
     ])
     question_text = f"<b>Вопрос 2/4</b>\n\n{get_learning_text('entry_poll.q2.question', user_id, db)}"
-    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.entry_poll_q2)
 
 
@@ -181,7 +181,7 @@ async def handle_entry_poll_q2(callback: types.CallbackQuery, state: FSMContext,
         (f"{i+1}️⃣ {opt}", f"entry_q3_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q3"])
     ])
     question_text = f"<b>Вопрос 3/4</b>\n\n{get_learning_text('entry_poll.q3.question', user_id, db)}"
-    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.entry_poll_q3)
 
 
@@ -204,7 +204,7 @@ async def handle_entry_poll_q3(callback: types.CallbackQuery, state: FSMContext,
         (f"{i+1}️⃣ {opt}", f"entry_q4_{i}") for i, opt in enumerate(ENTRY_POLL_OPTIONS["q4"])
     ])
     question_text = f"<b>Вопрос 4/4</b>\n\n{get_learning_text('entry_poll.q4.question', user_id, db)}"
-    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.entry_poll_q4)
 
 
@@ -241,7 +241,7 @@ async def handle_entry_poll_q4(callback: types.CallbackQuery, state: FSMContext,
         ("Пока нет", "learn_intro_no")
     ])
     user_id = callback.from_user.id
-    await callback.message.edit_text(get_learning_text('intro.welcome', user_id, db), reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.edit_text(get_learning_text('intro.welcome', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.intro)
 
 
@@ -252,7 +252,7 @@ async def show_exit_poll_q1(message: types.Message, state: FSMContext, db: Datab
         (f"{i+1}️⃣ {opt}", f"exit_q1_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q1"])
     ])
     question_text = f"<b>Вопрос 1/3</b>\n\n{get_learning_text('exit_poll.q1.question', user_id, db)}"
-    await message.answer(question_text, reply_markup=keyboard, parse_mode="HTML")
+    await message.answer(question_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.exit_poll_q1)
 
 
@@ -275,7 +275,7 @@ async def handle_exit_poll_q1(callback: types.CallbackQuery, state: FSMContext, 
         (f"{i+1}️⃣ {opt}", f"exit_q2_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q2"])
     ])
     question_text = f"<b>Вопрос 2/3</b>\n\n{get_learning_text('exit_poll.q2.question', user_id, db)}"
-    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.exit_poll_q2)
 
 
@@ -298,7 +298,7 @@ async def handle_exit_poll_q2(callback: types.CallbackQuery, state: FSMContext, 
         (f"{i+1}️⃣ {opt}", f"exit_q3_{i}") for i, opt in enumerate(EXIT_POLL_OPTIONS["q3"])
     ])
     question_text = f"<b>Вопрос 3/3</b>\n\n{get_learning_text('exit_poll.q3.question', user_id, db)}"
-    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.edit_text(question_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.exit_poll_q3)
 
 
@@ -353,7 +353,7 @@ async def handle_exit_poll_q3(callback: types.CallbackQuery, state: FSMContext, 
         ("Завершить обучение ✨", "learn_finish_final")
     ])
     user_id = callback.from_user.id
-    await callback.message.edit_text(get_learning_text('exit_feedback_invite', user_id, db), reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.edit_text(get_learning_text('exit_feedback_invite', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.exit_feedback_invite)
 
 
@@ -426,7 +426,7 @@ async def start_practice_command(message: types.Message, state: FSMContext, db: 
     await message.answer(
         "🧪 <b>Быстрая практика</b>\n\n"
         "Давай сразу попробуем! Сформулируй ресурсный запрос.",
-        parse_mode="HTML"
+        parse_mode="HTML", disable_web_page_preview=True
     )
     
     # Переходим сразу к примерам
@@ -442,7 +442,7 @@ async def handle_intro_yes(callback: types.CallbackQuery, state: FSMContext, db:
     
     keyboard = create_inline_keyboard([("Далее ➡️", "learn_theory_1")])
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('theory_1', user_id, db), reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.answer(get_learning_text('theory_1', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.theory_1)
 
 
@@ -464,7 +464,7 @@ async def handle_theory_1(callback: types.CallbackQuery, state: FSMContext, db: 
     
     keyboard = create_inline_keyboard([("Далее ➡️", "learn_theory_2")])
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('theory_2', user_id, db), reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.answer(get_learning_text('theory_2', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.theory_2)
 
 
@@ -475,7 +475,7 @@ async def handle_theory_2(callback: types.CallbackQuery, state: FSMContext, db: 
     
     keyboard = create_inline_keyboard([("Далее ➡️", "learn_theory_3")])
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('theory_3', user_id, db), reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.answer(get_learning_text('theory_3', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.theory_3)
 
 
@@ -486,8 +486,8 @@ async def handle_theory_3(callback: types.CallbackQuery, state: FSMContext, db: 
     
     keyboard = create_inline_keyboard([("Далее ➡️", "learn_theory_4")])
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('theory_3', user_id, db), reply_markup=keyboard, parse_mode="HTML")
-    await state.set_state(LearnCardsFSM.theory_3)
+    await callback.message.answer(get_learning_text('theory_4', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+    await state.set_state(LearnCardsFSM.theory_4)
 
 
 async def handle_theory_4(callback: types.CallbackQuery, state: FSMContext, db: Database):
@@ -495,9 +495,12 @@ async def handle_theory_4(callback: types.CallbackQuery, state: FSMContext, db: 
     await callback.answer()
     await callback.message.edit_reply_markup(reply_markup=None)
     
-    keyboard = create_inline_keyboard([("Попробовать на практике 🎓", "learn_trainer_intro")])
+    # Отмечаем теорию как пройденную
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('theory_4', user_id, db), reply_markup=keyboard, parse_mode="HTML")
+    db.update_training_progress(user_id, {"theory_passed": True})
+    
+    keyboard = create_inline_keyboard([("Попробовать на практике 🎓", "learn_trainer_intro")])
+    await callback.message.answer(get_learning_text('theory_4', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.theory_4)
 
 
@@ -510,17 +513,21 @@ async def handle_steps(callback: types.CallbackQuery, state: FSMContext, db: Dat
     # Отмечаем теорию как пройденную
     db.update_training_progress(user_id, {"theory_passed": True})
     
-    # Стартуем сессию обучения
-    session_id = db.start_training_session(user_id)
+    # Получаем существующий session_id из состояния
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    if not session_id:
+        session_id = db.start_training_session(user_id)
+        await state.update_data(session_id=session_id)
+    
     await state.update_data(
-        session_id=session_id,
         attempts_count=0,
         is_practice_mode=False
     )
     
     keyboard = create_inline_keyboard([("Давай! 💫", "learn_trainer_intro")])
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('trainer.intro', user_id, db), reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.answer(get_learning_text('trainer.intro', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.trainer_intro)
 
 
@@ -542,7 +549,7 @@ async def handle_trainer_examples(message: types.Message, state: FSMContext, db:
     ])
     
     user_id = message.from_user.id
-    await message.answer(get_learning_text('trainer.examples', user_id, db), reply_markup=keyboard, parse_mode="HTML")
+    await message.answer(get_learning_text('trainer.examples', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.trainer_examples)
 
 
@@ -555,7 +562,7 @@ async def handle_show_templates(callback: types.CallbackQuery, state: FSMContext
     )
     templates_text += "\n\n<i>Подставь свою ситуацию и попробуй!</i>"
     
-    await callback.message.answer(templates_text, parse_mode="HTML")
+    await callback.message.answer(templates_text, parse_mode="HTML", disable_web_page_preview=True)
     # Переходим в состояние ожидания ввода запроса от пользователя
     await state.set_state(LearnCardsFSM.trainer_user_input)
 
@@ -566,7 +573,7 @@ async def handle_trainer_input(callback: types.CallbackQuery, state: FSMContext,
     await callback.message.edit_reply_markup(reply_markup=None)
     
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('trainer.input_prompt', user_id, db), parse_mode="HTML")
+    await callback.message.answer(get_learning_text('trainer.input_prompt', user_id, db), parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.trainer_user_input)
 
 
@@ -663,7 +670,7 @@ async def handle_user_request_input(message: types.Message, state: FSMContext, d
                 ]
         
         keyboard = create_inline_keyboard(buttons)
-        await message.answer(response_text, reply_markup=keyboard, parse_mode="HTML")
+        await message.answer(response_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
         await state.set_state(LearnCardsFSM.trainer_feedback)
         
     except Exception as e:
@@ -679,7 +686,7 @@ async def handle_show_examples_again(callback: types.CallbackQuery, state: FSMCo
     await callback.answer()
     
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('trainer.examples', user_id, db), parse_mode="HTML")
+    await callback.message.answer(get_learning_text('trainer.examples', user_id, db), parse_mode="HTML", disable_web_page_preview=True)
     await callback.message.answer(
         "Попробуй еще раз! Напиши свой запрос, используя примеры как ориентир.",
     )
@@ -886,7 +893,7 @@ async def handle_choice_theory(callback: types.CallbackQuery, state: FSMContext,
     # Начинаем теорию с самого начала
     keyboard = create_inline_keyboard([("Далее ➡️", "learn_theory_1")])
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('theory_1', user_id, db), reply_markup=keyboard, parse_mode="HTML")
+    await callback.message.answer(get_learning_text('theory_1', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
     await state.set_state(LearnCardsFSM.theory_1)
 
 
@@ -896,10 +903,14 @@ async def handle_choice_practice(callback: types.CallbackQuery, state: FSMContex
     await callback.answer()
     await callback.message.edit_reply_markup(reply_markup=None)
     
-    # Стартуем сессию обучения
-    session_id = db.start_training_session(user_id)
+    # Получаем существующий session_id из состояния
+    data = await state.get_data()
+    session_id = data.get("session_id")
+    if not session_id:
+        session_id = db.start_training_session(user_id)
+        await state.update_data(session_id=session_id)
+    
     await state.update_data(
-        session_id=session_id,
         attempts_count=0,
         is_practice_mode=False
     )
