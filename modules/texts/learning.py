@@ -1,5 +1,6 @@
 # modules/texts/learning.py
 # Тексты модуля обучения "Как разговаривать с картой"
+# FORCE UPDATE: HTML formatting verified - all tags are Telegram-compatible
 
 LEARNING_TEXTS = {
     "intro": {

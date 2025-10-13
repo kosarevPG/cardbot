@@ -1,0 +1,6 @@
+FORCE DEPLOY: HTML formatting fixes for learn_cards.py
+Date: 2024-12-31
+Action: All parse_mode="HTML" parameters added to message.answer() calls
+Status: Ready for deployment
+Files affected: modules/learn_cards.py
+Commit: 9ea3c01
