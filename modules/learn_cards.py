@@ -493,14 +493,14 @@ async def handle_theory_3(callback: types.CallbackQuery, state: FSMContext, db: 
 async def handle_theory_4(callback: types.CallbackQuery, state: FSMContext, db: Database):
     """Обработка перехода к практике."""
     await callback.answer()
-    await callback.message.edit_reply_markup(reply_markup=None)
     
     # Отмечаем теорию как пройденную
     user_id = callback.from_user.id
     db.update_training_progress(user_id, {"theory_passed": True})
     
+    # Меняем кнопку под уже отправленным сообщением
     keyboard = create_inline_keyboard([("Попробовать на практике 🎓", "learn_trainer_intro")])
-    await callback.message.answer(get_learning_text('theory_4', user_id, db), reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+    await callback.message.edit_reply_markup(reply_markup=keyboard)
     await state.set_state(LearnCardsFSM.theory_4)
 
 
