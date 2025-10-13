@@ -929,7 +929,7 @@ def make_help_handler(db, logger_service):
                  "❓ <b>Помощь и FAQ</b>\n\n"
                  "✨ <b>Карта дня</b> - получи карту для самопознания и рефлексии\n"
                  "🌙 <b>Итог дня</b> - подведи итоги дня в формате вечерней практики\n"
-                 "📚 <b>Гид по картам</b> - научись правильно формулировать запросы к картам\n"
+                 "🟦 <b>Гид по картам</b> - научись правильно формулировать запросы к картам\n"
                  "⚙️ <b>Настройки</b> - профиль, напоминания, приглашения и другое\n\n"
             "<b>📖 Часто задаваемые вопросы:</b>\n\n"
             "<i>1. Что такое МАК-карты?</i>\n"
@@ -1481,7 +1481,7 @@ def make_process_name_handler(db, logger_service, user_manager):
          name = message.text.strip()
          if not name: await message.answer("Имя не может быть пустым..."); return
          if len(name) > 50: await message.answer("Слишком длинное имя..."); return
-         reserved_names = ["✨ Карта дня", "🌙 Итог дня", "📚 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]
+         reserved_names = ["✨ Карта дня", "🌙 Итог дня", "🟦 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]
          if name in reserved_names:
              await message.answer(f"Имя '{name}' использовать нельзя, оно совпадает с кнопкой меню.")
              return
@@ -1695,7 +1695,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     # Обработчики кнопок главного меню (ОБНОВЛЕНО: Вариант C + новые названия)
     dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Карта дня")
     dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Итог дня")
-    dp.message.register(partial(start_learning, db=db), F.text == "📚 Гид по картам")
+    dp.message.register(partial(start_learning, db=db), F.text == "🟦 Гид по картам")
     
     # Обработчик кнопки "⚙️ Настройки" (НОВОЕ)
     async def handle_settings_button(message: types.Message):
@@ -1791,7 +1791,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             from config import ADMIN_IDS
             if (str(user_id) in ADMIN_IDS and message.text and 
                 not message.text.startswith('/') and
-                 message.text not in ["✨ Карта дня", "🌙 Итог дня", "📚 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]):
+                 message.text not in ["✨ Карта дня", "🌙 Итог дня", "🟦 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} in state {current_state_str}")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return
@@ -1854,7 +1854,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             from config import ADMIN_IDS
             if (str(user_id) in ADMIN_IDS and message.text and 
                 not message.text.startswith('/') and
-                 message.text not in ["✨ Карта дня", "🌙 Итог дня", "📚 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]):
+                 message.text not in ["✨ Карта дня", "🌙 Итог дня", "🟦 Гид по картам", "⚙️ Настройки", "💌 Подсказка Вселенной"]):
                 logger.info(f"DEBUG: Processing admin text message '{message.text}' from user {user_id} (no state)")
                 await handle_admin_text_input(message, db, logging_service, user_id)
                 return

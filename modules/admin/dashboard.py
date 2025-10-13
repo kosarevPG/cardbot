@@ -335,7 +335,7 @@ async def show_admin_decks(message: types.Message, db: Database, logger_service:
         # Маппинг названий колод
         deck_names = {
             'nature': '🌿 Ресурсы природы',
-            'message': '💌 Ресурсная весточка'
+            'message': '🕊 Ресурсная Весточка'
         }
         
         text = f"""🃏 <b>СТАТИСТИКА КОЛОД</b> ({period_text})
