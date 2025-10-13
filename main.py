@@ -1695,7 +1695,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     # Обработчики кнопок главного меню (ОБНОВЛЕНО: Вариант C + новые названия)
     dp.message.register(partial(handle_card_request, db=db, logger_service=logging_service), F.text == "✨ Карта дня")
     dp.message.register(partial(start_evening_reflection, db=db, logger_service=logging_service), F.text == "🌙 Итог дня")
-    dp.message.register(partial(start_learning, db=db), F.text == "🟦 Гид по картам")
+    dp.message.register(partial(start_learning, db=db), F.text == "📚 Гид по картам")
     
     # Обработчик кнопки "⚙️ Настройки" (НОВОЕ)
     async def handle_settings_button(message: types.Message):
