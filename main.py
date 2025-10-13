@@ -1865,7 +1865,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
 
     # Register fallback handlers LAST
     dp.message.register(partial(handle_unknown_message_state, db=db, logging_service=logging_service), StateFilter("*"))
-    dp.message.register(partial(handle_unknown_message_no_state, db=db, logging_service=logging_service)) # Catches any other text message
+    dp.message.register(handle_unknown_message_no_state) # Catches any other text message
 
     logger.info("Handlers registered successfully.")
 
