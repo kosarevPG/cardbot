@@ -232,8 +232,10 @@ def personalize_text(base_text: str, user_info: Dict[str, Any]) -> str:
         else:
             text = text.replace('{your}', 'твой')
     
-    # 4. Очищаем лишние пробелы
-    text = re.sub(r'\s+', ' ', text).strip()
+    # 4. Очищаем лишние пробелы, но сохраняем переносы строк
+    text = re.sub(r'[ \t]+', ' ', text)  # Только пробелы и табы, не переносы
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)  # Убираем лишние пустые строки
+    text = text.strip()
     
     return text
 
