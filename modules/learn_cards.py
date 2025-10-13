@@ -397,7 +397,8 @@ async def start_learning(message: types.Message, state: FSMContext, db: Database
         ])
         await message.answer(
             "Ты уже проходил обучение раньше.\nХочешь повторить?",
-            reply_markup=keyboard
+            reply_markup=keyboard,
+            parse_mode="HTML"
         )
         await state.set_state(LearnCardsFSM.choice_menu)
     else:
@@ -452,7 +453,8 @@ async def handle_intro_no(callback: types.CallbackQuery, state: FSMContext, db: 
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
         "Хорошо, возвращайся, когда будешь готова! 🌙\n\n"
-        "Команда /learn_cards всегда доступна."
+        "Команда /learn_cards всегда доступна.",
+        parse_mode="HTML"
     )
     await state.clear()
 
@@ -587,15 +589,15 @@ async def handle_user_request_input(message: types.Message, state: FSMContext, d
     
     # Валидация
     if not request_text:
-        await message.answer("Пожалуйста, напиши свой запрос текстом.")
+        await message.answer("Пожалуйста, напиши свой запрос текстом.", parse_mode="HTML")
         return
     
     if len(request_text) < 5:
-        await message.answer("Попробуй сформулировать запрос чуть подробнее (хотя бы 5 символов).")
+        await message.answer("Попробуй сформулировать запрос чуть подробнее (хотя бы 5 символов).", parse_mode="HTML")
         return
     
     # Показываем, что обрабатываем
-    processing_msg = await message.answer("Анализирую твой запрос... ⏳")
+    processing_msg = await message.answer("Анализирую твой запрос... ⏳", parse_mode="HTML")
     
     try:
         # Анализируем запрос через ИИ
@@ -677,7 +679,8 @@ async def handle_user_request_input(message: types.Message, state: FSMContext, d
         logger.error(f"Error analyzing user request for user {user_id}: {e}", exc_info=True)
         await processing_msg.delete()
         await message.answer(
-            "Произошла ошибка при анализе запроса. Попробуй еще раз или напиши /learn_cards для начала заново."
+            "Произошла ошибка при анализе запроса. Попробуй еще раз или напиши /learn_cards для начала заново.",
+            parse_mode="HTML"
         )
 
 
@@ -689,6 +692,7 @@ async def handle_show_examples_again(callback: types.CallbackQuery, state: FSMCo
     await callback.message.answer(get_learning_text('trainer.examples', user_id, db), parse_mode="HTML", disable_web_page_preview=True)
     await callback.message.answer(
         "Попробуй еще раз! Напиши свой запрос, используя примеры как ориентир.",
+        parse_mode="HTML"
     )
     await state.set_state(LearnCardsFSM.trainer_user_input)
 
@@ -703,7 +707,8 @@ async def handle_retry(callback: types.CallbackQuery, state: FSMContext, db: Dat
         "Вспомни:\n"
         "• Используй 'я', 'мне', 'мой'\n"
         "• Спрашивай о своих чувствах\n"
-        "• Избегай 'почему', 'когда', 'будет ли'"
+        "• Избегай 'почему', 'когда', 'будет ли'",
+        parse_mode="HTML"
     )
     await state.set_state(LearnCardsFSM.trainer_user_retry)
 
@@ -795,7 +800,7 @@ async def handle_training_done(callback: types.CallbackQuery, state: FSMContext,
         )
     
     # Вместо финального сообщения показываем выходной опросник
-    await callback.message.answer(congrats_text)
+    await callback.message.answer(congrats_text, parse_mode="HTML")
     
     # Переходим к выходному опроснику
     await show_exit_poll_q1(callback.message, state, db)
@@ -819,7 +824,8 @@ async def handle_draw_card(callback: types.CallbackQuery, state: FSMContext, db:
     await state.update_data(from_learning=True, learning_request=last_request)
     
     await callback.message.answer(
-        "Отлично! Сейчас вытянем для тебя карту. ✨"
+        "Отлично! Сейчас вытянем для тебя карту. ✨",
+        parse_mode="HTML"
     )
     
     # Вызываем флоу карты дня
@@ -836,7 +842,8 @@ async def handle_feedback_choice(callback: types.CallbackQuery, state: FSMContex
         "Спасибо за прохождение обучения! 🌿\n\n"
         "Команды:\n"
         "/learn_cards — полное обучение\n"
-        "/practice — быстрая практика"
+        "/practice — быстрая практика",
+        parse_mode="HTML"
     )
     
     await state.clear()
@@ -853,7 +860,8 @@ async def handle_finish_final(callback: types.CallbackQuery, state: FSMContext, 
         "Возвращайся к практике, когда захочешь.\n\n"
         "Команды:\n"
         "/learn_cards — полное обучение\n"
-        "/practice — быстрая практика"
+        "/practice — быстрая практика",
+        parse_mode="HTML"
     )
     
     await state.clear()
@@ -868,7 +876,8 @@ async def handle_finish(callback: types.CallbackQuery, state: FSMContext, db: Da
         "Отлично! Возвращайся к практике когда захочешь.\n\n"
         "Команды:\n"
         "/learn_cards — полное обучение\n"
-        "/practice — быстрая практика"
+        "/practice — быстрая практика",
+        parse_mode="HTML"
     )
     
     await state.clear()
