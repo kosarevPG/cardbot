@@ -509,7 +509,7 @@ async def handle_steps(callback: types.CallbackQuery, state: FSMContext, db: Dat
     
     keyboard = create_inline_keyboard([("Давай! 💫", "learn_trainer_intro")])
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('trainer.intro', user_id, db), reply_markup=keyboard)
+    await callback.message.answer(get_learning_text('trainer.intro', user_id, db), reply_markup=keyboard, parse_mode="HTML")
     await state.set_state(LearnCardsFSM.trainer_intro)
 
 
@@ -555,7 +555,7 @@ async def handle_trainer_input(callback: types.CallbackQuery, state: FSMContext,
     await callback.message.edit_reply_markup(reply_markup=None)
     
     user_id = callback.from_user.id
-    await callback.message.answer(get_learning_text('trainer.input_prompt', user_id, db))
+    await callback.message.answer(get_learning_text('trainer.input_prompt', user_id, db), parse_mode="HTML")
     await state.set_state(LearnCardsFSM.trainer_user_input)
 
 
