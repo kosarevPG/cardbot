@@ -311,7 +311,7 @@ if __name__ == "__main__":
         'has_name': True
     }
     
-    test_text = "Привет{name_part}! Ты{ready} готов{ready} начать обучение?"
+    test_text = "Привет{name_part}! Ты{ready} начать обучение?"
     result = personalize_text(test_text, test_user_info)
     print(f"Результат: {result}")
-    # Ожидаемый результат: "Привет, Анна! Тыа готоваа начать обучение?"
+    # Ожидаемый результат: "Привет, Анна! Ты готова начать обучение?"

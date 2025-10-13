@@ -271,7 +271,7 @@ async def show_admin_users_list(message: types.Message, db: Database, logger_ser
         # Основные кнопки
         keyboard_buttons.extend([
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users_list")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_users")]
         ])
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
@@ -287,7 +287,7 @@ async def show_admin_users_list(message: types.Message, db: Database, logger_ser
         logger.error(f"Error showing admin users list: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке списка пользователей"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_users")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -356,7 +356,7 @@ async def show_admin_requests(message: types.Message, db: Database, logger_servi
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="📋 Все запросы", callback_data="admin_requests_full")],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_requests")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_users")]
         ])
         
         try:
@@ -370,7 +370,7 @@ async def show_admin_requests(message: types.Message, db: Database, logger_servi
         logger.error(f"Error showing admin requests: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке запросов"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_users")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)
@@ -433,7 +433,7 @@ async def show_admin_requests_full(message: types.Message, db: Database, logger_
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="📊 Краткая статистика", callback_data="admin_requests")],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_requests_full")],
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_users")]
         ])
         
         try:
@@ -447,7 +447,7 @@ async def show_admin_requests_full(message: types.Message, db: Database, logger_
         logger.error(f"Error showing admin requests full: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке полных запросов"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="← Назад", callback_data="admin_users")]
+            [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="admin_users")]
         ])
         try:
             await message.edit_text(text, reply_markup=keyboard)

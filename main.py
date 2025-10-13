@@ -337,20 +337,41 @@ class SubscriptionMiddleware:
                 user_status = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
                 allowed_statuses = ["member", "administrator", "creator"]
                 if user_status.status not in allowed_statuses:
-                    user_db_data = db.get_user(user_id); name = user_db_data.get("name") if user_db_data else None
+                    from modules.texts.common import COMMON_TEXTS
+                    from modules.texts.gender_utils import get_user_info_for_text, personalize_text
+                    
+                    user_db_data = db.get_user(user_id)
+                    name = user_db_data.get("name") if user_db_data else None
                     link = f"https://t.me/{CHANNEL_ID.lstrip('@')}"
-                    text = f"{name}, рад видеть тебя. ✨ Для нашей совместной работы, пожалуйста, подпишись на <a href='{link}'>канал автора</a>. Это важно для поддержки пространства. После подписки просто нажми /start." if name else f"Рад видеть тебя. ✨ Для нашей совместной работы, пожалуйста, подпишись на <a href='{link}'>канал автора</a>. Это важно для поддержки пространства. После подписки просто нажми /start."
+                    
+                    # Используем централизованный текст
+                    if name:
+                        text_template = f"{name}, " + COMMON_TEXTS["subscription_check"]["not_subscribed_with_name"]
+                    else:
+                        text_template = COMMON_TEXTS["subscription_check"]["not_subscribed"]
+                    text = text_template.replace('{link}', link)
+                    
                     if isinstance(event, types.Message):
                         await event.answer(text, disable_web_page_preview=True)
                     elif isinstance(event, types.CallbackQuery):
-                        await event.answer("Пожалуйста, подпишись на канал.", show_alert=True)
+                        await event.answer(COMMON_TEXTS["subscription_check"]["please_subscribe"], show_alert=True)
                         await event.message.answer(text, disable_web_page_preview=True)
                     return
             except Exception as e:
                 logger.error(f"Subscription check failed for user {user_id}: {e}")
-                error_text = f"Не получается проверить твою подписку на канал {CHANNEL_ID}. Убедись, пожалуйста, что ты подписана, и попробуй снова через /start."
-                if isinstance(event, types.Message): await event.answer(error_text)
-                elif isinstance(event, types.CallbackQuery): await event.answer("Не удается проверить подписку.", show_alert=False); await event.message.answer(error_text)
+                from modules.texts.common import COMMON_TEXTS
+                from modules.texts.gender_utils import get_user_info_for_text, personalize_text
+                
+                user_info = get_user_info_for_text(user_id, db)
+                error_text = personalize_text(
+                    COMMON_TEXTS["subscription_check"]["check_failed"].replace('{channel}', CHANNEL_ID),
+                    user_info
+                )
+                if isinstance(event, types.Message): 
+                    await event.answer(error_text)
+                elif isinstance(event, types.CallbackQuery): 
+                    await event.answer(COMMON_TEXTS["subscription_check"]["check_failed_short"], show_alert=False)
+                    await event.message.answer(error_text)
                 return
         return await handler(event, data)
 
@@ -388,8 +409,9 @@ def make_start_handler(db, logger_service, user_manager):
                          referrer_data = db.get_user(referrer_id)
                          if referrer_data and not referrer_data.get("bonus_available"):
                              await user_manager.set_bonus_available(referrer_id, True)
+                             from modules.texts.common import COMMON_TEXTS
                              ref_name = referrer_data.get("name", "Друг")
-                             text = f"{ref_name}, ура! 🎉 Кто-то воспользовался твоей ссылкой! Теперь тебе доступна '💌 Подсказка Вселенной' в меню."
+                             text = f"{ref_name}, {COMMON_TEXTS['referral']['bonus_granted']}"
                              try:
                                  await bot.send_message(referrer_id, text, reply_markup=await get_main_menu(referrer_id, db))
                                  await logger_service.log_action(referrer_id, "referral_bonus_granted", {"referred_user": user_id})
@@ -397,30 +419,53 @@ def make_start_handler(db, logger_service, user_manager):
                                  logger.error(f"Failed to send referral bonus message to {referrer_id}: {send_err}")
             except (ValueError, TypeError, IndexError) as ref_err:
                 logger.warning(f"Invalid referral code processing '{args}' from user {user_id}: {ref_err}")
+        from modules.texts.common import COMMON_TEXTS
+        from modules.texts.gender_utils import get_user_info_for_text, personalize_text
+        
         user_name = user_data.get("name")
         if not user_name:
-            await message.answer("Здравствуй! ✨ Очень рад нашему знакомству. Подскажи, как мне лучше к тебе обращаться?",
-                                 reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]]))
+            await message.answer(
+                COMMON_TEXTS["onboarding"]["ask_name"],
+                reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[[
+                    types.InlineKeyboardButton(text=COMMON_TEXTS["onboarding"]["skip_button"], callback_data="skip_name")
+                ]])
+            )
             await state.set_state(UserState.waiting_for_name)
         else:
-            await message.answer(f"{user_name}, снова рад тебя видеть! 👋 Готова поработать с картой дня или подвести итог?",
-                                 reply_markup=await get_main_menu(user_id, db))
+            user_info = get_user_info_for_text(user_id, db)
+            welcome_text = personalize_text(COMMON_TEXTS["onboarding"]["welcome_back"], user_info)
+            await message.answer(f"{user_name}, {welcome_text}", reply_markup=await get_main_menu(user_id, db))
     return wrapped_handler
 
 def make_remind_handler(db, logger_service, user_manager):
     async def wrapped_handler(message: types.Message, state: FSMContext):
+        from modules.texts.common import COMMON_TEXTS
+        
         user_id = message.from_user.id
         user_data = db.get_user(user_id)
         name = user_data.get("name", "Друг")
         morning_reminder = user_data.get("reminder_time")
         evening_reminder = user_data.get("reminder_time_evening")
-        morning_text = f"Напоминание 'Карта дня' ✨: <b>{morning_reminder}</b> МСК" if morning_reminder else "Напоминание 'Карта дня' ✨: <b>отключено</b>"
-        evening_text = f"Напоминание 'Итог дня' 🌙: <b>{evening_reminder}</b> МСК" if evening_reminder else "Напоминание 'Итог дня' 🌙: <b>отключено</b>"
-        purpose_text = "⏰ Настроим ежедневные напоминания?"
-        instruction_text = ("Сначала введи удобное время для <b>утреннего</b> напоминания 'Карта дня' в формате <b>ЧЧ:ММ</b> (например, <code>09:00</code>).\nИли напиши <code>выкл</code>, чтобы отключить это напоминание.\n\n"
-                           f"<u>Текущие настройки:</u>\n- {morning_text}\n- {evening_text}")
-        text = f"{name}, привет!\n\n{purpose_text}\n\n{instruction_text}"
-        await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+        
+        # Используем централизованные тексты
+        reminders = COMMON_TEXTS["reminders"]
+        if morning_reminder:
+            morning_text = f"{reminders['morning_label']}: {reminders['time_format'].replace('{time}', morning_reminder)}"
+        else:
+            morning_text = f"{reminders['morning_label']}: {reminders['disabled_label']}"
+        
+        if evening_reminder:
+            evening_text = f"{reminders['evening_label']}: {reminders['time_format'].replace('{time}', evening_reminder)}"
+        else:
+            evening_text = f"{reminders['evening_label']}: {reminders['disabled_label']}"
+        
+        text = f"{name}, привет!\n\n{reminders['setup_intro']}\n\n" + reminders['setup_instruction'].replace(
+            '{morning_text}', morning_text
+        ).replace(
+            '{evening_text}', evening_text
+        )
+        
+        await message.answer(text, reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
         await state.set_state(UserState.waiting_for_morning_reminder_time)
         await logger_service.log_action(user_id, "remind_command_invoked")
     return wrapped_handler
@@ -784,11 +829,23 @@ def make_process_evening_reminder_time_handler(db, logger_service, user_manager)
                 return
         try:
             await user_manager.set_reminder(user_id, morning_time, evening_time_to_save)
+            from modules.texts.common import COMMON_TEXTS
             await logger_service.log_action(user_id, "reminders_saved_total", {"morning_time": morning_time, "evening_time": evening_time_to_save})
-            morning_confirm = f"'Карта дня' ✨: <b>{morning_time}</b> МСК" if morning_time else "'Карта дня' ✨: <b>отключено</b>"
-            evening_confirm = f"'Итог дня' 🌙: <b>{evening_time_to_save}</b> МСК" if evening_time_to_save else "'Итог дня' 🌙: <b>отключено</b>"
-            text = f"{name}, готово! ✅\nНапоминания установлены:\n- {morning_confirm}\n- {evening_confirm}"
-            await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+            
+            # Используем централизованные тексты
+            reminders = COMMON_TEXTS["reminders"]
+            if morning_time:
+                morning_confirm = f"{reminders['morning_label']}: {reminders['time_format'].replace('{time}', morning_time)}"
+            else:
+                morning_confirm = f"{reminders['morning_label']}: {reminders['disabled_label']}"
+            
+            if evening_time_to_save:
+                evening_confirm = f"{reminders['evening_label']}: {reminders['time_format'].replace('{time}', evening_time_to_save)}"
+            else:
+                evening_confirm = f"{reminders['evening_label']}: {reminders['disabled_label']}"
+            
+            text = f"{name}, {reminders['saved']}".replace('{morning_confirm}', morning_confirm).replace('{evening_confirm}', evening_confirm)
+            await message.answer(text, reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
             await state.clear()
         except Exception as e:
             logger.error(f"Failed to save reminders for user {user_id}: {e}", exc_info=True)
@@ -803,11 +860,12 @@ def make_remind_off_handler(db, logger_service, user_manager):
          if current_state in [UserState.waiting_for_morning_reminder_time, UserState.waiting_for_evening_reminder_time]:
              await state.clear()
          try:
+             from modules.texts.common import COMMON_TEXTS
              await user_manager.clear_reminders(user_id)
              await logger_service.log_action(user_id, "reminders_cleared")
              name = db.get_user(user_id).get("name", "Друг")
-             text = f"{name}, я отключил <b>все</b> напоминания для тебя (утреннее и вечернее). Если захочешь включить снова, используй /remind."
-             await message.answer(text, reply_markup=await get_main_menu(user_id, db))
+             text = f"{name}, {COMMON_TEXTS['reminders']['disabled']}"
+             await message.answer(text, reply_markup=await get_main_menu(user_id, db), parse_mode="HTML")
          except Exception as e:
              logger.error(f"Failed to disable reminders for user {user_id}: {e}", exc_info=True)
              await message.answer("Ой, не получилось отключить напоминания...")
@@ -815,31 +873,48 @@ def make_remind_off_handler(db, logger_service, user_manager):
 
 def make_share_handler(db, logger_service):
     async def wrapped_handler(message: types.Message):
+        from modules.texts.common import COMMON_TEXTS
+        
         user_id = message.from_user.id
         name = db.get_user(user_id).get("name", "Друг")
         ref_link = f"{BOT_LINK}?start=ref_{user_id}"
-        text = (f"{name}, хочешь поделиться этим ботом с друзьями?\nВот твоя персональная ссылка: {ref_link}\n\n"
-               f"Когда кто-нибудь перейдет по ней и начнет использовать бота, ты получишь доступ к '💌 Подсказке Вселенной' в главном меню! ✨")
+        text = f"{name}, {COMMON_TEXTS['referral']['share_intro']}".replace('{link}', ref_link)
         await message.answer(text, reply_markup=await get_main_menu(user_id, db))
         await logger_service.log_action(user_id, "share_command")
     return wrapped_handler
 
 def make_name_handler(db, logger_service, user_manager):
      async def wrapped_handler(message: types.Message, state: FSMContext):
+         from modules.texts.common import COMMON_TEXTS
+         
          user_id = message.from_user.id
          name = db.get_user(user_id).get("name")
-         text = f"Твое текущее имя: <b>{name}</b>.\nХочешь изменить?" if name else "Как тебя зовут?"
-         text += "\nВведи новое имя или нажми 'Пропустить', если не хочешь указывать."
-         await message.answer(text, reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]]))
+         
+         # Используем централизованные тексты
+         if name:
+             text = COMMON_TEXTS["name_change"]["current_name"].replace('{name}', name) + "\n"
+         else:
+             text = COMMON_TEXTS["name_change"]["ask_name"] + "\n"
+         text += COMMON_TEXTS["name_change"]["instruction"]
+         
+         await message.answer(
+             text, 
+             reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[[
+                 types.InlineKeyboardButton(text=COMMON_TEXTS["onboarding"]["skip_button"], callback_data="skip_name")
+             ]]),
+             parse_mode="HTML"
+         )
          await state.set_state(UserState.waiting_for_name)
          await logger_service.log_action(user_id, "name_change_initiated")
      return wrapped_handler
 
 def make_feedback_handler(db, logger_service):
      async def wrapped_handler(message: types.Message, state: FSMContext):
+         from modules.texts.common import COMMON_TEXTS
+         
          user_id = message.from_user.id
          name = db.get_user(user_id).get("name", "Друг")
-         text = (f"{name}, хочешь поделиться идеей, как сделать меня лучше, или рассказать о проблеме?\nЯ внимательно читаю все сообщения! Напиши здесь все, что думаешь.")
+         text = f"{name}, {COMMON_TEXTS['feedback_request']['prompt']}"
          await message.answer(text, reply_markup=await get_main_menu(user_id, db))
          await state.set_state(UserState.waiting_for_feedback)
          await logger_service.log_action(user_id, "feedback_initiated")

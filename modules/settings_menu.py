@@ -71,7 +71,7 @@ async def handle_settings_callback(callback: types.CallbackQuery, db: Database, 
             )
             
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="← Назад", callback_data="settings_menu")]
+                [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu")]
             ])
             
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -87,7 +87,7 @@ async def handle_settings_callback(callback: types.CallbackQuery, db: Database, 
             )
             
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="← Назад", callback_data="settings_menu")]
+                [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu")]
             ])
             
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -102,7 +102,7 @@ async def handle_settings_callback(callback: types.CallbackQuery, db: Database, 
             )
             
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="← Назад", callback_data="settings_menu")]
+                [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu")]
             ])
             
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -117,7 +117,7 @@ async def handle_settings_callback(callback: types.CallbackQuery, db: Database, 
             )
             
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="← Назад", callback_data="settings_menu")]
+                [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu")]
             ])
             
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
@@ -141,7 +141,7 @@ async def handle_settings_callback(callback: types.CallbackQuery, db: Database, 
             )
             
             keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="← Назад", callback_data="settings_menu")]
+                [types.InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_menu")]
             ])
             
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
