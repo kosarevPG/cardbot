@@ -1,5 +1,6 @@
 # modules/learn_cards.py
 # Модуль обучения "Как разговаривать с картой"
+# FORCE UPDATE: HTML formatting fixes applied - all parse_mode="HTML" added
 
 import logging
 import json
@@ -1115,6 +1116,8 @@ def register_learn_cards_handlers(dp, db: Database, logger_service, user_manager
         partial(handle_user_retry_input, db=db),
         LearnCardsFSM.trainer_user_retry
     )
+
+# FORCE DEPLOY: HTML formatting fixes applied - all parse_mode="HTML" added to all message.answer() calls
     
     logger.info("Learn cards handlers registered successfully")
 
