@@ -46,8 +46,11 @@ class TrainingLogger:
             exclude_admins = {'value': result['value']} if result else None
             if exclude_admins and exclude_admins.get('value') == 'true':
                 # Проверяем, является ли пользователь админом
-                from config import ADMIN_IDS
-                if str(user_id) in ADMIN_IDS:
+                try:
+                    from config_local import NO_LOGS_USERS
+                except ImportError:
+                    from config import NO_LOGS_USERS
+                if user_id in NO_LOGS_USERS:
                     logger.debug(f"Пропускаем логирование обучения для админа {user_id}")
                     return
             
