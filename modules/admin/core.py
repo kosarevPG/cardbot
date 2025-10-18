@@ -229,7 +229,8 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
             [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
-            [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")]
+            [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")],
+            [types.InlineKeyboardButton(text="📚 Логи обучения", callback_data="admin_training_logs")]
         ])
         
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
