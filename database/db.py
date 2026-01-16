@@ -2628,7 +2628,8 @@ class Database:
             
             # КРИТИЧНО: логируем, сколько строк есть для этого пользователя
             count_cursor = self.conn.execute("SELECT COUNT(*) as cnt FROM author_test_sessions WHERE user_id = ?", (user_id,))
-            row_count = count_cursor.fetchone()['cnt'] if count_cursor.fetchone() else 0
+            count_row = count_cursor.fetchone()
+            row_count = count_row['cnt'] if count_row else 0
             logger.info(f"[get_session] user={user_id} found {row_count} rows in author_test_sessions")
             
             if 'updated_at' in cols:
