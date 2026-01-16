@@ -2536,8 +2536,44 @@ class Database:
     def get_author_test_session(self, user_id: int) -> dict | None:
         """Возвращает сессию теста автора для user_id."""
         try:
+            def _session_progress(sess: dict | None) -> int:
+                """Оценка прогресса (номер следующего вопроса, 0-based). Нужна для выбора между _new и старой таблицей."""
+                if not sess:
+                    return -1
+                # прямые поля
+                for key in ("current_step", "last_question"):
+                    try:
+                        v = int(sess.get(key, 0) or 0)
+                        if v > 0:
+                            return v
+                    except Exception:
+                        pass
+                # фолбек: answers
+                answers = sess.get("answers")
+                if isinstance(answers, dict) and answers:
+                    try:
+                        return max(int(k) for k in answers.keys()) + 1
+                    except Exception:
+                        return len(answers)
+                if isinstance(answers, list) and answers:
+                    return len(answers)
+                return 0
+
+            def _session_rank(sess: dict | None) -> tuple[int, int, str]:
+                """Сравнение сессий: in_progress > completed/other, затем прогресс, затем updated_at/started_at."""
+                if not sess:
+                    return (-1, -1, "")
+                status = str(sess.get("status") or "")
+                in_progress = 1 if status == "in_progress" else 0
+                progress = _session_progress(sess)
+                ts = str(sess.get("updated_at") or sess.get("started_at") or "")
+                return (in_progress, progress, ts)
+
+            session_new: dict | None = None
+            session_old: dict | None = None
+
             # Совместимость: в некоторых ветках/деплоях могла появиться таблица author_test_sessions_new.
-            # Если она есть — пробуем брать прогресс из неё (там может жить актуальный current_step/answers).
+            # Если она есть — читаем её, но НЕ возвращаем сразу: сравним со старой таблицей по прогрессу.
             try:
                 t = self.conn.execute(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -2581,7 +2617,7 @@ class Database:
                                 res_new['flags'] = json.loads(res_new['flags_json'])
                             except Exception:
                                 res_new['flags'] = []
-                        return res_new
+                        session_new = res_new
             except Exception:
                 # Если что-то пошло не так — просто падаем обратно на старую таблицу
                 pass
@@ -2600,27 +2636,31 @@ class Database:
                     (user_id,),
                 )
             row = cursor.fetchone()
-            if not row:
-                return None
-            res = dict(row)
-            if res.get('answers'):
-                try:
-                    res['answers'] = json.loads(res['answers'])
-                except Exception:
-                    # В старых версиях ответы могли быть сохранены не как JSON, а как repr(dict)/repr(list).
+            if row:
+                res = dict(row)
+                if res.get('answers'):
                     try:
-                        res['answers'] = ast.literal_eval(res['answers'])
+                        res['answers'] = json.loads(res['answers'])
                     except Exception:
-                        res['answers'] = {}
-            if res.get('flags'):
-                try:
-                    res['flags'] = json.loads(res['flags'])
-                except Exception:
+                        # В старых версиях ответы могли быть сохранены не как JSON, а как repr(dict)/repr(list).
+                        try:
+                            res['answers'] = ast.literal_eval(res['answers'])
+                        except Exception:
+                            res['answers'] = {}
+                if res.get('flags'):
                     try:
-                        res['flags'] = ast.literal_eval(res['flags'])
+                        res['flags'] = json.loads(res['flags'])
                     except Exception:
-                        res['flags'] = []
-            return res
+                        try:
+                            res['flags'] = ast.literal_eval(res['flags'])
+                        except Exception:
+                            res['flags'] = []
+                session_old = res
+
+            # Выбираем лучшую сессию: in_progress + больше прогресса + свежее
+            if session_new and session_old:
+                return session_new if _session_rank(session_new) > _session_rank(session_old) else session_old
+            return session_new or session_old
         except sqlite3.Error as e:
             logger.error(f"Error getting author session for {user_id}: {e}", exc_info=True)
             return None
