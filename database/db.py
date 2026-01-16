@@ -2676,6 +2676,13 @@ class Database:
                 cols = {row['name'] for row in info}
                 info_by_name = {row['name']: row for row in info}
 
+                # КРИТИЧНО: логируем, что сохраняем
+                logger.info(
+                    f"[save_progress] user={user_id} step={step} answers_keys={list(answers.keys())} "
+                    f"answers_len={len(answers)} fear={fear_total} ready={ready_total} "
+                    f"table_cols={sorted(cols)}"
+                )
+
                 # 1) Сначала пробуем UPDATE (не требует session_id и переживает разные PK).
                 sets = []
                 params = []
@@ -2699,13 +2706,21 @@ class Database:
 
                 updated = 0
                 if sets:
+                    # Проверяем, есть ли запись для этого user_id перед UPDATE
+                    check = self.conn.execute("SELECT user_id, current_step, rowid FROM author_test_sessions WHERE user_id = ? LIMIT 1", (user_id,)).fetchone()
+                    logger.info(f"[save_progress] user={user_id} BEFORE UPDATE: found_row={check is not None} row_data={dict(check) if check else None}")
+                    
                     cur = self.conn.execute(
                         f"UPDATE author_test_sessions SET {', '.join(sets)} WHERE user_id=?",
                         (*params, user_id),
                     )
                     updated = cur.rowcount or 0
+                    logger.info(f"[save_progress] user={user_id} UPDATE: rowcount={updated}")
 
                 if updated:
+                    # Проверяем после UPDATE
+                    check_after = self.conn.execute("SELECT user_id, current_step, answers FROM author_test_sessions WHERE user_id = ? LIMIT 1", (user_id,)).fetchone()
+                    logger.info(f"[save_progress] user={user_id} AFTER UPDATE: row_data={dict(check_after) if check_after else None}")
                     return
 
                 # 2) UPDATE ничего не затронул => INSERT новой строки, учитывая обязательные поля исторических схем.
