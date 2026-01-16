@@ -182,6 +182,29 @@ def _session_has_progress(session: dict | None) -> bool:
     answers = session.get("answers") or {}
     return bool(answers)
 
+def _step_from_session(session: dict | None) -> int:
+    """Возвращает номер следующего вопроса (0-based) максимально устойчиво к разным схемам БД."""
+    if not session:
+        return 0
+
+    for key in ("current_step", "last_question"):
+        try:
+            v = int(session.get(key, 0) or 0)
+            if v > 0:
+                return v
+        except Exception:
+            pass
+
+    # Фолбек: если current_step не сохраняется (старая схема), вычисляем по answers
+    answers = session.get("answers") or {}
+    if isinstance(answers, dict) and answers:
+        try:
+            max_k = max(int(k) for k in answers.keys())
+            return max_k + 1
+        except Exception:
+            return 0
+    return 0
+
 
 async def start_author_test_flow(message: types.Message, state: FSMContext, db: Database) -> None:
     """Точка входа: если есть незавершённая сессия — предлагает продолжить/перезапустить."""
@@ -189,7 +212,7 @@ async def start_author_test_flow(message: types.Message, state: FSMContext, db: 
     session = db.get_author_test_session(user_id)
 
     if session and session.get("status") == "in_progress" and _session_has_progress(session):
-        step = int(session.get("current_step", session.get("last_question", 0)) or 0)
+        step = _step_from_session(session)
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="▶️ Продолжить", callback_data="author_resume")],
             [InlineKeyboardButton(text="🔄 Начать заново", callback_data="author_restart")],
@@ -227,7 +250,7 @@ async def _resume_test(message: types.Message, state: FSMContext, db: Database) 
         await _start_new_test(message, state, db)
         return
 
-    step = int(session.get("current_step", session.get("last_question", 0)) or 0)
+    step = _step_from_session(session)
     answers = session.get("answers") or {}
     fear_total = int(session.get("fear_total", 0) or 0)
     ready_total = int(session.get("ready_total", 0) or 0)
