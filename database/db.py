@@ -2530,49 +2530,75 @@ class Database:
             return None
 
     def save_author_test_progress(self, user_id: int, step: int, answers: dict, fear_total: int, ready_total: int, flags: list):
-        """Upsert прогресса теста автора."""
+        """Saves author test progress without SQLite UPSERT."""
         now = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
         answers_json = json.dumps(answers, ensure_ascii=False)
         flags_json = json.dumps(flags, ensure_ascii=False)
         try:
+            exists = self.conn.execute("SELECT 1 FROM author_test_sessions WHERE user_id = ?", (user_id,)).fetchone()
             with self.conn:
-                self.conn.execute("""
-                    INSERT INTO author_test_sessions (
-                        user_id, status, current_step, answers, fear_total, ready_total, flags, started_at, updated_at
-                    ) VALUES (?, 'in_progress', ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(user_id) DO UPDATE SET
-                        status='in_progress',
-                        current_step=excluded.current_step,
-                        answers=excluded.answers,
-                        fear_total=excluded.fear_total,
-                        ready_total=excluded.ready_total,
-                        flags=excluded.flags,
-                        updated_at=excluded.updated_at
-                """, (user_id, step, answers_json, fear_total, ready_total, flags_json, now, now))
+                if exists:
+                    self.conn.execute(
+                        """
+                        UPDATE author_test_sessions
+                        SET status='in_progress',
+                            current_step=?,
+                            answers=?,
+                            fear_total=?,
+                            ready_total=?,
+                            flags=?,
+                            updated_at=?
+                        WHERE user_id=?
+                        """
+                        (step, answers_json, fear_total, ready_total, flags_json, now, user_id),
+                    )
+                else:
+                    self.conn.execute(
+                        """
+                        INSERT INTO author_test_sessions (
+                            user_id, status, current_step, answers, fear_total, ready_total, flags, started_at, updated_at
+                        ) VALUES (?, 'in_progress', ?, ?, ?, ?, ?, ?, ?)
+                        """
+                        (user_id, step, answers_json, fear_total, ready_total, flags_json, now, now),
+                    )
         except sqlite3.Error as e:
             logger.error(f"Error saving author progress for {user_id}: {e}", exc_info=True)
 
     def reset_author_test(self, user_id: int):
-        """Сбрасывает сессию теста автора (начать заново)."""
+        """Resets author test session without SQLite UPSERT."""
         now = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
         try:
+            empty_answers = json.dumps({}, ensure_ascii=False)
+            empty_flags = json.dumps([], ensure_ascii=False)
+            exists = self.conn.execute("SELECT 1 FROM author_test_sessions WHERE user_id = ?", (user_id,)).fetchone()
             with self.conn:
-                self.conn.execute("""
-                    INSERT INTO author_test_sessions (
-                        user_id, status, current_step, answers, fear_total, ready_total, zone, flags, started_at, updated_at, completed_at
-                    ) VALUES (?, 'in_progress', 0, ?, 0, 0, NULL, ?, ?, ?, NULL)
-                    ON CONFLICT(user_id) DO UPDATE SET
-                        status='in_progress',
-                        current_step=0,
-                        answers=excluded.answers,
-                        fear_total=0,
-                        ready_total=0,
-                        zone=NULL,
-                        flags=excluded.flags,
-                        started_at=excluded.started_at,
-                        updated_at=excluded.updated_at,
-                        completed_at=NULL
-                """, (user_id, json.dumps({}, ensure_ascii=False), json.dumps([], ensure_ascii=False), now, now))
+                if exists:
+                    self.conn.execute(
+                        """
+                        UPDATE author_test_sessions
+                        SET status='in_progress',
+                            current_step=0,
+                            answers=?,
+                            fear_total=0,
+                            ready_total=0,
+                            zone=NULL,
+                            flags=?,
+                            started_at=?,
+                            updated_at=?,
+                            completed_at=NULL
+                        WHERE user_id=?
+                        """
+                        (empty_answers, empty_flags, now, now, user_id),
+                    )
+                else:
+                    self.conn.execute(
+                        """
+                        INSERT INTO author_test_sessions (
+                            user_id, status, current_step, answers, fear_total, ready_total, zone, flags, started_at, updated_at, completed_at
+                        ) VALUES (?, 'in_progress', 0, ?, 0, 0, NULL, ?, ?, ?, NULL)
+                        """
+                        (user_id, empty_answers, empty_flags, now, now),
+                    )
         except sqlite3.Error as e:
             logger.error(f"Error resetting author test for {user_id}: {e}", exc_info=True)
 
