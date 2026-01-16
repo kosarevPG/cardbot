@@ -7,6 +7,7 @@ from aiogram import Bot, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.exceptions import TelegramBadRequest
 
 from database.db import Database
 from modules.card_of_the_day import get_main_menu
@@ -281,8 +282,29 @@ async def send_current_question(message: types.Message, state: FSMContext) -> No
 
     try:
         await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except TelegramBadRequest as e:
+        # Защита от падений при некорректном callback_data (лимит 64 байта, и т.п.)
+        if "BUTTON_DATA_INVALID" in str(e):
+            logger.error("BUTTON_DATA_INVALID while sending question keyboard; sending without keyboard", exc_info=True)
+            try:
+                await message.edit_text(text, parse_mode="HTML")
+            except Exception:
+                await message.answer(text, parse_mode="HTML")
+            return
+        # не наша ошибка — пробуем fallback
+        try:
+            await message.answer(text, reply_markup=kb, parse_mode="HTML")
+        except Exception:
+            await message.answer(text, parse_mode="HTML")
     except Exception:
-        await message.answer(text, reply_markup=kb, parse_mode="HTML")
+        try:
+            await message.answer(text, reply_markup=kb, parse_mode="HTML")
+        except TelegramBadRequest as e:
+            if "BUTTON_DATA_INVALID" in str(e):
+                logger.error("BUTTON_DATA_INVALID while sending question keyboard (answer); sending without keyboard", exc_info=True)
+                await message.answer(text, parse_mode="HTML")
+            else:
+                raise
 
 
 async def handle_author_callback(callback: types.CallbackQuery, state: FSMContext, db: Database) -> str:
