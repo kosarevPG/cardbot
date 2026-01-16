@@ -141,7 +141,6 @@ def _build_scale_kb(step: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="2", callback_data=f"author_ans:{step}:2"),
         InlineKeyboardButton(text="3", callback_data=f"author_ans:{step}:3"),
     ]]
-    rows.append([InlineKeyboardButton(text="Отмена", callback_data="author_cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -158,7 +157,6 @@ def _build_options_kb(step: int) -> InlineKeyboardMarkup:
                 callback_data=f"author_p2:{step}:{opt_idx}",
             )
         ])
-    rows.append([InlineKeyboardButton(text="Отмена", callback_data="author_cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -216,7 +214,6 @@ async def start_author_test_flow(message: types.Message, state: FSMContext, db: 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="▶️ Продолжить", callback_data="author_resume")],
             [InlineKeyboardButton(text="🔄 Начать заново", callback_data="author_restart")],
-            [InlineKeyboardButton(text="Отмена", callback_data="author_cancel")],
         ])
         await message.answer(
             f"Вы не закончили прошлый тест (остановились на вопросе {min(step + 1, TOTAL_QUESTIONS)}/{TOTAL_QUESTIONS}). Продолжить?",
