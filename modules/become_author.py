@@ -59,7 +59,8 @@ async def start_author_test_flow(message: types.Message, state: FSMContext, db: 
     user_id = message.from_user.id
 
     session = db.get_author_test_session(user_id)
-    if session and session.get("status") == "in_progress" and int(session.get("current_step", 0)) > 0:
+    has_progress = bool(session and (int(session.get("current_step", 0)) > 0 or (session.get("answers") or {})))
+    if session and session.get("status") == "in_progress" and has_progress:
         total = len(QUESTIONS)
         step = int(session.get("current_step", 0))
         kb = InlineKeyboardMarkup(inline_keyboard=[
