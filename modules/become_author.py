@@ -120,6 +120,21 @@ PART_2_QUESTIONS: list[dict[str, Any]] = [
 
 TOTAL_QUESTIONS = len(PART_1_QUESTIONS) + len(PART_2_QUESTIONS)
 
+INTRO_TEXT = (
+    "Приветствую! Меня зовут Изольда Форбс, я разработчик и автор 20 МАК-колод и 4 трансформационных игр. Также, я сопровождаю экспертов по пути создания собственного авторского продукта. Я предлагаю вам пройти тест «Готовы ли вы стать автором МАК-карт или трансформационной игры?» Этот тест - не мотивационный!\n"
+    "Он создан, чтобы помочь вам определить:\n"
+    "•\tчто именно мешает вам создать авторский продукт\n"
+    "•\tготовы ли вы брать ответственность за его разработку\n"
+    "•\tподходим ли мы друг другу для глубокой работы на протяжении нескольких месяцев\n"
+    "⚠️ Важно:\n"
+    "Я не могу взять в сопровождение всех подряд.\n"
+    "Я работаю только с теми экспертами, кто:\n"
+    "•\tготов действовать\n"
+    "•\tготов брать ответственность\n"
+    "•\tготов доводить продукт до результата\n"
+    "Именно поэтому я создала этот тест как диагностический шаг: если тест покажет, что авторство сейчас не ваш этап - это не плохо. Это сэкономит вам время, деньги и энергию.\n"
+)
+
 
 def _progress(step: int) -> str:
     return f"Вопрос {step + 1}/{TOTAL_QUESTIONS}"
@@ -245,7 +260,11 @@ async def _start_new_test(message: types.Message, state: FSMContext, db: Databas
         flags=[],
         answers={},
     )
-    await send_current_question(message, state)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="▶️ Начать тест", callback_data="author_begin")],
+    ])
+    # Вступление при старте сценария (без HTML, дословно).
+    await message.answer(INTRO_TEXT, reply_markup=kb)
 
 
 async def _resume_test(message: types.Message, state: FSMContext, db: Database) -> None:
@@ -374,6 +393,11 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
     if callback.data == "author_resume":
         await callback.answer()
         await _resume_test(callback.message, state, db)
+        return "continue"
+
+    if callback.data == "author_begin":
+        await callback.answer()
+        await send_current_question(callback.message, state)
         return "continue"
 
     if callback.data.startswith("author_ans:"):
