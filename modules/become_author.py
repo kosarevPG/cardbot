@@ -148,13 +148,13 @@ def _build_options_kb(step: int) -> InlineKeyboardMarkup:
     idx = step - len(PART_1_QUESTIONS)
     q = PART_2_QUESTIONS[idx]
     rows = []
-    for opt_text, opt_score, opt_flag in q["options"]:
-        flag_part = opt_flag if opt_flag else "-"
-        # callback: author_ans:step:score:flag:answer_text_json
+    for opt_idx, (opt_text, _opt_score, _opt_flag) in enumerate(q["options"]):
+        # ВАЖНО: callback_data у Telegram ограничен 64 байтами.
+        # Поэтому не кладем туда текст ответа — только индексы.
         rows.append([
             InlineKeyboardButton(
                 text=opt_text,
-                callback_data=f"author_ans:{step}:{opt_score}:{flag_part}:{json.dumps(opt_text, ensure_ascii=False)}",
+                callback_data=f"author_p2:{step}:{opt_idx}",
             )
         ])
     rows.append([InlineKeyboardButton(text="Отмена", callback_data="author_cancel")])
@@ -354,6 +354,68 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         # Сохраняем прогресс (сейчас используем существующий API db.save_author_test_progress)
         db.save_author_test_progress(
             user_id=user_id,
+            step=next_step,
+            answers=answers,
+            fear_total=fear_total,
+            ready_total=ready_total,
+            flags=flags,
+        )
+
+        await state.update_data(
+            step=next_step,
+            answers=answers,
+            fear_total=fear_total,
+            ready_total=ready_total,
+            flags=flags,
+        )
+        await callback.answer()
+
+        if next_step >= TOTAL_QUESTIONS:
+            await finish_author_test(callback.message, state, db)
+            return "finished"
+
+        await send_current_question(callback.message, state)
+        return "continue"
+
+    if callback.data.startswith("author_p2:"):
+        try:
+            _, step_s, opt_s = callback.data.split(":", 2)
+            step = int(step_s)
+            opt_idx = int(opt_s)
+        except Exception:
+            await callback.answer("Не понял ответ, попробуйте ещё раз.", show_alert=True)
+            return "ignored"
+
+        data = await state.get_data()
+        cur_step = int(data.get("step", 0))
+        if step != cur_step:
+            await callback.answer()
+            return "ignored"
+
+        # lookup option
+        q2_idx = step - len(PART_1_QUESTIONS)
+        if q2_idx < 0 or q2_idx >= len(PART_2_QUESTIONS):
+            await callback.answer()
+            return "ignored"
+
+        options = PART_2_QUESTIONS[q2_idx]["options"]
+        if opt_idx < 0 or opt_idx >= len(options):
+            await callback.answer()
+            return "ignored"
+
+        opt_text, score, flag = options[opt_idx]
+
+        fear_total = int(data.get("fear_total", 0))
+        ready_total = int(data.get("ready_total", 0)) + int(score)
+        flags = list(data.get("flags", []) or [])
+        if flag and flag not in flags:
+            flags.append(flag)
+        answers = dict(data.get("answers", {}) or {})
+        answers[str(step)] = {"score": int(score), "text": opt_text, "flag": flag}
+
+        next_step = cur_step + 1
+        db.save_author_test_progress(
+            user_id=callback.from_user.id,
             step=next_step,
             answers=answers,
             fear_total=fear_total,
