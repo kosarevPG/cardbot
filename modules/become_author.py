@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from aiogram import types
+from aiogram import Bot, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -385,7 +385,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
 
 
 async def _notify_admins_green(
-    bot: types.Bot,
+    bot: Bot,
     user_id: int,
     username: str | None,
     full_name: str | None,
