@@ -204,6 +204,36 @@ def _step_from_session(session: dict | None) -> int:
     if not session:
         return 0
 
+    # ПРИОРИТЕТ 1: вычисляем по answers (самый надёжный источник)
+    # Если есть хотя бы один ответ, следующий шаг = max(question_index) + 1
+    answers = session.get("answers")
+    if isinstance(answers, dict) and answers:
+        try:
+            # Пробуем получить максимальный ключ (номер вопроса)
+            answer_keys = [k for k in answers.keys() if k.isdigit() or (isinstance(k, str) and k.strip().isdigit())]
+            if answer_keys:
+                max_answered = max(int(k.strip()) for k in answer_keys)
+                next_step = max_answered + 1
+                # Если current_step тоже есть и больше — используем его (может быть обновлён без сохранения ответа)
+                for key in ("current_step", "last_question"):
+                    try:
+                        v = int(session.get(key, 0) or 0)
+                        if v > next_step:
+                            return v
+                    except Exception:
+                        pass
+                return next_step
+        except Exception as e:
+            logger.warning(f"[_step_from_session] Failed to compute from answers dict: {e}")
+            # Fallback: если не удалось вычислить по ключам, используем длину
+            if len(answers) > 0:
+                return len(answers)
+    
+    if isinstance(answers, list) and answers:
+        # список ответов (исторические форматы)
+        return len(answers)
+    
+    # ПРИОРИТЕТ 2: если answers пустой/нет, пробуем current_step/last_question
     for key in ("current_step", "last_question"):
         try:
             v = int(session.get(key, 0) or 0)
@@ -211,19 +241,7 @@ def _step_from_session(session: dict | None) -> int:
                 return v
         except Exception:
             pass
-
-    # Фолбек: если current_step не сохраняется (старая схема), вычисляем по answers
-    answers = session.get("answers")
-    if isinstance(answers, dict) and answers:
-        try:
-            max_k = max(int(k) for k in answers.keys())
-            return max_k + 1
-        except Exception:
-            # если ключи не числовые — просто считаем как "сколько ответов"
-            return len(answers)
-    if isinstance(answers, list) and answers:
-        # список ответов (исторические форматы)
-        return len(answers)
+    
     return 0
 
 
@@ -274,11 +292,24 @@ async def _resume_test(message: types.Message, state: FSMContext, db: Database) 
         await _start_new_test(message, state, db)
         return
 
+    # КРИТИЧНО: логируем сессию перед вычислением step
+    logger.info(
+        f"[author_resume] user={user_id} session_keys={list(session.keys())} "
+        f"current_step={session.get('current_step')} last_question={session.get('last_question')} "
+        f"answers_keys={list(session.get('answers', {}).keys()) if isinstance(session.get('answers'), dict) else 'not_dict'} "
+        f"answers_len={len(session.get('answers', {})) if isinstance(session.get('answers'), dict) else 0}"
+    )
+    
     step = _step_from_session(session)
     answers = session.get("answers") or {}
     fear_total = int(session.get("fear_total", 0) or 0)
     ready_total = int(session.get("ready_total", 0) or 0)
     flags = session.get("flags") or []
+
+    logger.info(
+        f"[author_resume] user={user_id} computed_step={step} answers_count={len(answers)} "
+        f"fear_total={fear_total} ready_total={ready_total}"
+    )
 
     await state.clear()
     await state.set_state(AuthorTestStates.answering)
