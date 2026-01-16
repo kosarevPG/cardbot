@@ -3,6 +3,8 @@ import sqlite3
 import json
 from datetime import datetime, date
 import os
+import time
+import uuid
 try:
     from config_local import TIMEZONE
 except ImportError:
@@ -2530,7 +2532,19 @@ class Database:
     def get_author_test_session(self, user_id: int) -> dict | None:
         """Возвращает сессию теста автора для user_id."""
         try:
-            cursor = self.conn.execute("SELECT * FROM author_test_sessions WHERE user_id = ?", (user_id,))
+            # В /data могли остаться разные исторические схемы: session_id PK и несколько строк на пользователя.
+            # Поэтому берём "последнюю" сессию (по updated_at/rowid).
+            cols = {row['name'] for row in self.conn.execute("PRAGMA table_info(author_test_sessions)").fetchall()}
+            if 'updated_at' in cols:
+                cursor = self.conn.execute(
+                    "SELECT * FROM author_test_sessions WHERE user_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+                    (user_id,),
+                )
+            else:
+                cursor = self.conn.execute(
+                    "SELECT * FROM author_test_sessions WHERE user_id = ? ORDER BY rowid DESC LIMIT 1",
+                    (user_id,),
+                )
             row = cursor.fetchone()
             if not row:
                 return None
@@ -2556,32 +2570,76 @@ class Database:
         answers_json = json.dumps(answers, ensure_ascii=False)
         flags_json = json.dumps(flags, ensure_ascii=False)
         try:
-            exists = self.conn.execute("SELECT 1 FROM author_test_sessions WHERE user_id = ?", (user_id,)).fetchone()
             with self.conn:
-                if exists:
-                    self.conn.execute(
-                        """
-                        UPDATE author_test_sessions
-                        SET status='in_progress',
-                            current_step=?,
-                            answers=?,
-                            fear_total=?,
-                            ready_total=?,
-                            flags=?,
-                            updated_at=?
-                        WHERE user_id=?
-                        """,
-                        (step, answers_json, fear_total, ready_total, flags_json, now, user_id),
+                info = self.conn.execute("PRAGMA table_info(author_test_sessions)").fetchall()
+                cols = {row['name'] for row in info}
+                info_by_name = {row['name']: row for row in info}
+
+                # 1) Сначала пробуем UPDATE (не требует session_id и переживает разные PK).
+                sets = []
+                params = []
+                if 'status' in cols:
+                    sets.append("status='in_progress'")
+                if 'current_step' in cols:
+                    sets.append("current_step=?"); params.append(step)
+                if 'answers' in cols:
+                    sets.append("answers=?"); params.append(answers_json)
+                if 'fear_total' in cols:
+                    sets.append("fear_total=?"); params.append(fear_total)
+                if 'ready_total' in cols:
+                    sets.append("ready_total=?"); params.append(ready_total)
+                if 'flags' in cols:
+                    sets.append("flags=?"); params.append(flags_json)
+                if 'updated_at' in cols:
+                    sets.append("updated_at=?"); params.append(now)
+
+                updated = 0
+                if sets:
+                    cur = self.conn.execute(
+                        f"UPDATE author_test_sessions SET {', '.join(sets)} WHERE user_id=?",
+                        (*params, user_id),
                     )
-                else:
-                    self.conn.execute(
-                        """
-                        INSERT INTO author_test_sessions (
-                            user_id, status, current_step, answers, fear_total, ready_total, flags, started_at, updated_at
-                        ) VALUES (?, 'in_progress', ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (user_id, step, answers_json, fear_total, ready_total, flags_json, now, now),
-                    )
+                    updated = cur.rowcount or 0
+
+                if updated:
+                    return
+
+                # 2) UPDATE ничего не затронул => INSERT новой строки, учитывая обязательные поля исторических схем.
+                insert_cols = []
+                insert_vals = []
+
+                def add(col: str, val):
+                    if col in cols:
+                        insert_cols.append(col)
+                        insert_vals.append(val)
+
+                # session_id мог быть NOT NULL в старой схеме => заполняем
+                if 'session_id' in cols:
+                    _col = info_by_name.get('session_id')
+                    decl = _col['type'] if _col and 'type' in _col.keys() else ''
+                    if 'INT' in decl.upper():
+                        add('session_id', int(time.time() * 1000))
+                    else:
+                        add('session_id', uuid.uuid4().hex)
+
+                add('user_id', user_id)
+                add('status', 'in_progress')
+                add('current_step', step)
+                add('answers', answers_json)
+                add('fear_total', fear_total)
+                add('ready_total', ready_total)
+                add('flags', flags_json)
+                add('started_at', now)
+                add('updated_at', now)
+
+                if not insert_cols:
+                    return
+
+                placeholders = ", ".join(["?"] * len(insert_cols))
+                self.conn.execute(
+                    f"INSERT INTO author_test_sessions ({', '.join(insert_cols)}) VALUES ({placeholders})",
+                    tuple(insert_vals),
+                )
         except sqlite3.Error as e:
             logger.error(f"Error saving author progress for {user_id}: {e}", exc_info=True)
 
@@ -2591,35 +2649,83 @@ class Database:
         try:
             empty_answers = json.dumps({}, ensure_ascii=False)
             empty_flags = json.dumps([], ensure_ascii=False)
-            exists = self.conn.execute("SELECT 1 FROM author_test_sessions WHERE user_id = ?", (user_id,)).fetchone()
             with self.conn:
-                if exists:
-                    self.conn.execute(
-                        """
-                        UPDATE author_test_sessions
-                        SET status='in_progress',
-                            current_step=0,
-                            answers=?,
-                            fear_total=0,
-                            ready_total=0,
-                            zone=NULL,
-                            flags=?,
-                            started_at=?,
-                            updated_at=?,
-                            completed_at=NULL
-                        WHERE user_id=?
-                        """,
-                        (empty_answers, empty_flags, now, now, user_id),
+                info = self.conn.execute("PRAGMA table_info(author_test_sessions)").fetchall()
+                cols = {row['name'] for row in info}
+                info_by_name = {row['name']: row for row in info}
+
+                # 1) UPDATE всех строк пользователя (если их несколько) — безопасно и не требует session_id.
+                sets = []
+                params = []
+                if 'status' in cols:
+                    sets.append("status='in_progress'")
+                if 'current_step' in cols:
+                    sets.append("current_step=0")
+                if 'answers' in cols:
+                    sets.append("answers=?"); params.append(empty_answers)
+                if 'fear_total' in cols:
+                    sets.append("fear_total=0")
+                if 'ready_total' in cols:
+                    sets.append("ready_total=0")
+                if 'zone' in cols:
+                    sets.append("zone=NULL")
+                if 'flags' in cols:
+                    sets.append("flags=?"); params.append(empty_flags)
+                if 'started_at' in cols:
+                    sets.append("started_at=?"); params.append(now)
+                if 'updated_at' in cols:
+                    sets.append("updated_at=?"); params.append(now)
+                if 'completed_at' in cols:
+                    sets.append("completed_at=NULL")
+
+                updated = 0
+                if sets:
+                    cur = self.conn.execute(
+                        f"UPDATE author_test_sessions SET {', '.join(sets)} WHERE user_id=?",
+                        (*params, user_id),
                     )
-                else:
-                    self.conn.execute(
-                        """
-                        INSERT INTO author_test_sessions (
-                            user_id, status, current_step, answers, fear_total, ready_total, zone, flags, started_at, updated_at, completed_at
-                        ) VALUES (?, 'in_progress', 0, ?, 0, 0, NULL, ?, ?, ?, NULL)
-                        """,
-                        (user_id, empty_answers, empty_flags, now, now),
-                    )
+                    updated = cur.rowcount or 0
+
+                if updated:
+                    return
+
+                # 2) Если строк не было — INSERT, учитывая обязательный session_id в старой схеме.
+                insert_cols = []
+                insert_vals = []
+
+                def add(col: str, val):
+                    if col in cols:
+                        insert_cols.append(col)
+                        insert_vals.append(val)
+
+                if 'session_id' in cols:
+                    _col = info_by_name.get('session_id')
+                    decl = _col['type'] if _col and 'type' in _col.keys() else ''
+                    if 'INT' in decl.upper():
+                        add('session_id', int(time.time() * 1000))
+                    else:
+                        add('session_id', uuid.uuid4().hex)
+
+                add('user_id', user_id)
+                add('status', 'in_progress')
+                add('current_step', 0)
+                add('answers', empty_answers)
+                add('fear_total', 0)
+                add('ready_total', 0)
+                add('zone', None)
+                add('flags', empty_flags)
+                add('started_at', now)
+                add('updated_at', now)
+                add('completed_at', None)
+
+                if not insert_cols:
+                    return
+
+                placeholders = ", ".join(["?"] * len(insert_cols))
+                self.conn.execute(
+                    f"INSERT INTO author_test_sessions ({', '.join(insert_cols)}) VALUES ({placeholders})",
+                    tuple(insert_vals),
+                )
         except sqlite3.Error as e:
             logger.error(f"Error resetting author test for {user_id}: {e}", exc_info=True)
 
