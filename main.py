@@ -1909,24 +1909,49 @@ async def main():
     except Exception as e:
         logger.warning(f"⚠️ Database migration warning: {e}")
     
-    # ОБНОВЛЕНО: Упрощенное меню команд (Вариант C - только самое важное)
-    # Второстепенные функции (имя, напоминания, и т.д.) переехали в меню "⚙️ Настройки"
+    # ОБНОВЛЕНО: Полный список команд (как раньше), чтобы они снова отображались в меню Telegram
     commands = [
         types.BotCommand(command="start", description="🏠 Главное меню"),
-        types.BotCommand(command="help", description="❓ Помощь и FAQ")
+        types.BotCommand(command="name", description="👩🏼 Указать имя"),
+        types.BotCommand(command="remind", description="⏰ Настроить напоминания"),
+        types.BotCommand(command="remind_off", description="🔕 Выключить все напоминания"),
+        types.BotCommand(command="share", description="🎁 Поделиться с другом"),
+        types.BotCommand(command="feedback", description="✉️ Оставить отзыв / Идею"),
+        types.BotCommand(command="user_profile", description="📊 Мой профиль"),
+        types.BotCommand(command="help", description="❓ Помощь и FAQ"),
     ]
-    
-    # Админские команды (только /admin, остальное через админ-панель)
+
+    # Админские команды (дополнительно показываем только админам)
     admin_commands = [
-        types.BotCommand(command="admin", description="🛠️ Админ-панель")
+        types.BotCommand(command="admin", description="🛠️ Админ-панель"),
+        types.BotCommand(command="create_post", description="📝 Создать пост (админ)"),
+        types.BotCommand(command="list_posts", description="📋 Список постов (админ)"),
+        types.BotCommand(command="send_post", description="📤 Отправить пост (админ)"),
+        types.BotCommand(command="process_mailings", description="🔄 Обработать рассылки (админ)"),
     ]
+
     try:
+        # Базовые команды — для всех
         await bot.set_my_commands(commands)
+
+        # Расширенные команды — только для админов (через scope на chat)
+        try:
+            for admin_id in ADMIN_IDS:
+                try:
+                    await bot.set_my_commands(
+                        commands + admin_commands,
+                        scope=types.BotCommandScopeChat(chat_id=int(admin_id)),
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to set admin commands for {admin_id}: {e}")
+        except Exception as e:
+            logger.warning(f"Admin commands scope warning: {e}")
+
         logger.info("Bot commands set successfully.")
     except Exception as e:
         logger.error(f"Failed to set bot commands: {e}")
 
-    # Инициализация PostManager и Scheduler
+# Инициализация PostManager и Scheduler
     post_manager = PostManager(db, bot, logging_service)
     scheduler = MailingScheduler(post_manager, check_interval=60)
     
