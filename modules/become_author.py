@@ -351,6 +351,12 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
     user_id = callback.from_user.id
 
     if callback.data == "author_cancel":
+        # UX: убираем inline-кнопки у текущего сообщения теста, чтобы не было ощущения "зависло".
+        try:
+            if callback.message:
+                await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         await state.clear()
         await callback.answer("Ок, отменил(а).")
         return "cancelled"
