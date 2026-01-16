@@ -1703,6 +1703,17 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         await show_settings_menu(message, db, user_id)
     
     dp.message.register(handle_settings_button, F.text == "⚙️ Настройки")
+
+    # Заглушка для кнопки "Стать автором" (пока только для админов)
+    async def handle_become_author_stub(message: types.Message, state: FSMContext):
+        user_id = message.from_user.id
+        if str(user_id) not in ADMIN_IDS:
+            return
+        await state.clear()
+        await message.answer("📝 Функция «Стать автором» в разработке. Идем дальше по плану после проверки.",
+                            reply_markup=await get_main_menu(user_id, db))
+
+    dp.message.register(handle_become_author_stub, F.text.contains("Стать автором"))
     
     # Обработчики callback'ов из меню "Настройки"
     dp.callback_query.register(

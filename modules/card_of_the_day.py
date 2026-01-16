@@ -11,6 +11,10 @@ try:
     from config_local import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR, pytz
 except ImportError:
     from config import TIMEZONE, NO_CARD_LIMIT_USERS, DATA_DIR, pytz # Убедимся, что pytz импортирован
+try:
+    from config_local import ADMIN_IDS
+except ImportError:
+    from config import ADMIN_IDS
 # Импортируем функции из ai_service
 from .ai_service import (
     get_grok_question, get_grok_summary, build_user_profile,
@@ -19,7 +23,7 @@ from .ai_service import (
 from datetime import datetime, date # Добавили date
 from modules.user_management import UserState
 from database.db import Database
-from modules.constants import DECKS, RESOURCE_LEVELS
+from modules.constants import DECKS, RESOURCE_LEVELS, BTN_BECOME_AUTHOR
 from modules.texts import get_personalized_text, CARDS_TEXTS
 import logging
 
@@ -74,6 +78,14 @@ async def get_main_menu(user_id, db: Database):
     except Exception as e:
         logger.error(f"Error getting user data for main menu (user {user_id}): {e}", exc_info=True)
     
+
+    # Кнопка "Стать автором" — пока только для админов
+    try:
+        if str(user_id) in ADMIN_IDS:
+            keyboard.append([types.KeyboardButton(text=BTN_BECOME_AUTHOR)])
+    except Exception:
+        pass
+
     # Используем persistent=True для постоянного отображения
     return types.ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, persistent=True)
 
