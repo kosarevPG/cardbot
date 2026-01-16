@@ -187,7 +187,7 @@ from modules.purchase_menu import handle_purchase_menu, handle_purchase_callback
 from modules.learn_cards import register_learn_cards_handlers, start_learning
 from modules.settings_menu import show_settings_menu, handle_settings_callback
 from modules.constants import UNIVERSE_ADVICE
-from modules.become_author import start_author_test, handle_author_callback
+from modules.become_author import start_author_test_flow, handle_author_callback
 
 # Админская панель (рефакторинг - модульная структура)
 from modules.admin import (
@@ -1710,7 +1710,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         user_id = message.from_user.id
         if str(user_id) not in ADMIN_IDS:
             return
-        await start_author_test(message, state)
+        await start_author_test_flow(message, state, db)
 
     dp.message.register(handle_become_author, F.text.contains("Стать автором"))
 
@@ -1720,7 +1720,7 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             await callback.answer("Недоступно.", show_alert=True)
             return
 
-        status = await handle_author_callback(callback, state)
+        status = await handle_author_callback(callback, state, db)
         if status in ("cancelled", "finished"):
             await callback.message.answer("Выбери действие:", reply_markup=await get_main_menu(user_id, db))
 

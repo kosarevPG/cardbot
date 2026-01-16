@@ -6,6 +6,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from database.db import Database
+
 logger = logging.getLogger(__name__)
 
 
@@ -13,8 +15,8 @@ class AuthorTestStates(StatesGroup):
     answering = State()
 
 
-# Минимальный каркас на 2 вопроса (без БД).
-# На следующих шагах заменим на полный опросник + сохранение прогресса.
+# Минимальный каркас на 2 вопроса (без БД-схемы расширений).
+# На Шаге 4 заменим на полный опросник.
 QUESTIONS = [
     {
         "text": "Я хочу создать свой авторский продукт (МАК/Т-игра) в ближайшие 2–3 месяца.",
@@ -41,10 +43,69 @@ def _progress(step: int) -> str:
     return f"Вопрос {step + 1}/{len(QUESTIONS)}"
 
 
-async def start_author_test(message: types.Message, state: FSMContext) -> None:
+def _build_question_kb(step: int) -> InlineKeyboardMarkup:
+    q = QUESTIONS[step]
+    rows = []
+    for opt_text, opt_score in q["options"]:
+        rows.append([
+            InlineKeyboardButton(text=opt_text, callback_data=f"author_ans:{step}:{opt_score}"),
+        ])
+    rows.append([InlineKeyboardButton(text="Отмена", callback_data="author_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def start_author_test_flow(message: types.Message, state: FSMContext, db: Database) -> None:
+    """Точка входа: если есть незавершённая сессия — предлагает продолжить/перезапустить."""
+    user_id = message.from_user.id
+
+    session = db.get_author_test_session(user_id)
+    if session and session.get("status") == "in_progress" and int(session.get("current_step", 0)) > 0:
+        total = len(QUESTIONS)
+        step = int(session.get("current_step", 0))
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="▶️ Продолжить", callback_data="author_resume")],
+            [InlineKeyboardButton(text="🔄 Начать заново", callback_data="author_restart")],
+            [InlineKeyboardButton(text="Отмена", callback_data="author_cancel")],
+        ])
+        await message.answer(
+            f"Вы не закончили прошлый тест (остановились на вопросе {min(step + 1, total)}/{total}). Продолжить?",
+            reply_markup=kb,
+        )
+        return
+
+    await _start_new_test(message, state, db)
+
+
+async def _start_new_test(message: types.Message, state: FSMContext, db: Database) -> None:
+    user_id = message.from_user.id
+    db.reset_author_test(user_id)
+
     await state.clear()
     await state.set_state(AuthorTestStates.answering)
-    await state.update_data(step=0, answers=[], score=0)
+    await state.update_data(step=0, answers={}, score=0)
+    await send_current_question(message, state)
+
+
+async def _resume_test(message: types.Message, state: FSMContext, db: Database) -> None:
+    user_id = message.from_user.id
+    session = db.get_author_test_session(user_id)
+    if not session or session.get("status") != "in_progress":
+        await _start_new_test(message, state, db)
+        return
+
+    step = int(session.get("current_step", 0))
+    answers = session.get("answers") or {}
+    ready_total = int(session.get("ready_total", 0))
+
+    await state.clear()
+    await state.set_state(AuthorTestStates.answering)
+    await state.update_data(step=step, answers=answers, score=ready_total)
+
+    # Если уже за пределами вопросов — считаем завершенным
+    if step >= len(QUESTIONS):
+        await finish_author_test(message, state, db)
+        return
+
     await send_current_question(message, state)
 
 
@@ -53,7 +114,7 @@ async def send_current_question(message: types.Message, state: FSMContext) -> No
     step = int(data.get("step", 0))
 
     if step >= len(QUESTIONS):
-        await finish_author_test(message, state)
+        # В обычном потоке завершение делает handle_author_callback
         return
 
     q = QUESTIONS[step]
@@ -63,17 +124,7 @@ async def send_current_question(message: types.Message, state: FSMContext) -> No
         + "\n\n"
         + q["text"]
     )
-
-    kb_rows = []
-    for opt_text, opt_score in q["options"]:
-        kb_rows.append([
-            InlineKeyboardButton(
-                text=opt_text,
-                callback_data=f"author_ans:{step}:{opt_score}",
-            )
-        ])
-    kb_rows.append([InlineKeyboardButton(text="Отмена", callback_data="author_cancel")])
-    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    kb = _build_question_kb(step)
 
     try:
         await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -81,8 +132,8 @@ async def send_current_question(message: types.Message, state: FSMContext) -> No
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
-async def handle_author_callback(callback: types.CallbackQuery, state: FSMContext) -> str:
-    """Обрабатывает callback-и каркаса теста.
+async def handle_author_callback(callback: types.CallbackQuery, state: FSMContext, db: Database) -> str:
+    """Обрабатывает callback-и теста.
 
     Возвращает статус: continue | finished | cancelled | ignored
     """
@@ -90,10 +141,22 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
     if not callback.data:
         return "ignored"
 
+    user_id = callback.from_user.id
+
     if callback.data == "author_cancel":
         await state.clear()
         await callback.answer("Ок, отменил(а).")
         return "cancelled"
+
+    if callback.data == "author_restart":
+        await callback.answer()
+        await _start_new_test(callback.message, state, db)
+        return "continue"
+
+    if callback.data == "author_resume":
+        await callback.answer()
+        await _resume_test(callback.message, state, db)
+        return "continue"
 
     if callback.data.startswith("author_ans:"):
         try:
@@ -110,16 +173,27 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
             await callback.answer()
             return "ignored"
 
-        answers = list(data.get("answers", []))
-        answers.append({"step": step, "score": score})
+        answers = dict(data.get("answers", {}) or {})
+        answers[str(step)] = score
         total = int(data.get("score", 0)) + score
 
         next_step = cur_step + 1
+
+        # Сохраняем прогресс в БД (в этой версии складываем всё в ready_total)
+        db.save_author_test_progress(
+            user_id=user_id,
+            step=next_step,
+            answers=answers,
+            fear_total=0,
+            ready_total=total,
+            flags=[],
+        )
+
         await state.update_data(step=next_step, answers=answers, score=total)
         await callback.answer()
 
         if next_step >= len(QUESTIONS):
-            await finish_author_test(callback.message, state)
+            await finish_author_test(callback.message, state, db)
             return "finished"
 
         await send_current_question(callback.message, state)
@@ -128,9 +202,14 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
     return "ignored"
 
 
-async def finish_author_test(message: types.Message, state: FSMContext) -> None:
+async def finish_author_test(message: types.Message, state: FSMContext, db: Database) -> None:
     data = await state.get_data()
     score = int(data.get("score", 0))
+
+    user_id = message.from_user.id if message.from_user else None
+    if user_id is not None:
+        db.complete_author_test(user_id, zone="DRAFT")
+
     await state.clear()
 
     text = (

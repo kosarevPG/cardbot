@@ -52,6 +52,7 @@ class Database:
             self.bot = None # Устанавливается в main.py
 
             self.create_tables()
+            self.create_author_tables()
             self._run_migrations()
             self.create_indexes()
 
@@ -2480,6 +2481,113 @@ class Database:
             logger.error(f"Error getting training sessions for user {user_id}: {e}", exc_info=True)
             return []
 
+
+    # === МЕТОДЫ ДЛЯ ТЕСТА "СТАТЬ АВТОРОМ" ===
+    def create_author_tables(self):
+        """Создает таблицу для сессий теста автора."""
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS author_test_sessions (
+                        user_id INTEGER PRIMARY KEY,
+                        status TEXT DEFAULT 'in_progress',
+                        current_step INTEGER DEFAULT 0,
+                        answers TEXT,
+                        fear_total INTEGER DEFAULT 0,
+                        ready_total INTEGER DEFAULT 0,
+                        zone TEXT,
+                        flags TEXT,
+                        started_at TEXT,
+                        updated_at TEXT,
+                        completed_at TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )
+                """)
+        except sqlite3.Error as e:
+            logger.error(f"Error creating author test tables: {e}", exc_info=True)
+
+    def get_author_test_session(self, user_id: int) -> dict | None:
+        """Возвращает сессию теста автора для user_id."""
+        try:
+            cursor = self.conn.execute("SELECT * FROM author_test_sessions WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            if res.get('answers'):
+                try:
+                    res['answers'] = json.loads(res['answers'])
+                except Exception:
+                    res['answers'] = {}
+            if res.get('flags'):
+                try:
+                    res['flags'] = json.loads(res['flags'])
+                except Exception:
+                    res['flags'] = []
+            return res
+        except sqlite3.Error as e:
+            logger.error(f"Error getting author session for {user_id}: {e}", exc_info=True)
+            return None
+
+    def save_author_test_progress(self, user_id: int, step: int, answers: dict, fear_total: int, ready_total: int, flags: list):
+        """Upsert прогресса теста автора."""
+        now = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
+        answers_json = json.dumps(answers, ensure_ascii=False)
+        flags_json = json.dumps(flags, ensure_ascii=False)
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    INSERT INTO author_test_sessions (
+                        user_id, status, current_step, answers, fear_total, ready_total, flags, started_at, updated_at
+                    ) VALUES (?, 'in_progress', ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        status='in_progress',
+                        current_step=excluded.current_step,
+                        answers=excluded.answers,
+                        fear_total=excluded.fear_total,
+                        ready_total=excluded.ready_total,
+                        flags=excluded.flags,
+                        updated_at=excluded.updated_at
+                """, (user_id, step, answers_json, fear_total, ready_total, flags_json, now, now))
+        except sqlite3.Error as e:
+            logger.error(f"Error saving author progress for {user_id}: {e}", exc_info=True)
+
+    def reset_author_test(self, user_id: int):
+        """Сбрасывает сессию теста автора (начать заново)."""
+        now = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    INSERT INTO author_test_sessions (
+                        user_id, status, current_step, answers, fear_total, ready_total, zone, flags, started_at, updated_at, completed_at
+                    ) VALUES (?, 'in_progress', 0, ?, 0, 0, NULL, ?, ?, ?, NULL)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        status='in_progress',
+                        current_step=0,
+                        answers=excluded.answers,
+                        fear_total=0,
+                        ready_total=0,
+                        zone=NULL,
+                        flags=excluded.flags,
+                        started_at=excluded.started_at,
+                        updated_at=excluded.updated_at,
+                        completed_at=NULL
+                """, (user_id, json.dumps({}, ensure_ascii=False), json.dumps([], ensure_ascii=False), now, now))
+        except sqlite3.Error as e:
+            logger.error(f"Error resetting author test for {user_id}: {e}", exc_info=True)
+
+    def complete_author_test(self, user_id: int, zone: str | None = None):
+        """Помечает тест завершенным."""
+        now = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    UPDATE author_test_sessions
+                    SET status='completed', zone=?, completed_at=?, updated_at=?
+                    WHERE user_id=?
+                """, (zone, now, now, user_id))
+        except sqlite3.Error as e:
+            logger.error(f"Error completing author test for {user_id}: {e}", exc_info=True)
 # --- КОНЕЦ КЛАССА ---
 
 # Импорт pytz
