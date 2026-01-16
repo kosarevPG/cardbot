@@ -2503,6 +2503,27 @@ class Database:
                         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
                     )
                 """)
+
+            # Если таблица уже существовала в /data со старой схемой — добавляем недостающие колонки.
+            # CREATE TABLE IF NOT EXISTS не обновляет схему существующей таблицы.
+            try:
+                self._add_columns_if_not_exist(
+                    'author_test_sessions',
+                    {
+                        'status': "TEXT DEFAULT 'in_progress'",
+                        'current_step': 'INTEGER DEFAULT 0',
+                        'answers': 'TEXT',
+                        'fear_total': 'INTEGER DEFAULT 0',
+                        'ready_total': 'INTEGER DEFAULT 0',
+                        'zone': 'TEXT',
+                        'flags': 'TEXT',
+                        'started_at': 'TEXT',
+                        'updated_at': 'TEXT',
+                        'completed_at': 'TEXT',
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Error migrating author_test_sessions columns: {e}", exc_info=True)
         except sqlite3.Error as e:
             logger.error(f"Error creating author test tables: {e}", exc_info=True)
 
