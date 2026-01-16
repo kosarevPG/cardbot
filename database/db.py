@@ -2549,7 +2549,7 @@ class Database:
                             flags=?,
                             updated_at=?
                         WHERE user_id=?
-                        """
+                        """,
                         (step, answers_json, fear_total, ready_total, flags_json, now, user_id),
                     )
                 else:
@@ -2558,7 +2558,7 @@ class Database:
                         INSERT INTO author_test_sessions (
                             user_id, status, current_step, answers, fear_total, ready_total, flags, started_at, updated_at
                         ) VALUES (?, 'in_progress', ?, ?, ?, ?, ?, ?, ?)
-                        """
+                        """,
                         (user_id, step, answers_json, fear_total, ready_total, flags_json, now, now),
                     )
         except sqlite3.Error as e:
@@ -2587,7 +2587,7 @@ class Database:
                             updated_at=?,
                             completed_at=NULL
                         WHERE user_id=?
-                        """
+                        """,
                         (empty_answers, empty_flags, now, now, user_id),
                     )
                 else:
@@ -2596,7 +2596,7 @@ class Database:
                         INSERT INTO author_test_sessions (
                             user_id, status, current_step, answers, fear_total, ready_total, zone, flags, started_at, updated_at, completed_at
                         ) VALUES (?, 'in_progress', 0, ?, 0, 0, NULL, ?, ?, ?, NULL)
-                        """
+                        """,
                         (user_id, empty_answers, empty_flags, now, now),
                     )
         except sqlite3.Error as e:
