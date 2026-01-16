@@ -2625,6 +2625,12 @@ class Database:
             # В /data могли остаться разные исторические схемы: session_id PK и несколько строк на пользователя.
             # Поэтому берём "последнюю" сессию (по updated_at/rowid).
             cols = {row['name'] for row in self.conn.execute("PRAGMA table_info(author_test_sessions)").fetchall()}
+            
+            # КРИТИЧНО: логируем, сколько строк есть для этого пользователя
+            count_cursor = self.conn.execute("SELECT COUNT(*) as cnt FROM author_test_sessions WHERE user_id = ?", (user_id,))
+            row_count = count_cursor.fetchone()['cnt'] if count_cursor.fetchone() else 0
+            logger.info(f"[get_session] user={user_id} found {row_count} rows in author_test_sessions")
+            
             if 'updated_at' in cols:
                 cursor = self.conn.execute(
                     "SELECT * FROM author_test_sessions WHERE user_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
@@ -2638,6 +2644,12 @@ class Database:
             row = cursor.fetchone()
             if row:
                 res = dict(row)
+                # КРИТИЧНО: логируем, что нашли в старой таблице
+                logger.info(
+                    f"[get_session] user={user_id} from author_test_sessions: current_step={res.get('current_step')} "
+                    f"last_question={res.get('last_question')} answers_len={len(res.get('answers', '') or '')} "
+                    f"updated_at={res.get('updated_at')} rowid={res.get('rowid', res.get('id'))}"
+                )
                 if res.get('answers'):
                     try:
                         res['answers'] = json.loads(res['answers'])
