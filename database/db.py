@@ -2515,6 +2515,9 @@ class Database:
                     {
                         'status': "TEXT DEFAULT 'in_progress'",
                         'current_step': 'INTEGER DEFAULT 0',
+                        # В некоторых исторических схемах использовалось имя last_question.
+                        # Держим оба поля для обратной совместимости.
+                        'last_question': 'INTEGER DEFAULT 0',
                         'answers': 'TEXT',
                         'fear_total': 'INTEGER DEFAULT 0',
                         'ready_total': 'INTEGER DEFAULT 0',
@@ -2590,6 +2593,9 @@ class Database:
                     sets.append("status='in_progress'")
                 if 'current_step' in cols:
                     sets.append("current_step=?"); params.append(step)
+                # Совместимость со старой схемой
+                if 'last_question' in cols:
+                    sets.append("last_question=?"); params.append(step)
                 if 'answers' in cols:
                     sets.append("answers=?"); params.append(answers_json)
                 if 'fear_total' in cols:
@@ -2633,6 +2639,7 @@ class Database:
                 add('user_id', user_id)
                 add('status', 'in_progress')
                 add('current_step', step)
+                add('last_question', step)
                 add('answers', answers_json)
                 add('fear_total', fear_total)
                 add('ready_total', ready_total)
@@ -2669,6 +2676,8 @@ class Database:
                     sets.append("status='in_progress'")
                 if 'current_step' in cols:
                     sets.append("current_step=0")
+                if 'last_question' in cols:
+                    sets.append("last_question=0")
                 if 'answers' in cols:
                     sets.append("answers=?"); params.append(empty_answers)
                 if 'fear_total' in cols:
@@ -2717,6 +2726,7 @@ class Database:
                 add('user_id', user_id)
                 add('status', 'in_progress')
                 add('current_step', 0)
+                add('last_question', 0)
                 add('answers', empty_answers)
                 add('fear_total', 0)
                 add('ready_total', 0)
