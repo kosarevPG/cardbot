@@ -1,6 +1,7 @@
 # код/db.py
 import sqlite3
 import json
+import ast
 from datetime import datetime, date
 import os
 import time
@@ -2553,12 +2554,19 @@ class Database:
                 try:
                     res['answers'] = json.loads(res['answers'])
                 except Exception:
-                    res['answers'] = {}
+                    # В старых версиях ответы могли быть сохранены не как JSON, а как repr(dict)/repr(list).
+                    try:
+                        res['answers'] = ast.literal_eval(res['answers'])
+                    except Exception:
+                        res['answers'] = {}
             if res.get('flags'):
                 try:
                     res['flags'] = json.loads(res['flags'])
                 except Exception:
-                    res['flags'] = []
+                    try:
+                        res['flags'] = ast.literal_eval(res['flags'])
+                    except Exception:
+                        res['flags'] = []
             return res
         except sqlite3.Error as e:
             logger.error(f"Error getting author session for {user_id}: {e}", exc_info=True)

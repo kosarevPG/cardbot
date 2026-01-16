@@ -177,8 +177,12 @@ def _session_has_progress(session: dict | None) -> bool:
                 return True
         except Exception:
             pass
-    answers = session.get("answers") or {}
-    return bool(answers)
+    answers = session.get("answers")
+    if isinstance(answers, dict):
+        return bool(answers)
+    if isinstance(answers, list):
+        return len(answers) > 0
+    return False
 
 def _step_from_session(session: dict | None) -> int:
     """Возвращает номер следующего вопроса (0-based) максимально устойчиво к разным схемам БД."""
@@ -194,13 +198,17 @@ def _step_from_session(session: dict | None) -> int:
             pass
 
     # Фолбек: если current_step не сохраняется (старая схема), вычисляем по answers
-    answers = session.get("answers") or {}
+    answers = session.get("answers")
     if isinstance(answers, dict) and answers:
         try:
             max_k = max(int(k) for k in answers.keys())
             return max_k + 1
         except Exception:
-            return 0
+            # если ключи не числовые — просто считаем как "сколько ответов"
+            return len(answers)
+    if isinstance(answers, list) and answers:
+        # список ответов (исторические форматы)
+        return len(answers)
     return 0
 
 
