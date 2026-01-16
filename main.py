@@ -1721,8 +1721,10 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
             return
 
         status = await handle_author_callback(callback, state, db)
-        if status in ("cancelled", "finished"):
-            await callback.message.answer("Выбери действие:", reply_markup=await get_main_menu(user_id, db))
+        # Чтобы не спамить лишними сообщениями: finish_author_test сам показывает меню.
+        # Меню нужно только для отмены (например, если пользователь нажал на старую inline-кнопку).
+        if status == "cancelled":
+            await callback.message.answer("Главное меню:", reply_markup=await get_main_menu(user_id, db))
 
     dp.callback_query.register(author_callback_wrapper, F.data.startswith("author_"))
     
