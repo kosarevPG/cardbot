@@ -280,6 +280,19 @@ async def send_current_question(message: types.Message, state: FSMContext) -> No
         )
         kb = _build_options_kb(step)
 
+    # Диагностика: в проде ловили BUTTON_DATA_INVALID при переходе ~19→20.
+    # Логируем только рядом с проблемным местом, чтобы не засорять логи.
+    if step in (17, 18, 19, 20):
+        try:
+            btn_debug = []
+            for row in kb.inline_keyboard:
+                for b in row:
+                    cd = b.callback_data or ""
+                    btn_debug.append((b.text, cd, len(cd.encode("utf-8"))))
+            logger.info(f"[author_test] step={step} kb_buttons={btn_debug}")
+        except Exception:
+            logger.exception("[author_test] failed to build debug info for keyboard")
+
     try:
         await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except TelegramBadRequest as e:
