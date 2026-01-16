@@ -2536,6 +2536,56 @@ class Database:
     def get_author_test_session(self, user_id: int) -> dict | None:
         """Возвращает сессию теста автора для user_id."""
         try:
+            # Совместимость: в некоторых ветках/деплоях могла появиться таблица author_test_sessions_new.
+            # Если она есть — пробуем брать прогресс из неё (там может жить актуальный current_step/answers).
+            try:
+                t = self.conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    ("author_test_sessions_new",),
+                ).fetchone()
+                if t:
+                    cols_new = {row['name'] for row in self.conn.execute("PRAGMA table_info(author_test_sessions_new)").fetchall()}
+                    if 'updated_at' in cols_new:
+                        cursor_new = self.conn.execute(
+                            "SELECT * FROM author_test_sessions_new WHERE user_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+                            (user_id,),
+                        )
+                    else:
+                        cursor_new = self.conn.execute(
+                            "SELECT * FROM author_test_sessions_new WHERE user_id = ? ORDER BY rowid DESC LIMIT 1",
+                            (user_id,),
+                        )
+                    row_new = cursor_new.fetchone()
+                    if row_new:
+                        res_new = dict(row_new)
+                        # Нормализуем поля под ожидаемый формат become_author.py
+                        if res_new.get('answers'):
+                            try:
+                                res_new['answers'] = json.loads(res_new['answers'])
+                            except Exception:
+                                try:
+                                    res_new['answers'] = ast.literal_eval(res_new['answers'])
+                                except Exception:
+                                    res_new['answers'] = {}
+                        if res_new.get('flags'):
+                            try:
+                                res_new['flags'] = json.loads(res_new['flags'])
+                            except Exception:
+                                try:
+                                    res_new['flags'] = ast.literal_eval(res_new['flags'])
+                                except Exception:
+                                    res_new['flags'] = []
+                        # Некоторые схемы используют flags_json
+                        if not res_new.get('flags') and res_new.get('flags_json'):
+                            try:
+                                res_new['flags'] = json.loads(res_new['flags_json'])
+                            except Exception:
+                                res_new['flags'] = []
+                        return res_new
+            except Exception:
+                # Если что-то пошло не так — просто падаем обратно на старую таблицу
+                pass
+
             # В /data могли остаться разные исторические схемы: session_id PK и несколько строк на пользователя.
             # Поэтому берём "последнюю" сессию (по updated_at/rowid).
             cols = {row['name'] for row in self.conn.execute("PRAGMA table_info(author_test_sessions)").fetchall()}
