@@ -188,6 +188,7 @@ from modules.learn_cards import register_learn_cards_handlers, start_learning
 from modules.settings_menu import show_settings_menu, handle_settings_callback
 from modules.constants import UNIVERSE_ADVICE
 from modules.become_author import start_author_test_flow, handle_author_callback
+from modules.constants import BTN_ADMIN_PANEL
 
 # Админская панель (рефакторинг - модульная структура)
 from modules.admin import (
@@ -1727,6 +1728,9 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         await start_author_test_flow(message, state, db)
 
     dp.message.register(handle_become_author, F.text.contains("Стать автором"))
+
+    # Кнопка "⚒️ Админ-панель" в главном меню (видна только админам, но на всякий случай защищаем и хендлером /admin)
+    dp.message.register(admin_handler, F.text.contains("Админ-панель"))
 
     async def author_callback_wrapper(callback: types.CallbackQuery, state: FSMContext):
         user_id = callback.from_user.id

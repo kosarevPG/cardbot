@@ -23,7 +23,7 @@ from .ai_service import (
 from datetime import datetime, date # Добавили date
 from modules.user_management import UserState
 from database.db import Database
-from modules.constants import DECKS, RESOURCE_LEVELS, BTN_BECOME_AUTHOR
+from modules.constants import DECKS, RESOURCE_LEVELS, BTN_BECOME_AUTHOR, BTN_ADMIN_PANEL
 from modules.texts import get_personalized_text, CARDS_TEXTS
 import logging
 
@@ -83,6 +83,8 @@ async def get_main_menu(user_id, db: Database):
     try:
         if str(user_id) in ADMIN_IDS:
             keyboard.append([types.KeyboardButton(text=BTN_BECOME_AUTHOR)])
+            # Кнопка "⚒️ Админ-панель" — сразу под "Стать автором", тоже только для админов
+            keyboard.append([types.KeyboardButton(text=BTN_ADMIN_PANEL)])
     except Exception:
         pass
 
