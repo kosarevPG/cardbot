@@ -9,8 +9,40 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "YOUR_CHANNEL_ID_HERE")
 BOT_LINK = os.getenv("BOT_LINK", "YOUR_BOT_LINK_HERE")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "YOUR_ADMIN_ID_HERE"))
-ADMIN_IDS = [str(ADMIN_ID)]
+
+# ADMIN_ID может быть как одним числом, так и списком через запятую/пробелы:
+# пример: "6682555021,392141189"
+def _parse_admin_ids(raw: str) -> list[str]:
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+
+    raw = raw.replace(";", ",").replace("\n", ",").replace("\t", ",")
+    parts = [p.strip() for p in raw.split(",")]
+
+    tokens: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        for sub in part.split():
+            sub = sub.strip()
+            if sub.isdigit():
+                tokens.append(sub)
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tokens:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+ADMIN_ID_RAW = os.getenv("ADMIN_ID", "")
+ADMIN_IDS = _parse_admin_ids(ADMIN_ID_RAW)
+ADMIN_ID = int(ADMIN_IDS[0]) if ADMIN_IDS else 0
+
+if not ADMIN_IDS:
+    print("CRITICAL: ADMIN_ID is not set or invalid. Admin features will be disabled until ADMIN_ID is configured.")
 
 # Ozon API ключи
 OZON_API_KEY = os.getenv("OZON_API_KEY", "c9e42c45-f46d-4e14-bf5f-a7f124b96b6e")

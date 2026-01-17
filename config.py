@@ -13,8 +13,44 @@ import os
 TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 CHANNEL_ID = os.getenv("CHANNEL_ID", "YOUR_CHANNEL_ID_HERE")
 BOT_LINK = os.getenv("BOT_LINK", "YOUR_BOT_LINK_HERE")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "YOUR_ADMIN_ID_HERE"))
-ADMIN_IDS = [str(ADMIN_ID)]  # Список ID администраторов для админ-панели
+
+# ADMIN_ID может быть как одним числом, так и списком через запятую/пробелы:
+# пример: "6682555021,392141189"
+def _parse_admin_ids(raw: str) -> list[str]:
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+
+    # поддерживаем разделители: запятая, пробелы, табы, перевод строки, точка с запятой
+    raw = raw.replace(";", ",").replace("\n", ",").replace("\t", ",")
+    parts = [p.strip() for p in raw.split(",")]
+
+    tokens: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        # если кто-то передал "1 2 3" без запятых — добиваем split по пробелам
+        for sub in part.split():
+            sub = sub.strip()
+            if sub.isdigit():
+                tokens.append(sub)
+
+    # уникализируем, сохраняя порядок
+    seen: set[str] = set()
+    out: list[str] = []
+    for t in tokens:
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+ADMIN_ID_RAW = os.getenv("ADMIN_ID", "")
+ADMIN_IDS = _parse_admin_ids(ADMIN_ID_RAW)  # список строковых ID
+ADMIN_ID = int(ADMIN_IDS[0]) if ADMIN_IDS else 0  # первый ID — для обратной совместимости
+
+if not ADMIN_IDS:
+    # Не падаем, но явно логируем, чтобы это было заметно в Amvera.
+    print("CRITICAL: ADMIN_ID is not set or invalid. Admin features will be disabled until ADMIN_ID is configured.")
 
 # Настройки для YandexGPT из секретов
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "YOUR_YANDEX_API_KEY_HERE")
