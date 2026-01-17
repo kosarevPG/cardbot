@@ -700,7 +700,7 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
             "Так вы сэкономите деньги, нервы и получите лучший результат.\n"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🌱 Подготовительный материал (скоро)", callback_data="author_placeholder")],
+            [InlineKeyboardButton(text="Открытые материалы", url="https://disk.yandex.ru/d/Sw6tYuAT8Rujjw")],
         ])
         # Отправляем без HTML-разметки, чтобы текст совпадал дословно.
         await message.answer(result_text, reply_markup=kb)
@@ -719,7 +719,7 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
             "Я оставляю для вас доступ к материалам, которые помогут вам укрепить позицию и вернуться к этому тесту позже 🤍\n"
         )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📖 Открытые материалы (скоро)", callback_data="author_placeholder")],
+            [InlineKeyboardButton(text="Открытые материалы", url="https://disk.yandex.ru/d/-DwKWW_440Gg7A")],
         ])
         # Отправляем без HTML-разметки, чтобы текст совпадал дословно.
         await message.answer(result_text, reply_markup=kb)
