@@ -43,9 +43,11 @@ def make_admin_handler(db: Database, logger_service: LoggingService):
             return
         
         # Главное меню админки
-        text = """📊 <b>АДМИН ПАНЕЛЬ</b>
-
-Выберите раздел для просмотра метрик:"""
+        text = (
+            "📊 <b>АДМИН ПАНЕЛЬ</b>\n\n"
+            "Выберите раздел для просмотра метрик:\n\n"
+            f"<code>admin_menu_version={ADMIN_MENU_VERSION}</code>"
+        )
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🔍 Главный дашборд", callback_data="admin_dashboard")],
@@ -245,9 +247,11 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
         return
     
     try:
-        text = """📊 <b>АДМИН ПАНЕЛЬ</b>
-
-Выберите раздел для просмотра метрик:"""
+        text = (
+            "📊 <b>АДМИН ПАНЕЛЬ</b>\n\n"
+            "Выберите раздел для просмотра метрик:\n\n"
+            f"<code>admin_menu_version={ADMIN_MENU_VERSION}</code>"
+        )
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="🔍 Главный дашборд", callback_data="admin_dashboard")],
