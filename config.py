@@ -51,6 +51,13 @@ ADMIN_ID = int(ADMIN_IDS[0]) if ADMIN_IDS else 0  # первый ID — для �
 if not ADMIN_IDS:
     # Не падаем, но явно логируем, чтобы это было заметно в Amvera.
     print("CRITICAL: ADMIN_ID is not set or invalid. Admin features will be disabled until ADMIN_ID is configured.")
+else:
+    # Диагностический лог, чтобы в Amvera было видно, что список подтянулся корректно.
+    # (Это безопасно: тут только ID, без токенов/секретов.)
+    try:
+        print(f"[config] ADMIN_IDS parsed: {ADMIN_IDS} (primary ADMIN_ID={ADMIN_ID})", flush=True)
+    except Exception:
+        pass
 
 # Настройки для YandexGPT из секретов
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "YOUR_YANDEX_API_KEY_HERE")
