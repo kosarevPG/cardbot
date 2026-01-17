@@ -9,6 +9,21 @@ from modules.logging_service import LoggingService
 
 logger = logging.getLogger(__name__)
 
+ADMIN_MENU_VERSION = "2026-01-17-admin-author-test-v1"
+
+
+def _admin_menu_cb_list(keyboard: types.InlineKeyboardMarkup) -> list[str]:
+    """Безопасный список callback_data (без эмодзи/текста) для диагностики деплоя."""
+    out: list[str] = []
+    try:
+        for row in keyboard.inline_keyboard:
+            for btn in row:
+                if getattr(btn, "callback_data", None):
+                    out.append(btn.callback_data)
+    except Exception:
+        pass
+    return out
+
 
 def make_admin_handler(db: Database, logger_service: LoggingService):
     """Создает обработчик для команды /admin."""
@@ -46,6 +61,9 @@ def make_admin_handler(db: Database, logger_service: LoggingService):
             [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")],
             [types.InlineKeyboardButton(text="📚 Логи обучения", callback_data="admin_training_logs")]
         ])
+        logger.info(
+            f"[admin_menu] version={ADMIN_MENU_VERSION} cb={_admin_menu_cb_list(keyboard)}"
+        )
         
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
         await logger_service.log_action(user_id, "admin_panel_opened", {})
@@ -238,6 +256,9 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
             [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")],
             [types.InlineKeyboardButton(text="📚 Логи обучения", callback_data="admin_training_logs")]
         ])
+        logger.info(
+            f"[admin_menu] version={ADMIN_MENU_VERSION} cb={_admin_menu_cb_list(keyboard)}"
+        )
         
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
         await logger_service.log_action(user_id, "admin_main_menu_viewed", {})
