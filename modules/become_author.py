@@ -247,7 +247,7 @@ def _step_from_session(session: dict | None) -> int:
 
 async def start_author_test_flow(message: types.Message, state: FSMContext, db: Database) -> None:
     """Точка входа: если есть незавершённая сессия — предлагает продолжить/перезапустить."""
-    user_id = message.from_user.id
+    user_id = message.chat.id if message.chat else message.from_user.id
     session = db.get_author_test_session(user_id)
 
     if session and session.get("status") == "in_progress" and _session_has_progress(session):
@@ -266,7 +266,7 @@ async def start_author_test_flow(message: types.Message, state: FSMContext, db: 
 
 
 async def _start_new_test(message: types.Message, state: FSMContext, db: Database) -> None:
-    user_id = message.from_user.id
+    user_id = message.chat.id if message.chat else message.from_user.id
     db.reset_author_test(user_id)
 
     await state.clear()
@@ -286,7 +286,7 @@ async def _start_new_test(message: types.Message, state: FSMContext, db: Databas
 
 
 async def _resume_test(message: types.Message, state: FSMContext, db: Database) -> None:
-    user_id = message.from_user.id
+    user_id = message.chat.id if message.chat else message.from_user.id
     session = db.get_author_test_session(user_id)
     if not session or session.get("status") != "in_progress":
         await _start_new_test(message, state, db)
@@ -607,7 +607,7 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
     ready_total = int(data.get("ready_total", 0))
     flags = list(data.get("flags", []) or [])
 
-    user_id = message.from_user.id if message.from_user else None
+    user_id = (message.chat.id if message.chat else (message.from_user.id if message.from_user else None))
     if user_id is None:
         await state.clear()
         return
