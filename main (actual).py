@@ -295,7 +295,7 @@ class SubscriptionMiddleware:
     async def __call__(self, handler, event, data):
         if isinstance(event, (types.Message, types.CallbackQuery)):
             user = event.from_user
-            if not user or user.is_bot or user.id == ADMIN_ID:
+            if not user or user.is_bot or (str(user.id) in ADMIN_IDS):
                 return await handler(event, data)
             user_id = user.id
             try:
@@ -407,7 +407,7 @@ def make_remind_handler(db, logger_service, user_manager):
 def make_broadcast_handler(db: Database, logger_service: LoggingService):
     async def wrapped_handler(message: types.Message):
         user_id = message.from_user.id
-        if user_id != ADMIN_ID:
+        if str(user_id) not in ADMIN_IDS:
             await message.reply("Эта команда доступна только администратору.")
             return
         broadcast_text = message.text[len("/broadcast"):].strip()
@@ -921,7 +921,7 @@ def make_user_profile_handler(db, logger_service):
 def make_admin_user_profile_handler(db, logger_service):
      async def wrapped_handler(message: types.Message):
          user_id = message.from_user.id
-         if user_id != ADMIN_ID: await message.answer("Эта команда доступна только администратору."); return
+         if str(user_id) not in ADMIN_IDS: await message.answer("Эта команда доступна только администратору."); return
          args = message.text.split()
          if len(args) < 2:
              await message.answer("Укажи ID пользователя: /admin_user_profile <user_id>")
@@ -968,7 +968,7 @@ def make_admin_user_profile_handler(db, logger_service):
 def make_scenario_stats_handler(db, logger_service):
      async def wrapped_handler(message: types.Message):
          user_id = message.from_user.id
-         if user_id != ADMIN_ID: await message.answer("Эта команда доступна только администратору."); return
+         if str(user_id) not in ADMIN_IDS: await message.answer("Эта команда доступна только администратору."); return
          
          args = message.text.split()
          days = 7  # По умолчанию за последние 7 дней
@@ -1202,7 +1202,7 @@ def make_scenario_stats_handler(db, logger_service):
 def make_users_handler(db, logger_service):
     async def wrapped_handler(message: types.Message):
         user_id = message.from_user.id
-        if user_id != ADMIN_ID: await message.answer("Эта команда доступна только администратору."); return
+        if str(user_id) not in ADMIN_IDS: await message.answer("Эта команда доступна только администратору."); return
         users = db.get_all_users()
         if not users:
             await message.answer("В базе данных нет пользователей.")
@@ -1281,7 +1281,7 @@ def make_users_handler(db, logger_service):
 def make_logs_handler(db, logger_service):
     async def wrapped_handler(message: types.Message):
         user_id = message.from_user.id
-        if user_id != ADMIN_ID: await message.answer("Эта команда доступна только администратору."); return
+        if str(user_id) not in ADMIN_IDS: await message.answer("Эта команда доступна только администратору."); return
         args = message.text.split()
         target_date_str = None
         target_date = None

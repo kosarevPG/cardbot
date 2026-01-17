@@ -11,9 +11,9 @@ from modules.logging_service import LoggingService
 from modules.ai_service import build_user_profile
 
 try:
-    from config_local import NO_LOGS_USERS, TIMEZONE, ADMIN_ID
+    from config_local import NO_LOGS_USERS, TIMEZONE, ADMIN_IDS
 except ImportError:
-    from config import NO_LOGS_USERS, TIMEZONE, ADMIN_ID
+    from config import NO_LOGS_USERS, TIMEZONE, ADMIN_IDS
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 def make_admin_user_profile_handler(db, logger_service):
     async def wrapped_handler(message: types.Message):
         user_id = message.from_user.id
-        if user_id != ADMIN_ID: 
+        if str(user_id) not in ADMIN_IDS:
             await message.answer("Эта команда доступна только администратору.")
             return
         
