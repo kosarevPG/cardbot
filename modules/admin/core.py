@@ -88,7 +88,7 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
         from modules.admin.training_logs import (
             show_admin_training_logs, show_admin_training_stats, show_admin_training_users
         )
-        from modules.admin.author_test import show_admin_author_test
+        from modules.admin.author_test_stats import show_admin_author_test_stats
         
         action = callback.data
         
@@ -195,13 +195,7 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
             await show_admin_training_users(callback.message, db, logger_service, user_id)
 
         elif action == "admin_author_test":
-            await show_admin_author_test(callback.message, db, logger_service, user_id, 30)
-        elif action.startswith("admin_author_test_"):
-            try:
-                days = int(action.split("_")[-1])
-            except Exception:
-                days = 30
-            await show_admin_author_test(callback.message, db, logger_service, user_id, days)
+            await show_admin_author_test_stats(callback.message, db, logger_service, user_id)
         
         elif action == "admin_back" or action == "admin_main":
             await show_admin_main_menu(callback.message, db, logger_service, user_id)
