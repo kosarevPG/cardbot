@@ -2681,11 +2681,260 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Error resetting author test for {user_id}: {e}", exc_info=True)
 
+    def get_author_test_stats(self, days: int = 30, limit: int = 10) -> dict:
+        """
+        Статистика по тесту «Стать автором».
+        Возвращает агрегаты + последние стартовавшие/завершившие.
+        """
+        try:
+            days = int(days)
+        except Exception:
+            days = 30
+        if days <= 0:
+            days = 30
+
+        try:
+            limit = int(limit)
+        except Exception:
+            limit = 10
+        if limit <= 0:
+            limit = 10
+
+        now_dt = datetime.now(TIMEZONE) if TIMEZONE else datetime.now()
+        since_iso = (now_dt - timedelta(days=days)).isoformat()
+
+        def _table_exists(name: str) -> bool:
+            try:
+                row = self.conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+                    (name,),
+                ).fetchone()
+                return row is not None
+            except Exception:
+                return False
+
+        new_exists = _table_exists("author_test_sessions_new")
+        old_exists = _table_exists("author_test_sessions")
+
+        # Если новой таблицы нет — статистику считаем только по старой.
+        stats = {
+            "days": days,
+            "since_iso": since_iso,
+            "started_all": 0,
+            "completed_all": 0,
+            "in_progress_all": 0,
+            "started_last_days": 0,
+            "completed_last_days": 0,
+            "zones_all": {"GREEN": 0, "YELLOW": 0, "RED": 0, "UNKNOWN": 0},
+            "recent_started": [],
+            "recent_completed": [],
+            "tables": {"new": new_exists, "old": old_exists},
+        }
+
+        def _add_zone(z: str | None, count: int):
+            key = (z or "").upper().strip()
+            if key not in ("GREEN", "YELLOW", "RED"):
+                key = "UNKNOWN"
+            stats["zones_all"][key] = int(stats["zones_all"].get(key, 0)) + int(count or 0)
+
+        # ---------- NEW TABLE ----------
+        if new_exists:
+            try:
+                row = self.conn.execute("SELECT COUNT(*) AS c FROM author_test_sessions_new").fetchone()
+                stats["started_all"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+            try:
+                row = self.conn.execute(
+                    "SELECT COUNT(*) AS c FROM author_test_sessions_new WHERE status='completed'"
+                ).fetchone()
+                stats["completed_all"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+            try:
+                row = self.conn.execute(
+                    "SELECT COUNT(*) AS c FROM author_test_sessions_new WHERE status='in_progress'"
+                ).fetchone()
+                stats["in_progress_all"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+
+            try:
+                row = self.conn.execute(
+                    "SELECT COUNT(*) AS c FROM author_test_sessions_new WHERE COALESCE(started_at, updated_at) >= ?",
+                    (since_iso,),
+                ).fetchone()
+                stats["started_last_days"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+            try:
+                row = self.conn.execute(
+                    "SELECT COUNT(*) AS c FROM author_test_sessions_new "
+                    "WHERE status='completed' AND COALESCE(completed_at, updated_at) >= ?",
+                    (since_iso,),
+                ).fetchone()
+                stats["completed_last_days"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+
+            try:
+                cur = self.conn.execute(
+                    "SELECT zone, COUNT(*) AS c FROM author_test_sessions_new "
+                    "WHERE status='completed' GROUP BY zone"
+                )
+                for r in cur.fetchall():
+                    zone = r["zone"] if isinstance(r, sqlite3.Row) else r[0]
+                    cnt = r["c"] if isinstance(r, sqlite3.Row) else r[1]
+                    _add_zone(zone, cnt)
+            except Exception:
+                pass
+
+            try:
+                cur = self.conn.execute(
+                    """
+                    SELECT s.user_id, u.name, u.username, s.current_step, s.started_at, s.updated_at
+                    FROM author_test_sessions_new s
+                    LEFT JOIN users u ON u.user_id = s.user_id
+                    WHERE s.status='in_progress'
+                    ORDER BY COALESCE(s.updated_at, s.started_at) DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+                stats["recent_started"] = [dict(r) for r in cur.fetchall()]
+            except Exception:
+                stats["recent_started"] = []
+
+            try:
+                cur = self.conn.execute(
+                    """
+                    SELECT s.user_id, u.name, u.username, s.zone, s.ready_total, s.fear_total, s.completed_at, s.updated_at
+                    FROM author_test_sessions_new s
+                    LEFT JOIN users u ON u.user_id = s.user_id
+                    WHERE s.status='completed'
+                    ORDER BY COALESCE(s.completed_at, s.updated_at) DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+                stats["recent_completed"] = [dict(r) for r in cur.fetchall()]
+            except Exception:
+                stats["recent_completed"] = []
+
+        # ---------- OLD TABLE (fallback + union без дублей) ----------
+        if old_exists:
+            # если новая таблица есть — исключаем пользователей, уже присутствующих в _new
+            extra_where = ""
+            if new_exists:
+                extra_where = "AND NOT EXISTS (SELECT 1 FROM author_test_sessions_new n WHERE n.user_id = s.user_id)"
+
+            try:
+                row = self.conn.execute(
+                    f"SELECT COUNT(*) AS c FROM author_test_sessions s WHERE 1=1 {extra_where}"
+                ).fetchone()
+                stats["started_all"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+            try:
+                row = self.conn.execute(
+                    f"SELECT COUNT(*) AS c FROM author_test_sessions s WHERE status='completed' {extra_where}"
+                ).fetchone()
+                stats["completed_all"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+            try:
+                row = self.conn.execute(
+                    f"SELECT COUNT(*) AS c FROM author_test_sessions s WHERE status='in_progress' {extra_where}"
+                ).fetchone()
+                stats["in_progress_all"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+
+            try:
+                row = self.conn.execute(
+                    f"SELECT COUNT(*) AS c FROM author_test_sessions s "
+                    f"WHERE COALESCE(started_at, updated_at) >= ? {extra_where}",
+                    (since_iso,),
+                ).fetchone()
+                stats["started_last_days"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+            try:
+                row = self.conn.execute(
+                    f"SELECT COUNT(*) AS c FROM author_test_sessions s "
+                    f"WHERE status='completed' AND COALESCE(completed_at, updated_at) >= ? {extra_where}",
+                    (since_iso,),
+                ).fetchone()
+                stats["completed_last_days"] += int(row["c"] if isinstance(row, sqlite3.Row) else row[0])
+            except Exception:
+                pass
+
+            try:
+                cur = self.conn.execute(
+                    f"SELECT zone, COUNT(*) AS c FROM author_test_sessions s "
+                    f"WHERE status='completed' {extra_where} GROUP BY zone"
+                )
+                for r in cur.fetchall():
+                    zone = r["zone"] if isinstance(r, sqlite3.Row) else r[0]
+                    cnt = r["c"] if isinstance(r, sqlite3.Row) else r[1]
+                    _add_zone(zone, cnt)
+            except Exception:
+                pass
+
+            # Добавляем recent_started/recent_completed из old только если в new их нет (или new таблицы нет)
+            try:
+                if not stats["recent_started"]:
+                    cur = self.conn.execute(
+                        f"""
+                        SELECT s.user_id, u.name, u.username, s.current_step, s.started_at, s.updated_at
+                        FROM author_test_sessions s
+                        LEFT JOIN users u ON u.user_id = s.user_id
+                        WHERE s.status='in_progress' {extra_where}
+                        ORDER BY COALESCE(s.updated_at, s.started_at) DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    )
+                    stats["recent_started"] = [dict(r) for r in cur.fetchall()]
+            except Exception:
+                pass
+
+            try:
+                if not stats["recent_completed"]:
+                    cur = self.conn.execute(
+                        f"""
+                        SELECT s.user_id, u.name, u.username, s.zone, s.ready_total, s.fear_total, s.completed_at, s.updated_at
+                        FROM author_test_sessions s
+                        LEFT JOIN users u ON u.user_id = s.user_id
+                        WHERE s.status='completed' {extra_where}
+                        ORDER BY COALESCE(s.completed_at, s.updated_at) DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    )
+                    stats["recent_completed"] = [dict(r) for r in cur.fetchall()]
+            except Exception:
+                pass
+
+        return stats
+
     def complete_author_test(self, user_id: int, zone: str | None = None):
         """Помечает тест завершенным."""
         now = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
         try:
             with self.conn:
+                # Основной источник — новая таблица
+                try:
+                    self.conn.execute("""
+                        UPDATE author_test_sessions_new
+                        SET status='completed', zone=?, completed_at=?, updated_at=?
+                        WHERE user_id=?
+                    """, (zone, now, now, user_id))
+                except sqlite3.Error:
+                    # Таблица может отсутствовать в старых окружениях
+                    pass
+
+                # Fallback для старой таблицы (на случай исторических данных)
                 self.conn.execute("""
                     UPDATE author_test_sessions
                     SET status='completed', zone=?, completed_at=?, updated_at=?

@@ -43,6 +43,9 @@ from modules.admin.marketplaces import (
 from modules.admin.training_logs import (
     show_admin_training_logs, show_admin_training_stats, show_admin_training_users
 )
+from modules.admin.author_test import (
+    show_admin_author_test
+)
 
 __all__ = [
     # Core
@@ -80,6 +83,9 @@ __all__ = [
         # Training Logs
         'show_admin_training_logs',
         'show_admin_training_stats', 
-        'show_admin_training_users'
+        'show_admin_training_users',
+
+        # Author test
+        'show_admin_author_test'
 ]
 

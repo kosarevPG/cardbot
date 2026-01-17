@@ -39,6 +39,7 @@ def make_admin_handler(db: Database, logger_service: LoggingService):
             [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
             [types.InlineKeyboardButton(text="🃏 Статистика колод", callback_data="admin_decks")],
             [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
+            [types.InlineKeyboardButton(text="📝 Тест «Стать автором»", callback_data="admin_author_test")],
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
             [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
@@ -87,6 +88,7 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
         from modules.admin.training_logs import (
             show_admin_training_logs, show_admin_training_stats, show_admin_training_users
         )
+        from modules.admin.author_test import show_admin_author_test
         
         action = callback.data
         
@@ -191,6 +193,15 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
             await show_admin_training_stats(callback.message, db, logger_service, user_id)
         elif action == "admin_training_users":
             await show_admin_training_users(callback.message, db, logger_service, user_id)
+
+        elif action == "admin_author_test":
+            await show_admin_author_test(callback.message, db, logger_service, user_id, 30)
+        elif action.startswith("admin_author_test_"):
+            try:
+                days = int(action.split("_")[-1])
+            except Exception:
+                days = 30
+            await show_admin_author_test(callback.message, db, logger_service, user_id, days)
         
         elif action == "admin_back" or action == "admin_main":
             await show_admin_main_menu(callback.message, db, logger_service, user_id)
@@ -226,6 +237,7 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
             [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
             [types.InlineKeyboardButton(text="🃏 Статистика колод", callback_data="admin_decks")],
             [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
+            [types.InlineKeyboardButton(text="📝 Тест «Стать автором»", callback_data="admin_author_test")],
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
             [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
