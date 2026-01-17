@@ -1,4 +1,5 @@
 import logging
+import html
 from aiogram import types
 from aiogram.exceptions import TelegramBadRequest
 
@@ -39,6 +40,7 @@ async def show_admin_author_test_stats(
     # Вариант A (расширенный): started_all/completed_all/zones_all/...
     if "started_all" in stats or "completed_all" in stats:
         zones = stats.get("zones_all") or {}
+        zone_users = stats.get("zone_users") or {}
         text = (
             "📝 <b>ТЕСТ «СТАТЬ АВТОРОМ»</b>\n\n"
             f"• Начали (всего): <b>{stats.get('started_all', 0)}</b>\n"
@@ -52,6 +54,31 @@ async def show_admin_author_test_stats(
             f"• RED: <b>{zones.get('RED', 0)}</b>\n"
             f"• UNKNOWN: <b>{zones.get('UNKNOWN', 0)}</b>\n"
         )
+
+        # Списки пользователей по зонам (ограничиваем вывод, чтобы не упереться в лимит Telegram)
+        max_per_zone = 20
+
+        def _fmt_user(u: dict) -> str:
+            uid = u.get("user_id")
+            username = (u.get("username") or "").strip()
+            name = (u.get("name") or "").strip()
+            uname = f"@{html.escape(username)}" if username else "—"
+            nm = html.escape(name) if name else "—"
+            return f"• <code>{uid}</code> | {uname} | {nm}"
+
+        def _zone_block(z: str) -> str:
+            lst = zone_users.get(z) or []
+            shown = lst[:max_per_zone]
+            lines = "\n".join(_fmt_user(u) for u in shown) if shown else "• —"
+            total = int(zones.get(z, 0) or 0) if z in zones else len(lst)
+            rest = max(total - len(shown), 0)
+            more = f"\n<i>…и ещё {rest}</i>" if rest > 0 else ""
+            return f"\n<b>{z}:</b>\n{lines}{more}\n"
+
+        text += _zone_block("GREEN")
+        text += _zone_block("YELLOW")
+        text += _zone_block("RED")
+        text += _zone_block("UNKNOWN")
     else:
         # Вариант B (упрощённый): started/completed/conversion/green/yellow/red
         text = (

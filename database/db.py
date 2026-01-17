@@ -2726,6 +2726,8 @@ class Database:
             "started_last_days": 0,
             "completed_last_days": 0,
             "zones_all": {"GREEN": 0, "YELLOW": 0, "RED": 0, "UNKNOWN": 0},
+            # Списки пользователей по зонам (ID | username | name) для completed-сессий.
+            "zone_users": {"GREEN": [], "YELLOW": [], "RED": [], "UNKNOWN": []},
             "recent_started": [],
             "recent_completed": [],
             "tables": {"new": new_exists, "old": old_exists},
@@ -2915,6 +2917,71 @@ class Database:
                     stats["recent_completed"] = [dict(r) for r in cur.fetchall()]
             except Exception:
                 pass
+
+        # ---------- USERS PER ZONE (completed) ----------
+        # Важно: отдаём списки пользователей для каждой зоны (для админки).
+        # Не ограничиваем по датам: это "все время". Ограничение делается на уровне UI.
+        def _norm_zone(z: str | None) -> str:
+            key = (z or "").upper().strip()
+            if key not in ("GREEN", "YELLOW", "RED"):
+                return "UNKNOWN"
+            return key
+
+        zone_users: dict[str, list[dict]] = {"GREEN": [], "YELLOW": [], "RED": [], "UNKNOWN": []}
+        seen_users: set[int] = set()
+
+        try:
+            if new_exists:
+                cur = self.conn.execute(
+                    """
+                    SELECT s.user_id, u.username, u.name, s.zone, COALESCE(s.completed_at, s.updated_at) AS ts
+                    FROM author_test_sessions_new s
+                    LEFT JOIN users u ON u.user_id = s.user_id
+                    WHERE s.status='completed'
+                    ORDER BY COALESCE(s.completed_at, s.updated_at) DESC
+                    """
+                )
+                for r in cur.fetchall():
+                    row = dict(r)
+                    uid = row.get("user_id")
+                    if isinstance(uid, int):
+                        seen_users.add(uid)
+                    z = _norm_zone(row.get("zone"))
+                    zone_users[z].append(
+                        {"user_id": row.get("user_id"), "username": row.get("username"), "name": row.get("name")}
+                    )
+        except Exception:
+            logger.exception("[author_stats] failed to collect zone users from new table")
+
+        try:
+            if old_exists:
+                # Исключаем пользователей, которые уже есть в новой таблице (чтобы не дублировать).
+                extra_where = ""
+                if new_exists:
+                    extra_where = "AND NOT EXISTS (SELECT 1 FROM author_test_sessions_new n WHERE n.user_id = s.user_id)"
+
+                cur = self.conn.execute(
+                    f"""
+                    SELECT s.user_id, u.username, u.name, s.zone, COALESCE(s.completed_at, s.updated_at) AS ts
+                    FROM author_test_sessions s
+                    LEFT JOIN users u ON u.user_id = s.user_id
+                    WHERE s.status='completed' {extra_where}
+                    ORDER BY COALESCE(s.completed_at, s.updated_at) DESC
+                    """
+                )
+                for r in cur.fetchall():
+                    row = dict(r)
+                    uid = row.get("user_id")
+                    if isinstance(uid, int) and uid in seen_users:
+                        continue
+                    z = _norm_zone(row.get("zone"))
+                    zone_users[z].append(
+                        {"user_id": row.get("user_id"), "username": row.get("username"), "name": row.get("name")}
+                    )
+        except Exception:
+            logger.exception("[author_stats] failed to collect zone users from old table")
+
+        stats["zone_users"] = zone_users
 
         return stats
 
