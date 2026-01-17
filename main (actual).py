@@ -446,18 +446,18 @@ def make_broadcast_handler(db: Database, logger_service: LoggingService):
                 fail_count += 1
                 failed_users.append(target_user_id)
                 logger.error(f"Failed to send broadcast to {target_user_id}: {e}")
-                await logger_service.log_action(ADMIN_ID, "broadcast_failed_user", {"target_user_id": target_user_id, "error": str(e)})
+                await logger_service.log_action(message.from_user.id, "broadcast_failed_user", {"target_user_id": target_user_id, "error": str(e)})
             except Exception as e:
                 fail_count += 1
                 failed_users.append(target_user_id)
                 logger.error(f"Unexpected error sending broadcast to {target_user_id}: {e}", exc_info=True)
-                await logger_service.log_action(ADMIN_ID, "broadcast_failed_user", {"target_user_id": target_user_id, "error": f"Unexpected: {str(e)}"})
+                await logger_service.log_action(message.from_user.id, "broadcast_failed_user", {"target_user_id": target_user_id, "error": f"Unexpected: {str(e)}"})
             await asyncio.sleep(0.05)
         result_text = f"✅ Тестовая рассылка завершена!\nУспешно отправлено: {success_count}\nНе удалось отправить: {fail_count}"
         if failed_users:
             result_text += f"\nID пользователя с ошибкой: {failed_users[0]}"
         await message.reply(result_text)
-        await logger_service.log_action(ADMIN_ID, "broadcast_test_finished", {"success": success_count, "failed": fail_count})
+        await logger_service.log_action(message.from_user.id, "broadcast_test_finished", {"success": success_count, "failed": fail_count})
     return wrapped_handler
 
 def make_create_post_handler(db: Database, logger_service: LoggingService):
@@ -1398,7 +1398,11 @@ def make_process_feedback_handler(db, logger_service):
               await message.answer(f"{name}, спасибо за твой отзыв! 🙏", reply_markup=await get_main_menu(user_id, db))
               try:
                   admin_notify_text = (f"📝 Новый фидбек от:\nID: <code>{user_id}</code>\nИмя: {name}\nНик: @{username}\n\n<b>Текст:</b>\n{feedback_text}")
-                  await bot.send_message(ADMIN_ID, admin_notify_text[:4090])
+                  for admin_id in ADMIN_IDS:
+                      try:
+                          await bot.send_message(int(admin_id), admin_notify_text[:4090])
+                      except Exception:
+                          pass
               except Exception as admin_err:
                   logger.error(f"Failed to send feedback notification to admin: {admin_err}")
               await state.clear()
