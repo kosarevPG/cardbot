@@ -248,6 +248,15 @@ def _step_from_session(session: dict | None) -> int:
 async def start_author_test_flow(message: types.Message, state: FSMContext, db: Database) -> None:
     """Точка входа: если есть незавершённая сессия — предлагает продолжить/перезапустить."""
     user_id = message.chat.id if message.chat else message.from_user.id
+    # В message-контексте from_user — это реальный пользователь
+    try:
+        await state.update_data(
+            user_id=user_id,
+            user_username=getattr(message.from_user, "username", None),
+            user_full_name=getattr(message.from_user, "full_name", None),
+        )
+    except Exception:
+        pass
     session = db.get_author_test_session(user_id)
 
     if session and session.get("status") == "in_progress" and _session_has_progress(session):
@@ -269,9 +278,17 @@ async def _start_new_test(message: types.Message, state: FSMContext, db: Databas
     user_id = message.chat.id if message.chat else message.from_user.id
     db.reset_author_test(user_id)
 
+    # В callback-контексте message.from_user — бот. Берём данные пользователя из state, если они там есть.
+    prev = await state.get_data()
+    prev_username = prev.get("user_username")
+    prev_full_name = prev.get("user_full_name")
+
     await state.clear()
     await state.set_state(AuthorTestStates.answering)
     await state.update_data(
+        user_id=user_id,
+        user_username=prev_username or getattr(message.from_user, "username", None),
+        user_full_name=prev_full_name or getattr(message.from_user, "full_name", None),
         step=0,
         fear_total=0,
         ready_total=0,
@@ -311,9 +328,17 @@ async def _resume_test(message: types.Message, state: FSMContext, db: Database) 
         f"fear_total={fear_total} ready_total={ready_total}"
     )
 
+    # В callback-контексте message.from_user — бот. Берём user_* из state, если уже есть.
+    prev = await state.get_data()
+    prev_username = prev.get("user_username")
+    prev_full_name = prev.get("user_full_name")
+
     await state.clear()
     await state.set_state(AuthorTestStates.answering)
     await state.update_data(
+        user_id=user_id,
+        user_username=prev_username or getattr(message.from_user, "username", None),
+        user_full_name=prev_full_name or getattr(message.from_user, "full_name", None),
         step=step,
         answers=answers,
         fear_total=fear_total,
@@ -404,6 +429,15 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         return "ignored"
 
     user_id = callback.from_user.id
+    # Критично: в callback.message.from_user — бот, а реальный пользователь здесь:
+    try:
+        await state.update_data(
+            user_id=user_id,
+            user_username=getattr(callback.from_user, "username", None),
+            user_full_name=getattr(callback.from_user, "full_name", None),
+        )
+    except Exception:
+        pass
 
     if callback.data == "author_cancel":
         # UX: убираем inline-кнопки у текущего сообщения теста, чтобы не было ощущения "зависло".
@@ -581,12 +615,11 @@ async def _notify_admins_green(
 ) -> None:
     if zone != "GREEN":
         return
+    uname = f"@{username}" if username else "—"
+    name = full_name or "—"
     text = (
         "🚨 <b>Новый кандидат в авторы (GREEN)</b>\n\n"
-        f"👤 <b>Пользователь:</b> {full_name or '-'}"
-        + (f" (@{username})" if username else "")
-        + "\n"
-        f"ID: <code>{user_id}</code>\n"
+        f"👤 <b>Пользователь:</b> <code>{user_id}</code> | {uname} | {name}\n"
         f"📊 <b>Баллы:</b> Ready: <b>{ready_total}</b>/16, Fear: <b>{fear_total}</b>\n"
         f"🎯 <b>Зона:</b> {zone}\n\n"
         "Нужно связаться."
@@ -607,7 +640,8 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
     ready_total = int(data.get("ready_total", 0))
     flags = list(data.get("flags", []) or [])
 
-    user_id = (message.chat.id if message.chat else (message.from_user.id if message.from_user else None))
+    # В callback-контексте message.from_user == бот. Поэтому берём user из state, если он есть.
+    user_id = data.get("user_id") or (message.chat.id if message.chat else (message.from_user.id if message.from_user else None))
     if user_id is None:
         await state.clear()
         return
@@ -647,8 +681,8 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
             await _notify_admins_green(
                 bot=message.bot,
                 user_id=user_id,
-                username=getattr(message.from_user, "username", None),
-                full_name=getattr(message.from_user, "full_name", None),
+                username=data.get("user_username") or getattr(message.from_user, "username", None),
+                full_name=data.get("user_full_name") or getattr(message.from_user, "full_name", None),
                 ready_total=ready_total,
                 fear_total=fear_total,
                 zone=zone,
