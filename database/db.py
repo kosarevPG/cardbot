@@ -2580,6 +2580,7 @@ class Database:
                     ("author_test_sessions_new",),
                 ).fetchone()
                 if t:
+                    logger.info(f"[get_session] user={user_id} checking author_test_sessions_new")
                     cols_new = {row['name'] for row in self.conn.execute("PRAGMA table_info(author_test_sessions_new)").fetchall()}
                     if 'updated_at' in cols_new:
                         cursor_new = self.conn.execute(
@@ -2594,12 +2595,21 @@ class Database:
                     row_new = cursor_new.fetchone()
                     if row_new:
                         res_new = dict(row_new)
+                        logger.info(
+                            f"[get_session] user={user_id} found in author_test_sessions_new: "
+                            f"current_step={res_new.get('current_step')} answers_raw_len={len(res_new.get('answers', '') or '')}"
+                        )
                         # Нормализуем поля под ожидаемый формат become_author.py
                         if res_new.get('answers'):
                             try:
                                 res_new['answers'] = json.loads(res_new['answers'])
+                                logger.info(
+                                    f"[get_session] user={user_id} parsed from _new: keys={list(res_new['answers'].keys())} "
+                                    f"len={len(res_new['answers'])}"
+                                )
                             except Exception:
                                 try:
+                                    import ast
                                     res_new['answers'] = ast.literal_eval(res_new['answers'])
                                 except Exception:
                                     res_new['answers'] = {}
@@ -2608,6 +2618,7 @@ class Database:
                                 res_new['flags'] = json.loads(res_new['flags'])
                             except Exception:
                                 try:
+                                    import ast
                                     res_new['flags'] = ast.literal_eval(res_new['flags'])
                                 except Exception:
                                     res_new['flags'] = []
@@ -2618,7 +2629,12 @@ class Database:
                             except Exception:
                                 res_new['flags'] = []
                         session_new = res_new
-            except Exception:
+                    else:
+                        logger.info(f"[get_session] user={user_id} no row in author_test_sessions_new")
+                else:
+                    logger.info(f"[get_session] user={user_id} author_test_sessions_new table does not exist")
+            except Exception as e:
+                logger.warning(f"[get_session] user={user_id} error checking author_test_sessions_new: {e}")
                 # Если что-то пошло не так — просто падаем обратно на старую таблицу
                 pass
 
@@ -2654,12 +2670,22 @@ class Database:
                 if res.get('answers'):
                     try:
                         res['answers'] = json.loads(res['answers'])
+                        logger.info(
+                            f"[get_session] user={user_id} parsed from old table: keys={list(res['answers'].keys())} "
+                            f"len={len(res['answers'])}"
+                        )
                     except Exception:
                         # В старых версиях ответы могли быть сохранены не как JSON, а как repr(dict)/repr(list).
                         try:
+                            import ast
                             res['answers'] = ast.literal_eval(res['answers'])
+                            logger.info(
+                                f"[get_session] user={user_id} parsed from old table (ast): keys={list(res['answers'].keys())} "
+                                f"len={len(res['answers'])}"
+                            )
                         except Exception:
                             res['answers'] = {}
+                            logger.warning(f"[get_session] user={user_id} failed to parse answers from old table, using empty dict")
                 if res.get('flags'):
                     try:
                         res['flags'] = json.loads(res['flags'])
