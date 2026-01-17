@@ -2025,8 +2025,13 @@ async def main():
         
         # Останавливаем планировщик
         try:
-            if 'scheduler' in dp and dp["scheduler"]:
-                await dp["scheduler"].stop()
+            scheduler = None
+            try:
+                scheduler = dp.get("scheduler") if hasattr(dp, "get") else None
+            except Exception:
+                scheduler = None
+            if scheduler:
+                await scheduler.stop()
                 logger.info("Mailing scheduler stopped.")
         except Exception as scheduler_err:
             logger.error(f"Error stopping scheduler: {scheduler_err}")
