@@ -9,7 +9,7 @@ from modules.logging_service import LoggingService
 
 logger = logging.getLogger(__name__)
 
-ADMIN_MENU_VERSION = "2026-01-17-admin-author-test-v1"
+ADMIN_MENU_VERSION = "2026-01-17T19:10-admin-author-test-details-v2"
 
 
 def _admin_menu_cb_list(keyboard: types.InlineKeyboardMarkup) -> list[str]:
@@ -54,7 +54,7 @@ def make_admin_handler(db: Database, logger_service: LoggingService):
             [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
             [types.InlineKeyboardButton(text="🃏 Статистика колод", callback_data="admin_decks")],
             [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
-            [types.InlineKeyboardButton(text="📝 Тест «Стать автором»", callback_data="admin_author_test")],
+            [types.InlineKeyboardButton(text="🧑‍💼 Тест «Стать автором»", callback_data="admin_author_test")],
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
             [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
@@ -66,7 +66,14 @@ def make_admin_handler(db: Database, logger_service: LoggingService):
         )
         
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
-        await logger_service.log_action(user_id, "admin_panel_opened", {})
+        await logger_service.log_action(
+            user_id,
+            "admin_panel_opened",
+            {
+                "admin_menu_version": ADMIN_MENU_VERSION,
+                "callbacks": _admin_menu_cb_list(keyboard),
+            },
+        )
     
     return admin_handler
 
@@ -249,7 +256,7 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
             [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
             [types.InlineKeyboardButton(text="🃏 Статистика колод", callback_data="admin_decks")],
             [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
-            [types.InlineKeyboardButton(text="📝 Тест «Стать автором»", callback_data="admin_author_test")],
+            [types.InlineKeyboardButton(text="🧑‍💼 Тест «Стать автором»", callback_data="admin_author_test")],
             [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
             [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
             [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
@@ -261,7 +268,14 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
         )
         
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-        await logger_service.log_action(user_id, "admin_main_menu_viewed", {})
+        await logger_service.log_action(
+            user_id,
+            "admin_main_menu_viewed",
+            {
+                "admin_menu_version": ADMIN_MENU_VERSION,
+                "callbacks": _admin_menu_cb_list(keyboard),
+            },
+        )
     except Exception as e:
         logger.error(f"Error showing admin main menu: {e}", exc_info=True)
         text = "❌ Ошибка при загрузке меню администратора"
