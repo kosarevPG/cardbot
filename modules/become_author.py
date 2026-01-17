@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Any
+from pathlib import Path
 from urllib.parse import quote
 
 from aiogram import Bot, types
@@ -19,6 +20,16 @@ except ImportError:
     from config import ADMIN_IDS, TIMEZONE
 
 logger = logging.getLogger(__name__)
+
+# --- Yellow zone gate (картинка + подтверждение) ---
+YELLOW_GATE_CAPTION = "Вы готовы работать над тем, чтобы выйти из желтой зоны?"
+YELLOW_GATE_CB_NO = "author_yellow_no"
+YELLOW_GATE_CB_YES = "author_yellow_yes"
+YELLOW_MATERIALS_URL = "https://disk.yandex.ru/d/Sw6tYuAT8Rujjw"
+
+def _yellow_gate_image_path() -> Path:
+    """Ожидаемый файл: tools/author_yellow_gate.jpg"""
+    return Path(__file__).resolve().parents[1] / "tools" / "author_yellow_gate.jpg"
 
 
 class AuthorTestStates(StatesGroup):
@@ -594,6 +605,31 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         await send_current_question(callback.message, state)
         return "continue"
 
+    # Yellow zone gate callbacks
+    if callback.data == YELLOW_GATE_CB_NO:
+        await callback.answer("Хорошо.")
+        try:
+            if callback.message:
+                await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return "ignored"
+
+    if callback.data == YELLOW_GATE_CB_YES:
+        await callback.answer("Отлично!")
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎁 получить материалы", url=YELLOW_MATERIALS_URL)],
+        ])
+        try:
+            if callback.message:
+                await callback.message.edit_reply_markup(reply_markup=kb)
+        except Exception:
+            try:
+                await callback.message.answer("🎁 получить материалы:", reply_markup=kb)
+            except Exception:
+                pass
+        return "ignored"
+
     if callback.data == "author_placeholder":
         await callback.answer("Материалы пока готовятся. Следите за обновлениями!", show_alert=True)
         return "ignored"
@@ -735,13 +771,27 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
             "и после этого вернуться к вопросу наставничества.\n"
             "Так вы сэкономите деньги, нервы и получите лучший результат.\n"
         )
-        # Меню показываем прямо на результате (без фразы "Главное меню:"),
-        # а материалы отправляем отдельным сообщением с URL-кнопкой.
+        # Меню показываем прямо на результате (без фразы "Главное меню:").
         await message.answer(result_text, reply_markup=menu_kb)
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 получить материалы", url="https://disk.yandex.ru/d/Sw6tYuAT8Rujjw")],
+
+        gate_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Не интересно", callback_data=YELLOW_GATE_CB_NO)],
+            [InlineKeyboardButton(text="Конечно, готов!", callback_data=YELLOW_GATE_CB_YES)],
         ])
-        await message.answer("🎁 получить материалы:", reply_markup=kb)
+
+        img_path = _yellow_gate_image_path()
+        if img_path.exists():
+            try:
+                await message.answer_photo(
+                    types.FSInputFile(str(img_path)),
+                    caption=YELLOW_GATE_CAPTION,
+                    reply_markup=gate_kb,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send yellow gate photo: {e!r}")
+                await message.answer(YELLOW_GATE_CAPTION, reply_markup=gate_kb)
+        else:
+            await message.answer(YELLOW_GATE_CAPTION, reply_markup=gate_kb)
     else:
         result_text = (
             "🔴 Благодарю вас за прохождение диагностики \n"
