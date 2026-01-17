@@ -530,7 +530,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         await callback.answer()
 
         if next_step >= TOTAL_QUESTIONS:
-            await finish_author_test(callback.message, state, db)
+            await finish_author_test(callback.message, state, db, user=callback.from_user)
             return "finished"
 
         await send_current_question(callback.message, state)
@@ -592,7 +592,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         await callback.answer()
 
         if next_step >= TOTAL_QUESTIONS:
-            await finish_author_test(callback.message, state, db)
+            await finish_author_test(callback.message, state, db, user=callback.from_user)
             return "finished"
 
         await send_current_question(callback.message, state)
@@ -635,7 +635,7 @@ async def _notify_admins_green(
             logger.error(f"Failed to notify admin {admin_id}: {e}")
 
 
-async def finish_author_test(message: types.Message, state: FSMContext, db: Database) -> None:
+async def finish_author_test(message: types.Message, state: FSMContext, db: Database, user: types.User | None = None) -> None:
     data = await state.get_data()
     fear_total = int(data.get("fear_total", 0))
     ready_total = int(data.get("ready_total", 0))
@@ -654,6 +654,33 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
     await state.clear()
 
     menu_kb = await get_main_menu(user_id, db)
+    # В callback-сценарии message.from_user == бот, поэтому данные пользователя берем из callback.from_user (user param)
+    # или из сохранённых полей state.
+    username = getattr(user, "username", None) if user else None
+    full_name = getattr(user, "full_name", None) if user else None
+    if not username:
+        username = data.get("user_username")
+    if not full_name:
+        full_name = data.get("user_full_name")
+
+    # Дополнительный fallback: берём данные из таблицы users (если в state попал username бота или поля пустые).
+    # Это защищает от случаев, когда тест завершается в контексте callback.message (где from_user — бот).
+    try:
+        db_user = db.get_user(user_id) or {}
+        db_username = (db_user.get("username") or "").strip()
+        if db_username.startswith("@"):
+            db_username = db_username[1:]
+        db_name = (db_user.get("name") or "").strip() or None
+
+        # Если вдруг пришёл username бота — считаем его невалидным и заменяем на данные из БД/пусто
+        if username == "choose_a_card_bot":
+            username = None
+        if not username and db_username:
+            username = db_username
+        if not full_name and db_name:
+            full_name = db_name
+    except Exception:
+        pass
 
     if zone == "GREEN":
         result_text = (
@@ -706,8 +733,8 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
             await _notify_admins_green(
                 bot=message.bot,
                 user_id=user_id,
-                username=data.get("user_username") or getattr(message.from_user, "username", None),
-                full_name=data.get("user_full_name") or getattr(message.from_user, "full_name", None),
+                username=username,
+                full_name=full_name,
                 ready_total=ready_total,
                 fear_total=fear_total,
                 zone=zone,
