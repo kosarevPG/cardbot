@@ -5,6 +5,8 @@ from typing import Any
 from pathlib import Path
 from urllib.parse import quote
 
+import asyncio
+
 from aiogram import Bot, types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -27,9 +29,35 @@ YELLOW_GATE_CB_NO = "author_yellow_no"
 YELLOW_GATE_CB_YES = "author_yellow_yes"
 YELLOW_MATERIALS_URL = "https://disk.yandex.ru/d/Sw6tYuAT8Rujjw"
 
+# После нажатия "🎁 получить материалы" → через 10 секунд спрашиваем про чек-лист
+YELLOW_MATERIALS_CB = "author_yellow_materials"
+YELLOW_CHECKLIST_PROMPT_CB_NOW = "author_yellow_checklist_now"
+YELLOW_CHECKLIST_PROMPT_CB_LATER = "author_yellow_checklist_later"
+YELLOW_CHECKLIST_URL = "https://disk.yandex.ru/d/3AxJOEOn-iDMrA"
+YELLOW_CHECKLIST_PROMPT_TEXT = (
+    "Эта тетрадь легко поможет вам выйти из желтой зоны! Важно просто ее заполнить не пропуская задания. "
+    "А после заполнения данной тетради я приготовила для вас проверочный чек-лист. Выслать сразу или позже?"
+)
+
 def _yellow_gate_image_path() -> Path:
-    """Ожидаемый файл: tools/author_yellow_gate.jpg"""
-    return Path(__file__).resolve().parents[1] / "tools" / "author_yellow_gate.jpg"
+    """Ожидаемый файл: tools/author_yellow_gate.(jpg|jpeg|png|webp)"""
+    tools_dir = Path(__file__).resolve().parents[1] / "tools"
+    preferred = [
+        tools_dir / "author_yellow_gate.jpg",
+        tools_dir / "author_yellow_gate.jpeg",
+        tools_dir / "author_yellow_gate.png",
+        tools_dir / "author_yellow_gate.webp",
+    ]
+    for p in preferred:
+        if p.exists():
+            return p
+    try:
+        for p in sorted(tools_dir.glob("author_yellow_gate.*")):
+            if p.is_file():
+                return p
+    except Exception:
+        pass
+    return preferred[0]
 
 
 class AuthorTestStates(StatesGroup):
@@ -606,6 +634,58 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         return "continue"
 
     # Yellow zone gate callbacks
+    # Yellow: materials -> send link + schedule checklist prompt
+    if callback.data == YELLOW_MATERIALS_CB:
+        await callback.answer()
+        # Отправляем материалы (URL)
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🎁 получить материалы", url=YELLOW_MATERIALS_URL),
+        ]])
+        try:
+            await callback.message.answer("🎁 получить материалы:", reply_markup=kb)
+        except Exception:
+            await callback.message.answer(YELLOW_MATERIALS_URL)
+
+        async def _delayed_checklist_prompt(chat_id: int) -> None:
+            await asyncio.sleep(10)
+            prompt_kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Сразу", callback_data=YELLOW_CHECKLIST_PROMPT_CB_NOW)],
+                [InlineKeyboardButton(text="Позже", callback_data=YELLOW_CHECKLIST_PROMPT_CB_LATER)],
+            ])
+            try:
+                await callback.bot.send_message(chat_id=chat_id, text=YELLOW_CHECKLIST_PROMPT_TEXT, reply_markup=prompt_kb)
+            except Exception:
+                pass
+
+        try:
+            chat_id = int(callback.message.chat.id) if callback.message and callback.message.chat else int(callback.from_user.id)
+            asyncio.create_task(_delayed_checklist_prompt(chat_id))
+        except Exception:
+            pass
+        return "ignored"
+
+    if callback.data == YELLOW_CHECKLIST_PROMPT_CB_NOW:
+        await callback.answer()
+        try:
+            if callback.message:
+                await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Открыть чек-лист", url=YELLOW_CHECKLIST_URL),
+        ]])
+        await callback.message.answer(f"Чек-лист: {YELLOW_CHECKLIST_URL}", reply_markup=kb)
+        return "ignored"
+
+    if callback.data == YELLOW_CHECKLIST_PROMPT_CB_LATER:
+        await callback.answer("Хорошо.")
+        try:
+            if callback.message:
+                await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return "ignored"
+
     if callback.data == YELLOW_GATE_CB_NO:
         await callback.answer("Хорошо.")
         try:
@@ -618,7 +698,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
     if callback.data == YELLOW_GATE_CB_YES:
         await callback.answer("Отлично!")
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 получить материалы", url=YELLOW_MATERIALS_URL)],
+            [InlineKeyboardButton(text="🎁 получить материалы", callback_data=YELLOW_MATERIALS_CB)],
         ])
         try:
             if callback.message:
