@@ -424,6 +424,16 @@ def make_start_handler(db, logger_service, user_manager):
         from modules.texts.gender_utils import get_user_info_for_text, personalize_text
         
         user_name = user_data.get("name")
+        # Для админов не блокируем доступ к меню из-за онбординга имени:
+        # им нужна кнопка "Стать автором" сразу для тестирования.
+        if not user_name and (str(user_id) in ADMIN_IDS):
+            await message.answer(
+                "Привет! 👋",
+                reply_markup=await get_main_menu(user_id, db),
+                parse_mode="HTML",
+            )
+            return
+
         if not user_name:
             await message.answer(
                 COMMON_TEXTS["onboarding"]["ask_name"],

@@ -377,9 +377,18 @@ def make_start_handler(db, logger_service, user_manager):
             except (ValueError, TypeError, IndexError) as ref_err:
                 logger.warning(f"Invalid referral code processing '{args}' from user {user_id}: {ref_err}")
         user_name = user_data.get("name")
+        # Для админов не блокируем доступ к меню из-за онбординга имени.
+        if not user_name and (str(user_id) in ADMIN_IDS):
+            await message.answer("Привет! 👋", reply_markup=await get_main_menu(user_id, db))
+            return
+
         if not user_name:
-            await message.answer("Здравствуй! ✨ Очень рад нашему знакомству. Подскажи, как мне лучше к тебе обращаться?",
-                                 reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[[types.InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]]))
+            await message.answer(
+                "Здравствуй! ✨ Очень рад нашему знакомству. Подскажи, как мне лучше к тебе обращаться?",
+                reply_markup=types.InlineKeyboardMarkup(
+                    inline_keyboard=[[types.InlineKeyboardButton(text="Пропустить", callback_data="skip_name")]]
+                ),
+            )
             await state.set_state(UserState.waiting_for_name)
         else:
             await message.answer(f"{user_name}, снова рад тебя видеть! 👋 Готова поработать с картой дня или подвести итог?",
