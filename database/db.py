@@ -2487,11 +2487,30 @@ class Database:
 
     # === МЕТОДЫ ДЛЯ ТЕСТА "СТАТЬ АВТОРОМ" ===
     def create_author_tables(self):
-        """Создает таблицу для сессий теста автора."""
+        """Создает таблицы для сессий теста автора."""
         try:
             with self.conn:
+                # Старая таблица (для совместимости)
                 self.conn.execute("""
                     CREATE TABLE IF NOT EXISTS author_test_sessions (
+                        user_id INTEGER PRIMARY KEY,
+                        status TEXT DEFAULT 'in_progress',
+                        current_step INTEGER DEFAULT 0,
+                        answers TEXT,
+                        fear_total INTEGER DEFAULT 0,
+                        ready_total INTEGER DEFAULT 0,
+                        zone TEXT,
+                        flags TEXT,
+                        started_at TEXT,
+                        updated_at TEXT,
+                        completed_at TEXT,
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )
+                """)
+
+                # Новая таблица (основная)
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS author_test_sessions_new (
                         user_id INTEGER PRIMARY KEY,
                         status TEXT DEFAULT 'in_progress',
                         current_step INTEGER DEFAULT 0,
@@ -2530,6 +2549,7 @@ class Database:
                 )
             except Exception as e:
                 logger.error(f"Error migrating author_test_sessions columns: {e}", exc_info=True)
+            logger.info("Author test tables (author_test_sessions and author_test_sessions_new) checked/created.")
         except sqlite3.Error as e:
             logger.error(f"Error creating author test tables: {e}", exc_info=True)
 
@@ -2568,25 +2588,39 @@ class Database:
                 logger.warning(f"[get_session] user={user_id} author_test_sessions_new error: {e}, falling back to old table")
                 pass  # Новая таблица может не существовать
             
-            # Fallback: используем старую структуру через get_active_author_test_session
+            # Fallback: используем старую таблицу напрямую
             logger.info(f"[get_session] user={user_id} reading from author_test_sessions (old table)")
-            old_session = self.get_active_author_test_session(user_id)
-            if old_session:
-                # Парсим answers из старой таблицы
-                if old_session.get('answers'):
-                    try:
-                        old_session['answers'] = json.loads(old_session['answers'])
-                        logger.info(
-                            f"[get_session] user={user_id} parsed from old table: keys={list(old_session['answers'].keys())} "
-                            f"len={len(old_session['answers'])}"
-                        )
-                    except (json.JSONDecodeError, TypeError):
-                        old_session['answers'] = {}
-                logger.info(
-                    f"[get_session] user={user_id} from old table: current_step={old_session.get('current_step')} "
-                    f"last_question={old_session.get('last_question')} answers_len={len(old_session.get('answers', {}))}"
+            try:
+                cursor = self.conn.execute(
+                    "SELECT * FROM author_test_sessions WHERE user_id = ? AND status = 'in_progress' ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+                    (user_id,)
                 )
-            return old_session
+                row = cursor.fetchone()
+                if row:
+                    old_session = dict(row)
+                    # Парсим answers из старой таблицы
+                    if old_session.get('answers'):
+                        try:
+                            old_session['answers'] = json.loads(old_session['answers'])
+                            logger.info(
+                                f"[get_session] user={user_id} parsed from old table: keys={list(old_session['answers'].keys())} "
+                                f"len={len(old_session['answers'])}"
+                            )
+                        except (json.JSONDecodeError, TypeError):
+                            old_session['answers'] = {}
+                    if old_session.get('flags'):
+                        try:
+                            old_session['flags'] = json.loads(old_session['flags'])
+                        except (json.JSONDecodeError, TypeError):
+                            old_session['flags'] = []
+                    logger.info(
+                        f"[get_session] user={user_id} from old table: current_step={old_session.get('current_step')} "
+                        f"last_question={old_session.get('last_question')} answers_len={len(old_session.get('answers', {}))}"
+                    )
+                    return old_session
+            except sqlite3.Error as e:
+                logger.warning(f"[get_session] user={user_id} error reading from old table: {e}")
+            return None
         except Exception as e:
             logger.error(f"Error getting author session for {user_id}: {e}", exc_info=True)
             return None
@@ -2629,8 +2663,8 @@ class Database:
                 logger.info(f"[reset_author_test] user={user_id} resetting in author_test_sessions_new")
                 # Используем новую таблицу с ON CONFLICT
                 self.conn.execute("""
-                    INSERT INTO author_test_sessions_new (user_id, current_step, answers, fear_total, ready_total, flags, started_at, updated_at, status)
-                    VALUES (?, 0, ?, 0, 0, ?, ?, ?, 'in_progress')
+                    INSERT INTO author_test_sessions_new (user_id, current_step, answers, fear_total, ready_total, flags, started_at, updated_at, status, zone, completed_at)
+                    VALUES (?, 0, ?, 0, 0, ?, ?, ?, 'in_progress', NULL, NULL)
                     ON CONFLICT(user_id) DO UPDATE SET
                         current_step=0,
                         answers=excluded.answers,
