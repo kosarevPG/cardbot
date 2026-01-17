@@ -739,9 +739,9 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
         # а материалы отправляем отдельным сообщением с URL-кнопкой.
         await message.answer(result_text, reply_markup=menu_kb)
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Открытые материалы", url="https://disk.yandex.ru/d/Sw6tYuAT8Rujjw")],
+            [InlineKeyboardButton(text="🎁 получить материалы", url="https://disk.yandex.ru/d/Sw6tYuAT8Rujjw")],
         ])
-        await message.answer("Открытые материалы:", reply_markup=kb)
+        await message.answer("🎁 получить материалы:", reply_markup=kb)
     else:
         result_text = (
             "🔴 Благодарю вас за прохождение диагностики \n"
@@ -758,6 +758,6 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
         # а материалы отправляем отдельным сообщением с URL-кнопкой.
         await message.answer(result_text, reply_markup=menu_kb)
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Открытые материалы", url="https://disk.yandex.ru/d/-DwKWW_440Gg7A")],
+            [InlineKeyboardButton(text="🎁 получить материалы", url="https://disk.yandex.ru/d/-DwKWW_440Gg7A")],
         ])
-        await message.answer("Открытые материалы:", reply_markup=kb)
+        await message.answer("🎁 получить материалы:", reply_markup=kb)
