@@ -2533,361 +2533,117 @@ class Database:
         except sqlite3.Error as e:
             logger.error(f"Error creating author test tables: {e}", exc_info=True)
 
-    def get_author_test_session(self, user_id: int) -> dict | None:
-        """Возвращает сессию теста автора для user_id."""
+    def get_author_test_session(self, user_id: int):
+        """Получает текущую или последнюю сессию теста автора по user_id."""
         try:
-            def _session_progress(sess: dict | None) -> int:
-                """Оценка прогресса (номер следующего вопроса, 0-based). Нужна для выбора между _new и старой таблицей."""
-                if not sess:
-                    return -1
-                # прямые поля
-                for key in ("current_step", "last_question"):
-                    try:
-                        v = int(sess.get(key, 0) or 0)
-                        if v > 0:
-                            return v
-                    except Exception:
-                        pass
-                # фолбек: answers
-                answers = sess.get("answers")
-                if isinstance(answers, dict) and answers:
-                    try:
-                        return max(int(k) for k in answers.keys()) + 1
-                    except Exception:
-                        return len(answers)
-                if isinstance(answers, list) and answers:
-                    return len(answers)
-                return 0
-
-            def _session_rank(sess: dict | None) -> tuple[int, int, str]:
-                """Сравнение сессий: in_progress > completed/other, затем прогресс, затем updated_at/started_at."""
-                if not sess:
-                    return (-1, -1, "")
-                status = str(sess.get("status") or "")
-                in_progress = 1 if status == "in_progress" else 0
-                progress = _session_progress(sess)
-                ts = str(sess.get("updated_at") or sess.get("started_at") or "")
-                return (in_progress, progress, ts)
-
-            session_new: dict | None = None
-            session_old: dict | None = None
-
-            # Совместимость: в некоторых ветках/деплоях могла появиться таблица author_test_sessions_new.
-            # Если она есть — читаем её, но НЕ возвращаем сразу: сравним со старой таблицей по прогрессу.
+            # Сначала пробуем получить из новой таблицы
             try:
-                t = self.conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                    ("author_test_sessions_new",),
-                ).fetchone()
-                if t:
-                    logger.info(f"[get_session] user={user_id} checking author_test_sessions_new")
-                    cols_new = {row['name'] for row in self.conn.execute("PRAGMA table_info(author_test_sessions_new)").fetchall()}
-                    if 'updated_at' in cols_new:
-                        cursor_new = self.conn.execute(
-                            "SELECT * FROM author_test_sessions_new WHERE user_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
-                            (user_id,),
-                        )
-                    else:
-                        cursor_new = self.conn.execute(
-                            "SELECT * FROM author_test_sessions_new WHERE user_id = ? ORDER BY rowid DESC LIMIT 1",
-                            (user_id,),
-                        )
-                    row_new = cursor_new.fetchone()
-                    if row_new:
-                        res_new = dict(row_new)
-                        logger.info(
-                            f"[get_session] user={user_id} found in author_test_sessions_new: "
-                            f"current_step={res_new.get('current_step')} answers_raw_len={len(res_new.get('answers', '') or '')}"
-                        )
-                        # Нормализуем поля под ожидаемый формат become_author.py
-                        if res_new.get('answers'):
-                            try:
-                                res_new['answers'] = json.loads(res_new['answers'])
-                                logger.info(
-                                    f"[get_session] user={user_id} parsed from _new: keys={list(res_new['answers'].keys())} "
-                                    f"len={len(res_new['answers'])}"
-                                )
-                            except Exception:
-                                try:
-                                    import ast
-                                    res_new['answers'] = ast.literal_eval(res_new['answers'])
-                                except Exception:
-                                    res_new['answers'] = {}
-                        if res_new.get('flags'):
-                            try:
-                                res_new['flags'] = json.loads(res_new['flags'])
-                            except Exception:
-                                try:
-                                    import ast
-                                    res_new['flags'] = ast.literal_eval(res_new['flags'])
-                                except Exception:
-                                    res_new['flags'] = []
-                        # Некоторые схемы используют flags_json
-                        if not res_new.get('flags') and res_new.get('flags_json'):
-                            try:
-                                res_new['flags'] = json.loads(res_new['flags_json'])
-                            except Exception:
-                                res_new['flags'] = []
-                        session_new = res_new
-                    else:
-                        logger.info(f"[get_session] user={user_id} no row in author_test_sessions_new")
-                else:
-                    logger.info(f"[get_session] user={user_id} author_test_sessions_new table does not exist")
-            except Exception as e:
-                logger.warning(f"[get_session] user={user_id} error checking author_test_sessions_new: {e}")
-                # Если что-то пошло не так — просто падаем обратно на старую таблицу
-                pass
-
-            # В /data могли остаться разные исторические схемы: session_id PK и несколько строк на пользователя.
-            # Поэтому берём "последнюю" сессию (по updated_at/rowid).
-            cols = {row['name'] for row in self.conn.execute("PRAGMA table_info(author_test_sessions)").fetchall()}
-            
-            # КРИТИЧНО: логируем, сколько строк есть для этого пользователя
-            count_cursor = self.conn.execute("SELECT COUNT(*) as cnt FROM author_test_sessions WHERE user_id = ?", (user_id,))
-            count_row = count_cursor.fetchone()
-            row_count = count_row['cnt'] if count_row else 0
-            logger.info(f"[get_session] user={user_id} found {row_count} rows in author_test_sessions")
-            
-            if 'updated_at' in cols:
-                cursor = self.conn.execute(
-                    "SELECT * FROM author_test_sessions WHERE user_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
-                    (user_id,),
-                )
-            else:
-                cursor = self.conn.execute(
-                    "SELECT * FROM author_test_sessions WHERE user_id = ? ORDER BY rowid DESC LIMIT 1",
-                    (user_id,),
-                )
-            row = cursor.fetchone()
-            if row:
-                res = dict(row)
-                # КРИТИЧНО: логируем, что нашли в старой таблице
-                logger.info(
-                    f"[get_session] user={user_id} from author_test_sessions: current_step={res.get('current_step')} "
-                    f"last_question={res.get('last_question')} answers_len={len(res.get('answers', '') or '')} "
-                    f"updated_at={res.get('updated_at')} rowid={res.get('rowid', res.get('id'))}"
-                )
-                if res.get('answers'):
-                    try:
-                        res['answers'] = json.loads(res['answers'])
-                        logger.info(
-                            f"[get_session] user={user_id} parsed from old table: keys={list(res['answers'].keys())} "
-                            f"len={len(res['answers'])}"
-                        )
-                    except Exception:
-                        # В старых версиях ответы могли быть сохранены не как JSON, а как repr(dict)/repr(list).
+                logger.info(f"[get_session] user={user_id} checking author_test_sessions_new")
+                cursor = self.conn.execute("SELECT * FROM author_test_sessions_new WHERE user_id = ?", (user_id,))
+                row = cursor.fetchone()
+                if row:
+                    res = dict(row)
+                    logger.info(
+                        f"[get_session] user={user_id} found in author_test_sessions_new: "
+                        f"current_step={res.get('current_step')} answers_raw_len={len(res.get('answers', '') or '')}"
+                    )
+                    if res.get('answers'):
                         try:
-                            import ast
-                            res['answers'] = ast.literal_eval(res['answers'])
+                            res['answers'] = json.loads(res['answers'])
                             logger.info(
-                                f"[get_session] user={user_id} parsed from old table (ast): keys={list(res['answers'].keys())} "
+                                f"[get_session] user={user_id} parsed from _new: keys={list(res['answers'].keys())} "
                                 f"len={len(res['answers'])}"
                             )
-                        except Exception:
+                        except (json.JSONDecodeError, TypeError):
                             res['answers'] = {}
-                            logger.warning(f"[get_session] user={user_id} failed to parse answers from old table, using empty dict")
-                if res.get('flags'):
-                    try:
-                        res['flags'] = json.loads(res['flags'])
-                    except Exception:
+                    if res.get('flags'):
                         try:
-                            res['flags'] = ast.literal_eval(res['flags'])
-                        except Exception:
+                            res['flags'] = json.loads(res['flags'])
+                        except (json.JSONDecodeError, TypeError):
                             res['flags'] = []
-                session_old = res
-
-            # Выбираем лучшую сессию: in_progress + больше прогресса + свежее
-            if session_new and session_old:
-                return session_new if _session_rank(session_new) > _session_rank(session_old) else session_old
-            return session_new or session_old
-        except sqlite3.Error as e:
+                    return res
+                else:
+                    logger.info(f"[get_session] user={user_id} no row in author_test_sessions_new, falling back to old table")
+            except sqlite3.Error as e:
+                logger.warning(f"[get_session] user={user_id} author_test_sessions_new error: {e}, falling back to old table")
+                pass  # Новая таблица может не существовать
+            
+            # Fallback: используем старую структуру через get_active_author_test_session
+            logger.info(f"[get_session] user={user_id} reading from author_test_sessions (old table)")
+            old_session = self.get_active_author_test_session(user_id)
+            if old_session:
+                # Парсим answers из старой таблицы
+                if old_session.get('answers'):
+                    try:
+                        old_session['answers'] = json.loads(old_session['answers'])
+                        logger.info(
+                            f"[get_session] user={user_id} parsed from old table: keys={list(old_session['answers'].keys())} "
+                            f"len={len(old_session['answers'])}"
+                        )
+                    except (json.JSONDecodeError, TypeError):
+                        old_session['answers'] = {}
+                logger.info(
+                    f"[get_session] user={user_id} from old table: current_step={old_session.get('current_step')} "
+                    f"last_question={old_session.get('last_question')} answers_len={len(old_session.get('answers', {}))}"
+                )
+            return old_session
+        except Exception as e:
             logger.error(f"Error getting author session for {user_id}: {e}", exc_info=True)
             return None
 
     def save_author_test_progress(self, user_id: int, step: int, answers: dict, fear_total: int, ready_total: int, flags: list):
-        """Saves author test progress without SQLite UPSERT."""
-        now = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
+        """Сохраняет прогресс теста в author_test_sessions_new."""
+        now = datetime.now(TIMEZONE).isoformat()
         answers_json = json.dumps(answers, ensure_ascii=False)
         flags_json = json.dumps(flags, ensure_ascii=False)
         try:
             with self.conn:
-                info = self.conn.execute("PRAGMA table_info(author_test_sessions)").fetchall()
-                cols = {row['name'] for row in info}
-                info_by_name = {row['name']: row for row in info}
-
-                # КРИТИЧНО: логируем, что сохраняем
                 logger.info(
                     f"[save_progress] user={user_id} step={step} answers_keys={list(answers.keys())} "
-                    f"answers_len={len(answers)} fear={fear_total} ready={ready_total} "
-                    f"table_cols={sorted(cols)}"
+                    f"answers_len={len(answers)} fear={fear_total} ready={ready_total} -> saving to author_test_sessions_new"
                 )
-
-                # 1) Сначала пробуем UPDATE (не требует session_id и переживает разные PK).
-                sets = []
-                params = []
-                if 'status' in cols:
-                    sets.append("status='in_progress'")
-                if 'current_step' in cols:
-                    sets.append("current_step=?"); params.append(step)
-                # Совместимость со старой схемой
-                if 'last_question' in cols:
-                    sets.append("last_question=?"); params.append(step)
-                if 'answers' in cols:
-                    sets.append("answers=?"); params.append(answers_json)
-                if 'fear_total' in cols:
-                    sets.append("fear_total=?"); params.append(fear_total)
-                if 'ready_total' in cols:
-                    sets.append("ready_total=?"); params.append(ready_total)
-                if 'flags' in cols:
-                    sets.append("flags=?"); params.append(flags_json)
-                if 'updated_at' in cols:
-                    sets.append("updated_at=?"); params.append(now)
-
-                updated = 0
-                if sets:
-                    # Проверяем, есть ли запись для этого user_id перед UPDATE
-                    check = self.conn.execute("SELECT user_id, current_step, rowid FROM author_test_sessions WHERE user_id = ? LIMIT 1", (user_id,)).fetchone()
-                    logger.info(f"[save_progress] user={user_id} BEFORE UPDATE: found_row={check is not None} row_data={dict(check) if check else None}")
-                    
-                    cur = self.conn.execute(
-                        f"UPDATE author_test_sessions SET {', '.join(sets)} WHERE user_id=?",
-                        (*params, user_id),
-                    )
-                    updated = cur.rowcount or 0
-                    logger.info(f"[save_progress] user={user_id} UPDATE: rowcount={updated}")
-
-                if updated:
-                    # Проверяем после UPDATE
-                    check_after = self.conn.execute("SELECT user_id, current_step, answers FROM author_test_sessions WHERE user_id = ? LIMIT 1", (user_id,)).fetchone()
-                    logger.info(f"[save_progress] user={user_id} AFTER UPDATE: row_data={dict(check_after) if check_after else None}")
-                    return
-
-                # 2) UPDATE ничего не затронул => INSERT новой строки, учитывая обязательные поля исторических схем.
-                insert_cols = []
-                insert_vals = []
-
-                def add(col: str, val):
-                    if col in cols:
-                        insert_cols.append(col)
-                        insert_vals.append(val)
-
-                # session_id мог быть NOT NULL в старой схеме => заполняем
-                if 'session_id' in cols:
-                    _col = info_by_name.get('session_id')
-                    decl = _col['type'] if _col and 'type' in _col.keys() else ''
-                    if 'INT' in decl.upper():
-                        add('session_id', int(time.time() * 1000))
-                    else:
-                        add('session_id', uuid.uuid4().hex)
-
-                add('user_id', user_id)
-                add('status', 'in_progress')
-                add('current_step', step)
-                add('last_question', step)
-                add('answers', answers_json)
-                add('fear_total', fear_total)
-                add('ready_total', ready_total)
-                add('flags', flags_json)
-                add('started_at', now)
-                add('updated_at', now)
-
-                if not insert_cols:
-                    return
-
-                placeholders = ", ".join(["?"] * len(insert_cols))
-                self.conn.execute(
-                    f"INSERT INTO author_test_sessions ({', '.join(insert_cols)}) VALUES ({placeholders})",
-                    tuple(insert_vals),
-                )
+                # Используем новую таблицу с ON CONFLICT
+                self.conn.execute("""
+                    INSERT INTO author_test_sessions_new (user_id, current_step, answers, fear_total, ready_total, flags, started_at, updated_at, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'in_progress')
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        current_step=excluded.current_step,
+                        answers=excluded.answers,
+                        fear_total=excluded.fear_total,
+                        ready_total=excluded.ready_total,
+                        flags=excluded.flags,
+                        updated_at=excluded.updated_at,
+                        status='in_progress'
+                """, (user_id, step, answers_json, fear_total, ready_total, flags_json, now, now))
+                logger.info(f"[save_progress] user={user_id} saved to author_test_sessions_new successfully")
         except sqlite3.Error as e:
             logger.error(f"Error saving author progress for {user_id}: {e}", exc_info=True)
 
     def reset_author_test(self, user_id: int):
-        """Resets author test session without SQLite UPSERT."""
-        now = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
+        """Сбрасывает сессию теста автора в author_test_sessions_new."""
+        now = datetime.now(TIMEZONE).isoformat()
         try:
             empty_answers = json.dumps({}, ensure_ascii=False)
             empty_flags = json.dumps([], ensure_ascii=False)
             with self.conn:
-                info = self.conn.execute("PRAGMA table_info(author_test_sessions)").fetchall()
-                cols = {row['name'] for row in info}
-                info_by_name = {row['name']: row for row in info}
-
-                # 1) UPDATE всех строк пользователя (если их несколько) — безопасно и не требует session_id.
-                sets = []
-                params = []
-                if 'status' in cols:
-                    sets.append("status='in_progress'")
-                if 'current_step' in cols:
-                    sets.append("current_step=0")
-                if 'last_question' in cols:
-                    sets.append("last_question=0")
-                if 'answers' in cols:
-                    sets.append("answers=?"); params.append(empty_answers)
-                if 'fear_total' in cols:
-                    sets.append("fear_total=0")
-                if 'ready_total' in cols:
-                    sets.append("ready_total=0")
-                if 'zone' in cols:
-                    sets.append("zone=NULL")
-                if 'flags' in cols:
-                    sets.append("flags=?"); params.append(empty_flags)
-                if 'started_at' in cols:
-                    sets.append("started_at=?"); params.append(now)
-                if 'updated_at' in cols:
-                    sets.append("updated_at=?"); params.append(now)
-                if 'completed_at' in cols:
-                    sets.append("completed_at=NULL")
-
-                updated = 0
-                if sets:
-                    cur = self.conn.execute(
-                        f"UPDATE author_test_sessions SET {', '.join(sets)} WHERE user_id=?",
-                        (*params, user_id),
-                    )
-                    updated = cur.rowcount or 0
-
-                if updated:
-                    return
-
-                # 2) Если строк не было — INSERT, учитывая обязательный session_id в старой схеме.
-                insert_cols = []
-                insert_vals = []
-
-                def add(col: str, val):
-                    if col in cols:
-                        insert_cols.append(col)
-                        insert_vals.append(val)
-
-                if 'session_id' in cols:
-                    _col = info_by_name.get('session_id')
-                    decl = _col['type'] if _col and 'type' in _col.keys() else ''
-                    if 'INT' in decl.upper():
-                        add('session_id', int(time.time() * 1000))
-                    else:
-                        add('session_id', uuid.uuid4().hex)
-
-                add('user_id', user_id)
-                add('status', 'in_progress')
-                add('current_step', 0)
-                add('last_question', 0)
-                add('answers', empty_answers)
-                add('fear_total', 0)
-                add('ready_total', 0)
-                add('zone', None)
-                add('flags', empty_flags)
-                add('started_at', now)
-                add('updated_at', now)
-                add('completed_at', None)
-
-                if not insert_cols:
-                    return
-
-                placeholders = ", ".join(["?"] * len(insert_cols))
-                self.conn.execute(
-                    f"INSERT INTO author_test_sessions ({', '.join(insert_cols)}) VALUES ({placeholders})",
-                    tuple(insert_vals),
-                )
+                logger.info(f"[reset_author_test] user={user_id} resetting in author_test_sessions_new")
+                # Используем новую таблицу с ON CONFLICT
+                self.conn.execute("""
+                    INSERT INTO author_test_sessions_new (user_id, current_step, answers, fear_total, ready_total, flags, started_at, updated_at, status)
+                    VALUES (?, 0, ?, 0, 0, ?, ?, ?, 'in_progress')
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        current_step=0,
+                        answers=excluded.answers,
+                        fear_total=0,
+                        ready_total=0,
+                        flags=excluded.flags,
+                        started_at=excluded.started_at,
+                        updated_at=excluded.updated_at,
+                        status='in_progress',
+                        zone=NULL,
+                        completed_at=NULL
+                """, (user_id, empty_answers, empty_flags, now, now))
+                logger.info(f"[reset_author_test] user={user_id} reset in author_test_sessions_new successfully")
         except sqlite3.Error as e:
             logger.error(f"Error resetting author test for {user_id}: {e}", exc_info=True)
 
