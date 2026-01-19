@@ -4,6 +4,7 @@
 from aiogram import types, Dispatcher
 import logging
 import json
+import html
 from .marketplace_manager import MarketplaceManager
 from .google_sheets import test_google_sheets_connection, get_sheets_info, read_sheet_data
 from modules.texts import get_personalized_text, MARKETPLACE_TEXTS
@@ -116,6 +117,110 @@ async def cmd_get_prices(message: types.Message):
                 wb_count=result.get('wb_prices_count', 0)
             )
             await message.reply(text)
+
+            # Дополнительно: показываем список товаров с ценами (насколько это возможно).
+            # Источник названий — Google Sheets (обычно колонка A). ID берём из колонок C/D.
+            ozon_prices = result.get("ozon_prices") or {}
+            wb_prices = result.get("wb_prices") or {}
+
+            def _fmt_rub(val) -> str:
+                try:
+                    f = float(val)
+                except Exception:
+                    return "н/д"
+                if f.is_integer():
+                    return f"{int(f)} ₽"
+                return f"{f:.2f} ₽"
+
+            def _chunk_send(title: str, lines: list[str], max_chars: int = 3500) -> list[str]:
+                """Собирает пачки текста под лимит Telegram (4096) и возвращает готовые сообщения."""
+                if not lines:
+                    return []
+                chunks: list[str] = []
+                cur = title + "\n"
+                for line in lines:
+                    if len(cur) + len(line) + 1 > max_chars:
+                        chunks.append(cur.rstrip())
+                        cur = title + "\n" + line + "\n"
+                    else:
+                        cur += line + "\n"
+                if cur.strip():
+                    chunks.append(cur.rstrip())
+                return chunks
+
+            try:
+                sheet_res = await manager.sheets_api.get_sheet_data(manager.spreadsheet_id, manager.sheet_name)
+                sheet_data = sheet_res.get("data") if isinstance(sheet_res, dict) else None
+            except Exception:
+                sheet_data = None
+
+            oz_lines: list[str] = []
+            wb_lines: list[str] = []
+
+            if sheet_data and isinstance(sheet_data, list) and len(sheet_data) >= 2:
+                for row in sheet_data[1:]:
+                    if not isinstance(row, list):
+                        continue
+                    name = (row[0] if len(row) > 0 else "") or ""
+                    name = str(name).strip()
+
+                    nm_raw = (row[2] if len(row) > 2 else "") or ""
+                    offer_raw = (row[3] if len(row) > 3 else "") or ""
+                    nm_str = str(nm_raw).strip()
+                    offer_id = str(offer_raw).strip()
+
+                    # OZON
+                    if offer_id:
+                        p = ozon_prices.get(offer_id) or {}
+                        note = str(p.get("note") or "").lower()
+                        if "недоступ" in note:
+                            price_txt = "н/д (API)"
+                        else:
+                            price_txt = _fmt_rub(p.get("price"))
+                        title = name if name else offer_id
+                        oz_lines.append(f"• {title} — {price_txt} (offer_id: {offer_id})")
+
+                    # WB
+                    if nm_str:
+                        nm_id = None
+                        try:
+                            nm_id = int(nm_str)
+                        except Exception:
+                            nm_id = None
+                        p = wb_prices.get(nm_id) if nm_id is not None else None
+                        if isinstance(p, dict):
+                            price_txt = _fmt_rub(p.get("price"))
+                        else:
+                            price_txt = "н/д"
+                        title = name if name else nm_str
+                        wb_lines.append(f"• {title} — {price_txt} (nm_id: {nm_str})")
+
+            # Если sheet недоступен/пуст — покажем хотя бы цены по ID из результата
+            if not oz_lines and ozon_prices:
+                for offer_id, p in ozon_prices.items():
+                    note = str((p or {}).get("note") or "").lower()
+                    if "недоступ" in note:
+                        price_txt = "н/д (API)"
+                    else:
+                        price_txt = _fmt_rub((p or {}).get("price"))
+                    oz_lines.append(f"• offer_id {offer_id} — {price_txt}")
+            if not wb_lines and wb_prices:
+                for nm_id, p in wb_prices.items():
+                    price_txt = _fmt_rub((p or {}).get("price"))
+                    wb_lines.append(f"• nm_id {nm_id} — {price_txt}")
+
+            # Отправляем аккуратно, чтобы не превысить лимит сообщения
+            if oz_lines:
+                for msg_part in _chunk_send("🛒 Цены Ozon:", oz_lines[:200]):
+                    await message.answer(msg_part)
+            else:
+                await message.answer("🛒 Цены Ozon: нет данных (текущий API может не отдавать цены).")
+
+            if wb_lines:
+                for msg_part in _chunk_send("🛍️ Цены Wildberries:", wb_lines[:200]):
+                    await message.answer(msg_part)
+            else:
+                await message.answer("🛍️ Цены Wildberries: нет данных (проверьте WB API/таблицу).")
         else:
             user_id = message.from_user.id
             text = get_personalized_text('prices_update_error', MARKETPLACE_TEXTS, user_id, None).format(
