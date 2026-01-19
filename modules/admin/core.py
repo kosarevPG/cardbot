@@ -46,7 +46,7 @@ def make_admin_handler(db: Database, logger_service: LoggingService):
         text = (
             "📊 <b>АДМИН ПАНЕЛЬ</b>\n\n"
             "Выберите раздел для просмотра метрик:\n\n"
-            f"<code>admin_menu_version={ADMIN_MENU_VERSION}</code>"
+            ""
         )
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
@@ -250,7 +250,7 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
         text = (
             "📊 <b>АДМИН ПАНЕЛЬ</b>\n\n"
             "Выберите раздел для просмотра метрик:\n\n"
-            f"<code>admin_menu_version={ADMIN_MENU_VERSION}</code>"
+            ""
         )
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
