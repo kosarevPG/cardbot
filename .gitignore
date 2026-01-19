@@ -124,6 +124,11 @@ ipython_config.py
 tools/*
 !tools/author_yellow_gate.jpg
 !tools/author_red_gate.jpg
+!tools/legacy/
+!tools/legacy/**
+# Даже внутри tools/legacy не храним кэш байткода
+tools/legacy/**/__pycache__/
+tools/legacy/**/__pycache__/**
 
 # pdm
 #   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
