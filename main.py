@@ -1720,11 +1720,9 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     
     dp.message.register(handle_settings_button, F.text == "⚙️ Настройки")
 
-    # Кнопка "Стать автором" — каркас теста (пока только для админов)
+    # Кнопка "Стать автором" — доступна всем пользователям
     async def handle_become_author(message: types.Message, state: FSMContext):
         user_id = message.from_user.id
-        if str(user_id) not in ADMIN_IDS:
-            return
         await start_author_test_flow(message, state, db)
 
     dp.message.register(handle_become_author, F.text.contains("Стать автором"))
@@ -1734,10 +1732,6 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
 
     async def author_callback_wrapper(callback: types.CallbackQuery, state: FSMContext):
         user_id = callback.from_user.id
-        if str(user_id) not in ADMIN_IDS:
-            await callback.answer("Недоступно.", show_alert=True)
-            return
-
         status = await handle_author_callback(callback, state, db)
         # Чтобы не спамить лишними сообщениями: finish_author_test сам показывает меню.
         # Меню нужно только для отмены (например, если пользователь нажал на старую inline-кнопку).

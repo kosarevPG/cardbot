@@ -79,11 +79,12 @@ async def get_main_menu(user_id, db: Database):
         logger.error(f"Error getting user data for main menu (user {user_id}): {e}", exc_info=True)
     
 
-    # Кнопка "Стать автором" — пока только для админов
+    # Кнопка "Стать автором" — доступна всем пользователям
+    keyboard.append([types.KeyboardButton(text=BTN_BECOME_AUTHOR)])
+
+    # Кнопка "⚒️ Админ-панель" — только админам
     try:
         if str(user_id) in ADMIN_IDS:
-            keyboard.append([types.KeyboardButton(text=BTN_BECOME_AUTHOR)])
-            # Кнопка "⚒️ Админ-панель" — сразу под "Стать автором", тоже только для админов
             keyboard.append([types.KeyboardButton(text=BTN_ADMIN_PANEL)])
     except Exception:
         pass
