@@ -508,6 +508,11 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
                 await callback.message.edit_reply_markup(reply_markup=None)
         except Exception:
             pass
+        # Чтобы статистика в админке была корректной, помечаем сессию как cancelled.
+        try:
+            db.cancel_author_test(user_id)
+        except Exception:
+            pass
         await state.clear()
         await _safe_callback_answer(callback, "Ок, отменил(а).")
         return "cancelled"

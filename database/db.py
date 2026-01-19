@@ -3009,6 +3009,36 @@ class Database:
                 """, (zone, now, now, user_id))
         except sqlite3.Error as e:
             logger.error(f"Error completing author test for {user_id}: {e}", exc_info=True)
+
+    def cancel_author_test(self, user_id: int):
+        """Помечает тест отменённым (чтобы не висел как in_progress в админке)."""
+        now = datetime.now(TIMEZONE).isoformat() if TIMEZONE else datetime.now().isoformat()
+        try:
+            with self.conn:
+                try:
+                    self.conn.execute(
+                        """
+                        UPDATE author_test_sessions_new
+                        SET status='cancelled', updated_at=?
+                        WHERE user_id=?
+                        """,
+                        (now, user_id),
+                    )
+                except sqlite3.Error:
+                    pass
+                try:
+                    self.conn.execute(
+                        """
+                        UPDATE author_test_sessions
+                        SET status='cancelled', updated_at=?
+                        WHERE user_id=?
+                        """,
+                        (now, user_id),
+                    )
+                except sqlite3.Error:
+                    pass
+        except sqlite3.Error as e:
+            logger.error(f"Error cancelling author test for {user_id}: {e}", exc_info=True)
 # --- КОНЕЦ КЛАССА ---
 
 # Импорт pytz
