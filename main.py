@@ -421,6 +421,21 @@ def make_start_handler(db, logger_service, user_manager):
                                  logger.error(f"Failed to send referral bonus message to {referrer_id}: {send_err}")
             except (ValueError, TypeError, IndexError) as ref_err:
                 logger.warning(f"Invalid referral code processing '{args}' from user {user_id}: {ref_err}")
+
+        # Deep-link: запуск теста «Стать автором» прямо из ссылки вида
+        # https://t.me/<bot>?start=author_test
+        try:
+            start_arg = (args or "").strip().lower()
+        except Exception:
+            start_arg = ""
+        if start_arg in ("author_test", "author"):
+            try:
+                from modules.become_author import start_author_test_flow
+                await start_author_test_flow(message, state, db)
+                return
+            except Exception as e:
+                logger.error(f"Failed to start author test from deep-link: {e}", exc_info=True)
+
         from modules.texts.common import COMMON_TEXTS
         from modules.texts.gender_utils import get_user_info_for_text, personalize_text
         
