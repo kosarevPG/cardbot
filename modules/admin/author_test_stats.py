@@ -41,6 +41,7 @@ async def show_admin_author_test_stats(
     if "started_all" in stats or "completed_all" in stats:
         zones = stats.get("zones_all") or {}
         zone_users = stats.get("zone_users") or {}
+        in_progress_users = stats.get("in_progress_users") or []
         text = (
             "📝 <b>ТЕСТ «СТАТЬ АВТОРОМ»</b>\n\n"
             f"• Начали (всего): <b>{stats.get('started_all', 0)}</b>\n"
@@ -79,6 +80,24 @@ async def show_admin_author_test_stats(
         text += _zone_block("YELLOW")
         text += _zone_block("RED")
         text += _zone_block("UNKNOWN")
+
+        # Пользователи, которые начали, но не закончили — выводим отдельным блоком в UNKNOWN (в процессе).
+        max_in_progress = 30
+
+        def _fmt_in_progress_user(u: dict) -> str:
+            uid = u.get("user_id")
+            username = (u.get("username") or "").strip()
+            name = (u.get("name") or "").strip()
+            uname = f"@{html.escape(username)}" if username else "—"
+            nm = html.escape(name) if name else "—"
+            return f"• <code>{uid}</code> | {uname} | {nm}"
+
+        shown = in_progress_users[:max_in_progress]
+        total_ip = int(stats.get("in_progress_all", 0) or 0)
+        rest = max(total_ip - len(shown), 0)
+        lines = "\n".join(_fmt_in_progress_user(u) for u in shown) if shown else "• —"
+        more = f"\n<i>…и ещё {rest}</i>" if rest > 0 else ""
+        text += f"\n<b>UNKNOWN (начали, но не закончили):</b>\n{lines}{more}\n"
     else:
         # Вариант B (упрощённый): started/completed/conversion/green/yellow/red
         text = (

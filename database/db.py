@@ -2728,6 +2728,8 @@ class Database:
             "zones_all": {"GREEN": 0, "YELLOW": 0, "RED": 0, "UNKNOWN": 0},
             # Списки пользователей по зонам (ID | username | name) для completed-сессий.
             "zone_users": {"GREEN": [], "YELLOW": [], "RED": [], "UNKNOWN": []},
+            # Пользователи, которые начали, но не завершили (status='in_progress')
+            "in_progress_users": [],
             "recent_started": [],
             "recent_completed": [],
             "tables": {"new": new_exists, "old": old_exists},
@@ -2917,6 +2919,66 @@ class Database:
                     stats["recent_completed"] = [dict(r) for r in cur.fetchall()]
             except Exception:
                 pass
+
+        # ---------- ALL IN-PROGRESS USERS (для админки / UNKNOWN) ----------
+        # Важно: отдаём список пользователей, которые начали, но не закончили.
+        # Ограничиваем выборку сверху, а остаток можно вычислить по in_progress_all на UI.
+        in_progress_limit = 200
+        in_progress_users: list[dict] = []
+        seen_in_progress: set[int] = set()
+
+        try:
+            if new_exists:
+                cur = self.conn.execute(
+                    """
+                    SELECT s.user_id, u.username, u.name, s.current_step, s.started_at, s.updated_at
+                    FROM author_test_sessions_new s
+                    LEFT JOIN users u ON u.user_id = s.user_id
+                    WHERE s.status='in_progress'
+                    ORDER BY COALESCE(s.updated_at, s.started_at) DESC
+                    LIMIT ?
+                    """,
+                    (in_progress_limit,),
+                )
+                for r in cur.fetchall():
+                    row = dict(r)
+                    uid = row.get("user_id")
+                    if isinstance(uid, int):
+                        seen_in_progress.add(uid)
+                    in_progress_users.append(
+                        {"user_id": row.get("user_id"), "username": row.get("username"), "name": row.get("name")}
+                    )
+        except Exception:
+            logger.exception("[author_stats] failed to collect in_progress users from new table")
+
+        try:
+            if old_exists:
+                extra_where = ""
+                if new_exists:
+                    extra_where = "AND NOT EXISTS (SELECT 1 FROM author_test_sessions_new n WHERE n.user_id = s.user_id)"
+                cur = self.conn.execute(
+                    f"""
+                    SELECT s.user_id, u.username, u.name, s.current_step, s.started_at, s.updated_at
+                    FROM author_test_sessions s
+                    LEFT JOIN users u ON u.user_id = s.user_id
+                    WHERE s.status='in_progress' {extra_where}
+                    ORDER BY COALESCE(s.updated_at, s.started_at) DESC
+                    LIMIT ?
+                    """,
+                    (in_progress_limit,),
+                )
+                for r in cur.fetchall():
+                    row = dict(r)
+                    uid = row.get("user_id")
+                    if isinstance(uid, int) and uid in seen_in_progress:
+                        continue
+                    in_progress_users.append(
+                        {"user_id": row.get("user_id"), "username": row.get("username"), "name": row.get("name")}
+                    )
+        except Exception:
+            logger.exception("[author_stats] failed to collect in_progress users from old table")
+
+        stats["in_progress_users"] = in_progress_users
 
         # ---------- USERS PER ZONE (completed) ----------
         # Важно: отдаём списки пользователей для каждой зоны (для админки).
