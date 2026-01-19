@@ -88,6 +88,26 @@ def _yellow_gate_image_path() -> Path:
         pass
     return preferred[0]
 
+def _red_gate_image_path() -> Path:
+    """Ожидаемый файл: tools/author_red_gate.(jpg|jpeg|png|webp)"""
+    tools_dir = Path(__file__).resolve().parents[1] / "tools"
+    preferred = [
+        tools_dir / "author_red_gate.jpg",
+        tools_dir / "author_red_gate.jpeg",
+        tools_dir / "author_red_gate.png",
+        tools_dir / "author_red_gate.webp",
+    ]
+    for p in preferred:
+        if p.exists():
+            return p
+    try:
+        for p in sorted(tools_dir.glob("author_red_gate.*")):
+            if p.is_file():
+                return p
+    except Exception:
+        pass
+    return preferred[0]
+
 
 class AuthorTestStates(StatesGroup):
     answering = State()
@@ -919,9 +939,20 @@ async def finish_author_test(message: types.Message, state: FSMContext, db: Data
             "❤️ Поэтому сейчас я хочу оставить для вас доступ к материалам, которые помогут вам укрепить позицию и вернуться к этому тесту позже\n"
         )
         # Меню показываем прямо на результате (без фразы "Главное меню:"),
-        # а материалы отправляем отдельным сообщением с URL-кнопкой.
+        # а материалы отправляем отдельным сообщением картинкой с URL-кнопкой.
         await message.answer(result_text, reply_markup=menu_kb)
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🎁 получить материалы", url="https://disk.yandex.ru/d/-DwKWW_440Gg7A")],
         ])
-        await message.answer("🎁 получить материалы:", reply_markup=kb)
+        img_path = _red_gate_image_path()
+        if img_path.exists():
+            try:
+                await message.answer_photo(
+                    types.FSInputFile(str(img_path)),
+                    reply_markup=kb,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to send red gate photo: {e!r}")
+                await message.answer("Откройте материалы по кнопке ниже:", reply_markup=kb)
+        else:
+            await message.answer("Откройте материалы по кнопке ниже:", reply_markup=kb)

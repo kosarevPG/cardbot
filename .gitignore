@@ -123,6 +123,7 @@ ipython_config.py
 # но некоторые ассеты нужны в рантайме (например, картинка для yellow-gate).
 tools/*
 !tools/author_yellow_gate.jpg
+!tools/author_red_gate.jpg
 
 # pdm
 #   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
