@@ -23,6 +23,35 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+async def _safe_callback_answer(
+    callback: types.CallbackQuery,
+    text: str | None = None,
+    show_alert: bool = False,
+) -> None:
+    """
+    Telegram может вернуть 'query is too old / query ID is invalid' если пользователь нажал кнопку
+    давно, либо если callback уже был отвечен. Это не должно валить хэндлер.
+    """
+    try:
+        if text is None:
+            await callback.answer()
+        else:
+            await callback.answer(text, show_alert=show_alert)
+    except TelegramBadRequest as e:
+        msg = str(e)
+        if (
+            "query is too old" in msg
+            or "response timeout expired" in msg
+            or "query ID is invalid" in msg
+        ):
+            return
+        # остальные bad request — логируем, но не падаем
+        logger.warning(f"[author_test] callback.answer TelegramBadRequest ignored: {e!r}")
+    except Exception:
+        # любая неожиданная ошибка ответа на callback не должна ломать сценарий
+        return
+
+
 # --- Yellow zone gate (картинка + подтверждение) ---
 YELLOW_GATE_CAPTION = "Вы готовы работать над тем, чтобы выйти из желтой зоны?"
 YELLOW_GATE_CB_NO = "author_yellow_no"
@@ -480,21 +509,21 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         except Exception:
             pass
         await state.clear()
-        await callback.answer("Ок, отменил(а).")
+        await _safe_callback_answer(callback, "Ок, отменил(а).")
         return "cancelled"
 
     if callback.data == "author_restart":
-        await callback.answer()
+        await _safe_callback_answer(callback)
         await _start_new_test(callback.message, state, db)
         return "continue"
 
     if callback.data == "author_resume":
-        await callback.answer()
+        await _safe_callback_answer(callback)
         await _resume_test(callback.message, state, db)
         return "continue"
 
     if callback.data == "author_begin":
-        await callback.answer()
+        await _safe_callback_answer(callback)
         await send_current_question(callback.message, state)
         return "continue"
 
@@ -505,7 +534,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
             step = int(parts[1])
             score = int(parts[2])
         except Exception:
-            await callback.answer("Не понял ответ, попробуйте ещё раз.", show_alert=True)
+            await _safe_callback_answer(callback, "Не понял ответ, попробуйте ещё раз.", show_alert=True)
             return "ignored"
 
         flag = None
@@ -523,7 +552,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         data = await state.get_data()
         cur_step = int(data.get("step", 0))
         if step != cur_step:
-            await callback.answer()
+            await _safe_callback_answer(callback)
             return "ignored"
 
         fear_total = int(data.get("fear_total", 0))
@@ -559,7 +588,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
             ready_total=ready_total,
             flags=flags,
         )
-        await callback.answer()
+        await _safe_callback_answer(callback)
 
         if next_step >= TOTAL_QUESTIONS:
             await finish_author_test(callback.message, state, db, user=callback.from_user)
@@ -633,7 +662,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
     # Yellow zone gate callbacks
     # Yellow: materials -> send link + schedule checklist prompt
     if callback.data == YELLOW_MATERIALS_CB:
-        await callback.answer()
+        await _safe_callback_answer(callback)
         # Убираем кнопку из предыдущего сообщения, чтобы не было дубля "получить материалы"
         try:
             if callback.message:
@@ -670,7 +699,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         return "ignored"
 
     if callback.data == YELLOW_CHECKLIST_PROMPT_CB_NOW:
-        await callback.answer()
+        await _safe_callback_answer(callback)
         try:
             if callback.message:
                 await callback.message.edit_reply_markup(reply_markup=None)
@@ -684,7 +713,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         return "ignored"
 
     if callback.data == YELLOW_CHECKLIST_PROMPT_CB_LATER:
-        await callback.answer("Хорошо.")
+        await _safe_callback_answer(callback, "Хорошо.")
         try:
             if callback.message:
                 await callback.message.edit_reply_markup(reply_markup=None)
@@ -693,7 +722,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         return "ignored"
 
     if callback.data == YELLOW_GATE_CB_NO:
-        await callback.answer("Хорошо.")
+        await _safe_callback_answer(callback, "Хорошо.")
         try:
             if callback.message:
                 await callback.message.edit_reply_markup(reply_markup=None)
@@ -702,7 +731,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         return "ignored"
 
     if callback.data == YELLOW_GATE_CB_YES:
-        await callback.answer("Отлично!")
+        await _safe_callback_answer(callback, "Отлично!")
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🎁 получить материалы", callback_data=YELLOW_MATERIALS_CB)],
         ])
@@ -717,7 +746,7 @@ async def handle_author_callback(callback: types.CallbackQuery, state: FSMContex
         return "ignored"
 
     if callback.data == "author_placeholder":
-        await callback.answer("Материалы пока готовятся. Следите за обновлениями!", show_alert=True)
+        await _safe_callback_answer(callback, "Материалы пока готовятся. Следите за обновлениями!", show_alert=True)
         return "ignored"
 
     return "ignored"
