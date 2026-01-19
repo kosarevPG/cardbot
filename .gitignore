@@ -119,8 +119,10 @@ ipython_config.py
 #   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
 #poetry.lock
 
-# Tools directory (вспомогательные файлы) - НЕ включаем в деплой
-tools/
+# Tools directory (вспомогательные файлы) — в целом НЕ включаем в деплой,
+# но некоторые ассеты нужны в рантайме (например, картинка для yellow-gate).
+tools/*
+!tools/author_yellow_gate.jpg
 
 # pdm
 #   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
