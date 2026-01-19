@@ -43,22 +43,22 @@ ADMIN_ID=123456789
 
 ### **Быстрый запуск**
 ```bash
-python local_main.py
+python tools/legacy/root_scripts/local_main.py
 ```
 
 ### **Запуск с логированием**
 ```bash
-python local_main.py > bot.log 2>&1
+python tools/legacy/root_scripts/local_main.py > bot.log 2>&1
 ```
 
 ### **Запуск в фоне (Windows)**
 ```bash
-start /B python local_main.py
+start /B python tools/legacy/root_scripts/local_main.py
 ```
 
 ### **Запуск в фоне (Linux/Mac)**
 ```bash
-nohup python local_main.py &
+nohup python tools/legacy/root_scripts/local_main.py &
 ```
 
 ## 📱 **Проверка работы**
@@ -110,11 +110,11 @@ ps aux | grep python       # Linux/Mac
 ## 🔄 **Автоматический перезапуск**
 
 ### **Windows (bat файл)**
-Создайте `run_bot.bat`:
+Создайте `run_bot.bat` (или используйте готовый в `tools/legacy/deploy_hotfix/run_bot.bat`):
 ```batch
 @echo off
 :loop
-python local_main.py
+python tools/legacy/root_scripts/local_main.py
 echo Бот остановлен, перезапуск через 5 секунд...
 timeout /t 5
 goto loop
@@ -126,7 +126,7 @@ goto loop
 #!/bin/bash
 while true; do
     echo "Запуск бота..."
-    python local_main.py
+    python tools/legacy/root_scripts/local_main.py
     echo "Бот остановлен, перезапуск через 5 секунд..."
     sleep 5
 done
