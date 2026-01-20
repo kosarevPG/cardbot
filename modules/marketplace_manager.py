@@ -59,7 +59,7 @@ class MarketplaceManager:
         # Google Sheets настройки
         self.sheets_api = GoogleSheetsAPI(service_account_info=google_creds)
         self.spreadsheet_id = "1RoWWv9BgiwlSu9H-KJNsFItQxlUVhG1WMbyB0eFxzYM"
-        self.sheet_name = "marketplaces"  # Имя листа в таблице "Форбс.Учет 2.0"
+        self.sheet_name = "Лист1"
         
         # Структура таблицы для Ozon (соответствует "Форбс.Учет 2.0")
         self.ozon_columns = {
@@ -578,26 +578,22 @@ class MarketplaceManager:
             analytics_result = await self.get_ozon_analytics(date_from, date_to)
             
             # Подготавливаем данные для таблицы
-            # Используем комбинацию (offer_id, product_id) как ключ для точного сопоставления
             table_data = {}
             for offer_id, product_id in offer_map.items():
                 stock_info = stocks_by_offer_id.get(offer_id, {})
                 
-                logger.info(f"[DEBUG] Processing offer_id={offer_id}, product_id={product_id}. Found stock_info: {stock_info}")
+                logger.info(f"[DEBUG] Processing offer_id={offer_id}. Found stock_info: {stock_info}")
 
                 total_stock = stock_info.get("total", 0)
                 fbo_stock = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbo")
                 fbs_stock = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbs")
                 
-                logger.info(f"Обновляем строку offer_id={offer_id}, product_id={product_id}: total={total_stock}, fbo={fbo_stock}, fbs={fbs_stock}")
+                logger.info(f"Обновляем строку offer_id={offer_id}: total={total_stock}, fbo={fbo_stock}, fbs={fbs_stock}")
                 
                 sales = 0
                 revenue = 0
                 
-                # Используем комбинацию offer_id и product_id для уникальной идентификации
-                table_data[(offer_id, str(product_id))] = {
-                    "offer_id": offer_id,
-                    "product_id": str(product_id),
+                table_data[offer_id] = {
                     "total_stock": total_stock,
                     "fbo_stock": fbo_stock,
                     "fbs_stock": fbs_stock,
@@ -745,52 +741,35 @@ class MarketplaceManager:
         
         return results
     
-    async def _update_ozon_sheet(self, data: Dict[tuple, Dict[str, Any]]) -> None:
-        """Обновляет лист Ozon в Google таблице с помощью пакетного обновления
-        
-        Args:
-            data: Словарь с ключами (offer_id, product_id) и значениями - данными для обновления
-        """
+    async def _update_ozon_sheet(self, data: Dict[str, Dict[str, Any]]) -> None:
+        """Обновляет лист Ozon в Google таблице с помощью пакетного обновления"""
         try:
             # Читаем весь лист, чтобы правильно сопоставить товары
-            # Используем get_sheet_data вместо read_data для чтения всего листа
-            result = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
-            if not result.get("success"):
-                logger.warning(f"⚠️ Нет данных в таблице для обновления Ozon: {result.get('error', 'Неизвестная ошибка')}")
-                return
-            
-            sheet_data = result.get("data", [])
+            sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, self.sheet_name)
             if not sheet_data or len(sheet_data) < 2:
-                logger.warning("⚠️ Нет данных в таблице для обновления Ozon (таблица пуста или содержит только заголовок)")
+                logger.warning("⚠️ Нет данных в таблице для обновления Ozon")
                 return
             
-            # Создаем mapping: (offer_id, product_id) -> номер строки
-            # Используем комбинацию offer_id (колонка D, индекс 3) и SKU (колонка A, индекс 0) для точного сопоставления
-            key_to_row = {}
+            # Создаем mapping: offer_id -> номер строки (пропускаем заголовок)
+            offer_to_row = {}
             for i, row in enumerate(sheet_data[1:], start=2):  # Пропускаем заголовок, начинаем с строки 2
-                if len(row) > 3:
-                    offer_id = str((row[3] if len(row) > 3 else "") or "").strip()
-                    sku = str((row[0] if len(row) > 0 else "") or "").strip()  # Колонка A (SKU = product_id)
-                    
-                    if offer_id and sku:
-                        # Используем комбинацию offer_id и SKU для уникальной идентификации
-                        key_to_row[(offer_id, sku)] = i
+                if len(row) > 3 and row[3]:  # Колонка D (Арт. Ozon)
+                    offer_id = row[3].strip()
+                    offer_to_row[offer_id] = i
             
-            logger.info(f"📋 Найдено {len(key_to_row)} товаров в таблице")
-            logger.info(f"📦 Данных для обновления: {len(data)}")
+            logger.info(f"📋 Найдено {len(offer_to_row)} товаров в таблице: {list(offer_to_row.keys())}")
+            logger.info(f"📦 Данных для обновления: {list(data.keys())}")
             
             # Подготавливаем данные для пакетного обновления
             updates = []
             matched_count = 0
             
-            for (offer_id, product_id), info in data.items():
-                # Ищем строку по комбинации offer_id и product_id (SKU)
-                key = (offer_id, str(product_id))
-                if key in key_to_row:
-                    row = key_to_row[key]
+            for offer_id, info in data.items():
+                if offer_id in offer_to_row:
+                    row = offer_to_row[offer_id]
                     matched_count += 1
                     
-                    logger.info(f"📦 Обновляю товар offer_id={offer_id}, product_id={product_id} в строке {row}: остаток={info.get('total_stock', 0)}")
+                    logger.info(f"📦 Обновляю товар {offer_id} в строке {row}: остаток={info.get('total_stock', 0)}")
                     
                     # Обновляем остатки, продажи, выручку
                     updates.append({
@@ -818,7 +797,7 @@ class MarketplaceManager:
                             "values": [[info.get("revenue", 0)]]
                         })
                 else:
-                    logger.warning(f"⚠️ Товар offer_id={offer_id}, product_id={product_id} не найден в таблице")
+                    logger.warning(f"⚠️ Товар {offer_id} не найден в таблице")
             
             logger.info(f"✅ Сопоставлено {matched_count} из {len(data)} товаров")
 
@@ -879,18 +858,13 @@ class MarketplaceManager:
     
     async def get_ozon_prices(self, offer_ids: List[str] = None) -> Dict[str, Dict]:
         """
-        Получает цены товаров с Ozon через API.
-        
-        Пытается получить цены из нескольких источников:
-        1. Из quants в /v3/product/list (если доступны)
-        2. Из /v1/product/info/attributes (если доступен)
-        3. Из аналитики (если доступна)
+        Получает цены товаров с Ozon (заглушка - цены не доступны через API).
         
         Args:
             offer_ids: Список offer_id для получения цен (если None - все товары)
             
         Returns:
-            Dict[str, Dict]: Словарь {offer_id: {price: float, currency: str, old_price: float, ...}}
+            Dict[str, Dict]: Словарь {offer_id: {price: float, currency: str}}
         """
         logger.info("💰 Получение цен товаров Ozon...")
         
@@ -909,97 +883,20 @@ class MarketplaceManager:
                 logger.warning("⚠️ Нет товаров для получения цен")
                 return {}
             
+            # Временная заглушка - цены Ozon не доступны через текущий API
+            # Возвращаем пустые цены для всех товаров
             prices_data = {}
-            
-            # Метод 1: Пытаемся получить цены из quants через /v3/product/list
-            try:
-                # Получаем mapping offer_id -> product_id
-                mapping_result = await self.get_ozon_product_mapping()
-                if mapping_result.get("success"):
-                    mapping = mapping_result["mapping"]
-                    reverse_mapping = {v: k for k, v in mapping.items()}  # product_id -> offer_id
-                    
-                    # Получаем product_id для наших offer_ids
-                    product_ids = []
-                    offer_to_product = {}
-                    for offer_id in offer_ids:
-                        if offer_id in mapping:
-                            product_id = mapping[offer_id]
-                            product_ids.append(product_id)
-                            offer_to_product[product_id] = offer_id
-                    
-                    if product_ids:
-                        # Получаем детальную информацию о продуктах с quants
-                        # Обрабатываем по частям, чтобы не превысить лимиты API
-                        batch_size = 100
-                        for i in range(0, len(product_ids), batch_size):
-                            batch = product_ids[i:i + batch_size]
-                            detailed_result = await self.get_ozon_products_detailed(batch)
-                            if detailed_result.get("success"):
-                                products = detailed_result.get("products", {})
-                                
-                                for product_id, product_info in products.items():
-                                    offer_id = offer_to_product.get(int(product_id))
-                                    if not offer_id:
-                                        continue
-                                    
-                                    # Ищем цены в quants
-                                    quants = product_info.get("quants", [])
-                                    if quants:
-                                        # Берем первый квант с ценой
-                                        for quant in quants:
-                                            # Проверяем различные поля с ценами
-                                            price = quant.get("price") or quant.get("marketing_price", {}).get("price") or quant.get("seller_price")
-                                            
-                                            if price:
-                                                try:
-                                                    price_float = float(str(price).replace(",", "."))
-                                                    prices_data[offer_id] = {
-                                                        "price": price_float,
-                                                        "currency": "RUB",
-                                                        "old_price": quant.get("old_price"),
-                                                        "marketing_price": quant.get("marketing_price", {}).get("price") if isinstance(quant.get("marketing_price"), dict) else None,
-                                                        "seller_price": quant.get("seller_price"),
-                                                        "source": "quants"
-                                                    }
-                                                    logger.debug(f"✅ Найдена цена для {offer_id}: {price_float} RUB (из quants)")
-                                                    break
-                                                except (ValueError, TypeError):
-                                                    continue
-                                    
-                                    # Если не нашли цену в quants, помечаем как отсутствующую
-                                    if offer_id not in prices_data:
-                                        prices_data[offer_id] = {
-                                            "price": None,
-                                            "currency": "RUB",
-                                            "note": "Цена не найдена в quants"
-                                        }
-            except Exception as e:
-                logger.warning(f"⚠️ Не удалось получить цены из quants: {e}")
-            
-            # Метод 2: Пытаемся получить цены через /v1/product/info/attributes
-            # (если не все цены были получены)
-            missing_prices = [oid for oid in offer_ids if oid not in prices_data or prices_data[oid].get("price") is None]
-            if missing_prices:
-                try:
-                    logger.info(f"🔄 Пытаемся получить цены через /v1/product/info/attributes для {len(missing_prices)} товаров...")
-                    # TODO: Реализовать запрос к /v1/product/info/attributes
-                    # Пока оставляем как есть, так как этот эндпоинт может требовать специфичных параметров
-                except Exception as e:
-                    logger.warning(f"⚠️ Не удалось получить цены через /v1/product/info/attributes: {e}")
-            
-            # Если цены не найдены, возвращаем структуру с None
             for offer_id in offer_ids:
-                if offer_id not in prices_data:
-                    prices_data[offer_id] = {
-                        "price": None,
-                        "currency": "RUB",
-                        "note": "Цена недоступна через API"
-                    }
+                prices_data[offer_id] = {
+                    "price": 0,
+                    "currency": "RUB",
+                    "old_price": None,
+                    "premium_price": None,
+                    "auto_action_enabled": False,
+                    "note": "Цены Ozon недоступны через API"
+                }
             
-            found_prices = sum(1 for p in prices_data.values() if p.get("price") is not None)
-            logger.info(f"💰 Получено цен: {found_prices} из {len(prices_data)} товаров Ozon")
-            
+            logger.info(f"⚠️ Возвращены заглушки цен для {len(prices_data)} товаров Ozon")
             return prices_data
             
         except Exception as e:
@@ -1154,20 +1051,9 @@ class MarketplaceManager:
                     
                     # Цена Ozon
                     if offer_id and offer_id in ozon_prices:
-                        price_info = ozon_prices[offer_id]
-                        price = price_info.get("price")
-                        # Если цена есть (не None), используем её, иначе оставляем пустым
-                        if price is not None:
-                            try:
-                                price_float = float(price) if not isinstance(price, (int, float)) else price
-                                ozon_price_updates.append([price_float])
-                                logger.debug(f"💰 Цена Ozon для {offer_id}: {price_float} RUB")
-                            except (ValueError, TypeError):
-                                ozon_price_updates.append([""])
-                                logger.warning(f"⚠️ Некорректная цена для {offer_id}: {price}")
-                        else:
-                            ozon_price_updates.append([""])
-                            logger.debug(f"⚠️ Цена для {offer_id} недоступна: {price_info.get('note', 'неизвестно')}")
+                        price = ozon_prices[offer_id]["price"]
+                        ozon_price_updates.append([price])
+                        logger.debug(f"💰 Цена Ozon для {offer_id}: {price}")
                     else:
                         ozon_price_updates.append([""])
                     
@@ -1317,132 +1203,7 @@ class MarketplaceManager:
             results["google_sheets"] = f"Ошибка: {str(e)}"
         
         return results
-    
-    async def read_stocks_from_sheet(self) -> Dict[str, Any]:
-        """Читает остатки товаров из Google-таблицы
-        
-        Returns:
-            Dict с ключами:
-            - success: bool
-            - ozon_stocks: List[Dict] - список товаров Ozon с остатками
-            - wb_stocks: List[Dict] - список товаров WB с остатками
-            - error: str (если success=False)
-        """
-        try:
-            result = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
-            if not result.get("success"):
-                return {"success": False, "error": result.get("error", "Не удалось прочитать таблицу")}
-            
-            sheet_data = result.get("data", [])
-            if not sheet_data or len(sheet_data) < 2:
-                return {"success": False, "error": "Таблица пуста или содержит только заголовок"}
-            
-            ozon_stocks = []
-            wb_stocks = []
-            
-            # Индексы колонок (0-based): A=0 (название), C=2 (nm_id WB), D=3 (offer_id Ozon), F=5 (остаток WB), I=8 (остаток Ozon)
-            # Индексы колонок (0-based): A=0 (SKU), B=1 (название), C=2 (nm_id WB), D=3 (offer_id Ozon), F=5 (остаток WB), I=8 (остаток Ozon)
-            for row in sheet_data[1:]:  # Пропускаем заголовок
-                if not isinstance(row, list):
-                    continue
-                
-                # Базовые данные: название из колонки B (индекс 1)
-                name = str((row[1] if len(row) > 1 else "") or "").strip()
-                
-                # Ozon: offer_id (D=3), остаток (I=8)
-                offer_id = str((row[3] if len(row) > 3 else "") or "").strip()
-                ozon_stock = str((row[8] if len(row) > 8 else "") or "").strip()
-                
-                if offer_id:
-                    ozon_stocks.append({
-                        "name": name or offer_id,
-                        "offer_id": offer_id,
-                        "stock": ozon_stock if ozon_stock else "0"
-                    })
-                
-                # WB: nm_id (C=2), остаток (F=5)
-                nm_id = str((row[2] if len(row) > 2 else "") or "").strip()
-                wb_stock = str((row[5] if len(row) > 5 else "") or "").strip()
-                
-                if nm_id:
-                    wb_stocks.append({
-                        "name": name or nm_id,
-                        "nm_id": nm_id,
-                        "stock": wb_stock if wb_stock else "0"
-                    })
-            
-            return {
-                "success": True,
-                "ozon_stocks": ozon_stocks,
-                "wb_stocks": wb_stocks
-            }
-            
-        except Exception as e:
-            logger.error(f"Ошибка чтения остатков из таблицы: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
-    
-    async def read_prices_from_sheet(self) -> Dict[str, Any]:
-        """Читает цены товаров из Google-таблицы
-        
-        Returns:
-            Dict с ключами:
-            - success: bool
-            - ozon_prices: List[Dict] - список товаров Ozon с ценами
-            - wb_prices: List[Dict] - список товаров WB с ценами
-            - error: str (если success=False)
-        """
-        try:
-            result = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
-            if not result.get("success"):
-                return {"success": False, "error": result.get("error", "Не удалось прочитать таблицу")}
-            
-            sheet_data = result.get("data", [])
-            if not sheet_data or len(sheet_data) < 2:
-                return {"success": False, "error": "Таблица пуста или содержит только заголовок"}
-            
-            ozon_prices = []
-            wb_prices = []
-            
-            # Индексы колонок (0-based): A=0 (SKU), B=1 (название), C=2 (nm_id WB), D=3 (offer_id Ozon), P=15 (цена WB), Q=16 (цена Ozon)
-            for row in sheet_data[1:]:  # Пропускаем заголовок
-                if not isinstance(row, list):
-                    continue
-                
-                # Базовые данные: название из колонки B (индекс 1)
-                name = str((row[1] if len(row) > 1 else "") or "").strip()
-                
-                # Ozon: offer_id (D=3), цена (Q=16)
-                offer_id = str((row[3] if len(row) > 3 else "") or "").strip()
-                ozon_price = str((row[16] if len(row) > 16 else "") or "").strip()
-                
-                if offer_id:
-                    ozon_prices.append({
-                        "name": name or offer_id,
-                        "offer_id": offer_id,
-                        "price": ozon_price if ozon_price else "н/д"
-                    })
-                
-                # WB: nm_id (C=2), цена (P=15)
-                nm_id = str((row[2] if len(row) > 2 else "") or "").strip()
-                wb_price = str((row[15] if len(row) > 15 else "") or "").strip()
-                
-                if nm_id:
-                    wb_prices.append({
-                        "name": name or nm_id,
-                        "nm_id": nm_id,
-                        "price": wb_price if wb_price else "н/д"
-                    })
-            
-            return {
-                "success": True,
-                "ozon_prices": ozon_prices,
-                "wb_prices": wb_prices
-            }
-            
-        except Exception as e:
-            logger.error(f"Ошибка чтения цен из таблицы: {e}", exc_info=True)
-            return {"success": False, "error": str(e)}
-    
+
     async def get_wb_warehouses(self) -> Dict[str, Union[bool, str, List[Dict]]]:
         """Получает список складов WB (API v3)"""
         if not self.wb_api_key:
@@ -1451,24 +1212,9 @@ class MarketplaceManager:
         try:
             resp = await self._wb_request("/api/v3/warehouses", suppliers=True)
             if resp.status_code == 200:
-                warehouses = resp.json()
-                # Проверяем, что warehouses - это список
-                if not isinstance(warehouses, list):
-                    logger.warning(f"⚠️ Неожиданный формат ответа от WB API warehouses: {type(warehouses)}")
-                    warehouses = []
-                
-                if not warehouses:
-                    logger.warning("⚠️ API Wildberries вернул пустой список складов. Возможно, у вас нет складов в системе WB.")
-                    return {
-                        "success": False, 
-                        "error": "warehouses empty - у вас нет складов в системе Wildberries. Проверьте настройки в личном кабинете WB.",
-                        "warehouses": []
-                    }
-                
-                return {"success": True, "warehouses": warehouses}
+                return {"success": True, "warehouses": resp.json()}
             return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
         except Exception as e:
-            logger.error(f"Ошибка получения складов WB: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     async def get_wb_product_barcodes(self) -> Dict[str, Union[bool, str, List[str]]]:
