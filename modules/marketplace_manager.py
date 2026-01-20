@@ -578,22 +578,26 @@ class MarketplaceManager:
             analytics_result = await self.get_ozon_analytics(date_from, date_to)
             
             # Подготавливаем данные для таблицы
+            # Используем комбинацию (offer_id, product_id) как ключ для точного сопоставления
             table_data = {}
             for offer_id, product_id in offer_map.items():
                 stock_info = stocks_by_offer_id.get(offer_id, {})
                 
-                logger.info(f"[DEBUG] Processing offer_id={offer_id}. Found stock_info: {stock_info}")
+                logger.info(f"[DEBUG] Processing offer_id={offer_id}, product_id={product_id}. Found stock_info: {stock_info}")
 
                 total_stock = stock_info.get("total", 0)
                 fbo_stock = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbo")
                 fbs_stock = sum(s['stock'] for s in stock_info.get("warehouses", []) if s.get("name") == "fbs")
                 
-                logger.info(f"Обновляем строку offer_id={offer_id}: total={total_stock}, fbo={fbo_stock}, fbs={fbs_stock}")
+                logger.info(f"Обновляем строку offer_id={offer_id}, product_id={product_id}: total={total_stock}, fbo={fbo_stock}, fbs={fbs_stock}")
                 
                 sales = 0
                 revenue = 0
                 
-                table_data[offer_id] = {
+                # Используем комбинацию offer_id и product_id для уникальной идентификации
+                table_data[(offer_id, str(product_id))] = {
+                    "offer_id": offer_id,
+                    "product_id": str(product_id),
                     "total_stock": total_stock,
                     "fbo_stock": fbo_stock,
                     "fbs_stock": fbs_stock,
