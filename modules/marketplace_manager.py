@@ -88,7 +88,7 @@ class MarketplaceManager:
             "analytics": "/v1/analytics/data",      # ✅ Аналитика
             "stocks": "/v4/product/info/stocks",    # ✅ Остатки конкретных товаров
             "product_info": "/v3/product/list",     # ✅ Информация о товарах (требует visibility)
-            "product_info_v2": "/v2/product/info",  # ✅ Полная информация о товаре (включая title)
+            "product_info_list": "/v3/product/info/list",  # ✅ Полная информация о товаре (включая name, price, stocks)
             "prices": "/v1/product/info/attributes" # ✅ Информация о товарах (включая цены)
         }
         
@@ -1156,40 +1156,42 @@ class MarketplaceManager:
                     else:
                         logger.warning(f"Ошибка /v3/product/list для product_id {product_id}: {response.status_code} - {response.text}")
                     
-                    # Всегда пробуем получить title через /v2/product/info (более полная информация)
+                    # Всегда пробуем получить name через /v3/product/info/list (полная информация о товаре)
                     try:
                         info_response = await client.post(
-                            f"{self.ozon_base_url}{self.ozon_endpoints['product_info_v2']}",
+                            f"{self.ozon_base_url}{self.ozon_endpoints['product_info_list']}",
                             headers=self._get_ozon_headers(),
                             json={"product_id": [product_id]}
                         )
                         
                         if info_response.status_code == 200:
                             info_data = info_response.json()
-                            logger.debug(f"Ответ /v2/product/info для product_id {product_id}: {info_data}")
+                            logger.debug(f"Ответ /v3/product/info/list для product_id {product_id}: {info_data}")
                             
                             if info_data.get("result"):
-                                result_item = info_data["result"][0] if isinstance(info_data["result"], list) else info_data["result"]
-                                
-                                # Логируем доступные ключи
-                                if isinstance(result_item, dict):
-                                    logger.debug(f"Доступные ключи в /v2/product/info: {list(result_item.keys())}")
-                                
-                                # Пробуем получить title (имеет приоритет над name)
-                                title_from_v2 = (
-                                    result_item.get("title") or 
-                                    result_item.get("name") or 
-                                    result_item.get("offer_name")
-                                )
-                                
-                                # Используем title из /v2/product/info, если он есть
-                                if title_from_v2:
-                                    product_name = title_from_v2
-                                    logger.info(f"Название получено через /v2/product/info для product_id {product_id}: {product_name}")
+                                result_items = info_data["result"]
+                                if isinstance(result_items, list) and len(result_items) > 0:
+                                    result_item = result_items[0]
+                                    
+                                    # Логируем доступные ключи
+                                    if isinstance(result_item, dict):
+                                        logger.debug(f"Доступные ключи в /v3/product/info/list: {list(result_item.keys())}")
+                                    
+                                    # Получаем name из /v3/product/info/list (имеет приоритет)
+                                    name_from_info = result_item.get("name")
+                                    
+                                    # Используем name из /v3/product/info/list, если он есть
+                                    if name_from_info:
+                                        product_name = name_from_info
+                                        logger.info(f"Название получено через /v3/product/info/list для product_id {product_id}: {product_name}")
+                                else:
+                                    logger.warning(f"Пустой результат в /v3/product/info/list для product_id {product_id}")
+                            else:
+                                logger.warning(f"Нет result в ответе /v3/product/info/list для product_id {product_id}")
                         else:
-                            logger.warning(f"Ошибка /v2/product/info для product_id {product_id}: {info_response.status_code} - {info_response.text}")
+                            logger.warning(f"Ошибка /v3/product/info/list для product_id {product_id}: {info_response.status_code} - {info_response.text}")
                     except Exception as e:
-                        logger.warning(f"Не удалось получить название через /v2/product/info для product_id {product_id}: {e}", exc_info=True)
+                        logger.warning(f"Не удалось получить название через /v3/product/info/list для product_id {product_id}: {e}", exc_info=True)
                     
                     # Если название все еще не получено, используем offer_id
                     if not product_name:
