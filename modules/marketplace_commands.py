@@ -149,46 +149,57 @@ async def cmd_get_prices(message: types.Message):
                     chunks.append(cur.rstrip())
                 return chunks
 
-            sheet_data = None
-            try:
-                sheet_res = await manager.sheets_api.get_sheet_data(manager.spreadsheet_id, manager.sheet_name)
-                sheet_data = sheet_res.get("data") if isinstance(sheet_res, dict) else None
-            except Exception:
-                sheet_data = None
-
+            # Используем новый метод для чтения цен из таблицы
+            prices_result = await manager.read_prices_from_sheet()
+            
             oz_lines: list[str] = []
             wb_lines: list[str] = []
-
-            # Индексы колонок (0-based): A=0, C=2, D=3, P=15, Q=16
-            if sheet_data and isinstance(sheet_data, list) and len(sheet_data) >= 2:
-                for row in sheet_data[1:]:
-                    if not isinstance(row, list):
-                        continue
-                    name = str((row[0] if len(row) > 0 else "") or "").strip()
-                    nm_id = str((row[2] if len(row) > 2 else "") or "").strip()
-                    offer_id = str((row[3] if len(row) > 3 else "") or "").strip()
-                    wb_price_cell = (row[15] if len(row) > 15 else "") or ""
-                    oz_price_cell = (row[16] if len(row) > 16 else "") or ""
-
-                    title = name or offer_id or nm_id or "—"
-
-                    if offer_id:
-                        oz_lines.append(f"• {title} — {_fmt_rub(oz_price_cell)} (offer_id: {offer_id})")
-                    if nm_id:
-                        wb_lines.append(f"• {title} — {_fmt_rub(wb_price_cell)} (nm_id: {nm_id})")
+            
+            if prices_result.get("success"):
+                # Формируем список цен Ozon
+                ozon_prices = prices_result.get("ozon_prices", [])
+                if ozon_prices:
+                    for item in ozon_prices:
+                        name = item.get("name", "—")
+                        offer_id = item.get("offer_id", "")
+                        price = item.get("price", "н/д")
+                        if price and price != "н/д":
+                            oz_lines.append(f"• {name} — {_fmt_rub(price)} (offer_id: {offer_id})")
+                
+                # Формируем список цен WB
+                wb_prices = prices_result.get("wb_prices", [])
+                if wb_prices:
+                    for item in wb_prices:
+                        name = item.get("name", "—")
+                        nm_id = item.get("nm_id", "")
+                        price = item.get("price", "н/д")
+                        if price and price != "н/д":
+                            wb_lines.append(f"• {name} — {_fmt_rub(price)} (nm_id: {nm_id})")
+            else:
+                # Логируем ошибку для диагностики
+                error_msg = prices_result.get("error", "Неизвестная ошибка")
+                logger.warning(f"Ошибка чтения цен из таблицы: {error_msg}")
 
             # Отправляем аккуратно, чтобы не превысить лимит сообщения
             if oz_lines:
                 for msg_part in _chunk_send("🛒 Цены Ozon (из таблицы):", oz_lines[:200]):
                     await message.answer(msg_part)
             else:
-                await message.answer("🛒 Цены Ozon: не удалось прочитать таблицу/нет строк с offer_id.")
+                if not prices_result.get("success"):
+                    error_detail = prices_result.get("error", "")
+                    await message.answer(f"🛒 Цены Ozon: ошибка чтения таблицы. {error_detail}")
+                else:
+                    await message.answer("🛒 Цены Ozon: нет данных с ценами в таблице (возможно, цены не заполнены в колонке Q)")
 
             if wb_lines:
                 for msg_part in _chunk_send("🛍️ Цены Wildberries (из таблицы):", wb_lines[:200]):
                     await message.answer(msg_part)
             else:
-                await message.answer("🛍️ Цены Wildberries: не удалось прочитать таблицу/нет строк с nm_id.")
+                if not prices_result.get("success"):
+                    error_detail = prices_result.get("error", "")
+                    await message.answer(f"🛍️ Цены Wildberries: ошибка чтения таблицы. {error_detail}")
+                else:
+                    await message.answer("🛍️ Цены Wildberries: нет данных с ценами в таблице (возможно, цены не заполнены в колонке P)")
         else:
             user_id = message.from_user.id
             text = get_personalized_text('prices_update_error', MARKETPLACE_TEXTS, user_id, None).format(
