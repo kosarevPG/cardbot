@@ -228,6 +228,7 @@ async def cmd_marketplace_help(message: types.Message):
 • `/ozon_stocks_detailed` - Детальная информация об остатках по складам
 • `/ozon_sync_all` - Синхронизация всех данных с Google таблицей
 • `/ozon_sync_single OFFER_ID` - Синхронизация одного товара
+• `/ozon_fill_by_id ID` - Автозаполнение товара по offer_id или product_id (название, остатки, цены)
 
 **Google Sheets:**
 • `/sheets_test` - Тест подключения к Google Sheets API
@@ -1259,6 +1260,70 @@ async def cmd_ozon_debug_stocks(message: types.Message):
         logger.error(f"Ошибка в команде ozon_debug_stocks: {e}")
         await message.answer(f"❌ Произошла ошибка: {str(e)}")
 
+async def cmd_ozon_fill_by_id(message: types.Message):
+    """
+    Автозаполнение данных товара Ozon по offer_id или product_id.
+    Команда: /ozon_fill_by_id <offer_id или product_id>
+    
+    Примеры:
+    /ozon_fill_by_id KU-3-PVK
+    /ozon_fill_by_id 2343897353
+    """
+    # Проверяем права администратора
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ У вас нет прав для выполнения этой команды. Требуются права администратора.")
+        return
+    
+    try:
+        # Получаем ID из сообщения
+        command_parts = message.text.split(maxsplit=1)
+        if len(command_parts) < 2:
+            await message.answer(
+                "❌ Укажите offer_id или product_id товара.\n\n"
+                "Примеры:\n"
+                "• `/ozon_fill_by_id KU-3-PVK` - по offer_id\n"
+                "• `/ozon_fill_by_id 2343897353` - по product_id",
+                parse_mode="Markdown"
+            )
+            return
+        
+        product_id = command_parts[1].strip()
+        
+        await message.answer(f"🔄 Получаю данные о товаре {product_id} из Ozon...")
+        
+        manager = MarketplaceManager()
+        result = await manager.fill_ozon_product_by_id(product_id)
+        
+        if result.get("success"):
+            offer_id = result.get("offer_id")
+            product_name = result.get("name", "Без названия")
+            stock = result.get("stock", 0)
+            stock_fbo = result.get("stock_fbo", 0)
+            stock_fbs = result.get("stock_fbs", 0)
+            price = result.get("price")
+            row = result.get("row")
+            
+            response = f"✅ **Товар успешно заполнен в таблице!**\n\n"
+            response += f"📝 **Название:** {product_name}\n"
+            response += f"🆔 **Offer ID:** {offer_id}\n"
+            response += f"🆔 **Product ID:** {result.get('product_id')}\n"
+            response += f"📊 **Остатки:**\n"
+            response += f"   • Всего: {stock} шт.\n"
+            response += f"   • FBO: {stock_fbo} шт.\n"
+            response += f"   • FBS: {stock_fbs} шт.\n"
+            if price:
+                response += f"💰 **Цена:** {price} ₽\n"
+            response += f"📍 **Строка в таблице:** {row}\n"
+            
+            await message.answer(response, parse_mode="Markdown")
+        else:
+            error = result.get("error", "Неизвестная ошибка")
+            await message.answer(f"❌ Ошибка заполнения товара: {error}")
+            
+    except Exception as e:
+        logger.error(f"Ошибка в команде ozon_fill_by_id: {e}", exc_info=True)
+        await message.answer(f"❌ Произошла ошибка: {str(e)}")
+
 def register_marketplace_handlers(dp):
     """Регистрирует обработчики команд маркетплейсов"""
     
@@ -1288,6 +1353,7 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_ozon_sync_all, Command("ozon_sync_all"))
     dp.message.register(cmd_ozon_sync_single, Command("ozon_sync_single"))
     dp.message.register(cmd_ozon_debug_stocks, Command("ozon_debug_stocks"))
+    dp.message.register(cmd_ozon_fill_by_id, Command("ozon_fill_by_id"))
     
     # Команды цен
     dp.message.register(cmd_get_prices, Command("get_prices"))

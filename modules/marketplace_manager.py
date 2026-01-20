@@ -1153,6 +1153,218 @@ class MarketplaceManager:
             logger.error(f"Ошибка получения детальной информации о продуктах: {e}")
             return {"success": False, "error": str(e)}
     
+    async def fill_ozon_product_by_id(self, product_identifier: str) -> Dict[str, Any]:
+        """
+        Автозаполнение данных товара Ozon по offer_id или product_id.
+        Заполняет название, остатки, цены в таблице.
+        
+        Args:
+            product_identifier: offer_id (например, "KU-3-PVK") или product_id (например, "2343897353")
+        
+        Returns:
+            Dict с результатами:
+            - success: bool
+            - offer_id: str
+            - product_id: int
+            - name: str
+            - row: int - номер строки в таблице
+            - error: str (если success=False)
+        """
+        if not self.ozon_api_key or not self.ozon_client_id:
+            return {"success": False, "error": "Ozon API не настроен"}
+        
+        try:
+            # Определяем, это offer_id или product_id
+            # Если это число - вероятно product_id, иначе - offer_id
+            offer_id = None
+            product_id = None
+            
+            try:
+                # Пробуем как product_id (число)
+                product_id = int(product_identifier)
+                # Если успешно - это product_id, нужно найти offer_id
+                mapping_result = await self.get_ozon_product_mapping()
+                if mapping_result.get("success"):
+                    mapping = mapping_result["mapping"]
+                    # Ищем offer_id по product_id
+                    reverse_mapping = {v: k for k, v in mapping.items()}
+                    offer_id = reverse_mapping.get(product_id)
+                    if not offer_id:
+                        return {"success": False, "error": f"Товар с product_id {product_id} не найден в Ozon"}
+            except ValueError:
+                # Это не число, значит offer_id
+                offer_id = product_identifier
+                # Находим product_id по offer_id
+                mapping_result = await self.get_ozon_product_mapping()
+                if mapping_result.get("success"):
+                    mapping = mapping_result["mapping"]
+                    product_id = mapping.get(offer_id)
+                    if not product_id:
+                        return {"success": False, "error": f"Товар с offer_id {offer_id} не найден в Ozon"}
+            
+            if not offer_id or not product_id:
+                return {"success": False, "error": "Не удалось определить offer_id и product_id"}
+            
+            logger.info(f"🔍 Заполняю данные для товара: offer_id={offer_id}, product_id={product_id}")
+            
+            # 1. Получаем название товара
+            detailed_result = await self.get_ozon_products_detailed([product_id])
+            if not detailed_result.get("success"):
+                return {"success": False, "error": f"Не удалось получить данные о товаре: {detailed_result.get('error')}"}
+            
+            product_info = detailed_result["products"].get(str(product_id), {})
+            product_name = product_info.get("name", "Без названия")
+            
+            # 2. Получаем остатки
+            stocks_result = await self.get_ozon_stocks_by_offer([offer_id])
+            if not stocks_result.get("success"):
+                logger.warning(f"Не удалось получить остатки: {stocks_result.get('error')}")
+                stocks_data = {"total": 0, "fbo": 0, "fbs": 0}
+            else:
+                stocks = stocks_result.get("stocks", {}).get(offer_id, {})
+                total_stock = stocks.get("total", 0)
+                warehouses = stocks.get("warehouses", [])
+                fbo_stock = sum(w.get("stock", 0) for w in warehouses if w.get("name", "").lower() == "fbo")
+                fbs_stock = sum(w.get("stock", 0) for w in warehouses if w.get("name", "").lower() == "fbs")
+                stocks_data = {
+                    "total": total_stock,
+                    "fbo": fbo_stock,
+                    "fbs": fbs_stock
+                }
+            
+            # 3. Получаем цены из quants
+            price = None
+            quants = product_info.get("quants", [])
+            for quant in quants:
+                price_str = quant.get("price") or quant.get("marketing_price", {}).get("price") or quant.get("seller_price")
+                if price_str:
+                    try:
+                        price = float(str(price_str).replace(",", "."))
+                        break
+                    except (ValueError, TypeError):
+                        continue
+            
+            # 4. Находим или создаем строку в таблице
+            sheet_data = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
+            if not sheet_data.get("success"):
+                return {"success": False, "error": "Не удалось прочитать таблицу"}
+            
+            data_rows = sheet_data.get("data", [])
+            if not data_rows or len(data_rows) < 2:
+                return {"success": False, "error": "Таблица пуста или содержит только заголовок"}
+            
+            # Ищем строку по offer_id (колонка D, индекс 3)
+            row_number = None
+            for i, row in enumerate(data_rows[1:], start=2):  # Пропускаем заголовок
+                if len(row) > 3 and str(row[3]).strip() == offer_id:
+                    row_number = i
+                    break
+            
+            # Если строка не найдена, создаем новую
+            if not row_number:
+                # Добавляем новую строку в конец
+                new_row = [
+                    str(product_id),  # Колонка A: SKU
+                    product_name,     # Колонка B: Название
+                    "",               # Колонка C: Баркод WB
+                    offer_id,         # Колонка D: Арт. Ozon
+                    "",               # Колонка E: Остаток Всего
+                    "",               # Колонка F: Остаток WB
+                    "",               # Колонка G: Остаток WB, FBO
+                    "",               # Колонка H: Остаток WB, FBS
+                    stocks_data["total"],  # Колонка I: Остаток Ozon, всего
+                    stocks_data["fbo"],    # Колонка J: Остаток Ozon, FBO
+                    stocks_data["fbs"],   # Колонка K: Остаток Ozon, FBS
+                    "",               # Колонка L: Продажи WB
+                    "",               # Колонка M: Продажи Ozon
+                    "",               # Колонка N: Выручка WB
+                    "",               # Колонка O: Выручка Ozon
+                    "",               # Колонка P: Цена WB
+                    price if price else "",  # Колонка Q: Цена Ozon
+                ]
+                
+                append_result = await self.sheets_api.append_data(self.spreadsheet_id, self.sheet_name, [new_row])
+                if not append_result.get("success"):
+                    return {"success": False, "error": f"Не удалось добавить новую строку: {append_result.get('error')}"}
+                
+                # Получаем номер новой строки (последняя строка)
+                updated_sheet = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
+                if updated_sheet.get("success"):
+                    row_number = len(updated_sheet.get("data", []))
+                else:
+                    row_number = len(data_rows) + 1
+            else:
+                # Обновляем существующую строку
+                updates = []
+                
+                # Обновляем название (колонка B)
+                if len(data_rows[row_number - 1]) <= 1 or not data_rows[row_number - 1][1]:
+                    updates.append({
+                        "range": f"{self.sheet_name}!B{row_number}",
+                        "values": [[product_name]]
+                    })
+                
+                # Обновляем SKU (колонка A), если пусто
+                if len(data_rows[row_number - 1]) == 0 or not data_rows[row_number - 1][0]:
+                    updates.append({
+                        "range": f"{self.sheet_name}!A{row_number}",
+                        "values": [[str(product_id)]]
+                    })
+                
+                # Обновляем offer_id (колонка D), если пусто
+                if len(data_rows[row_number - 1]) <= 3 or not data_rows[row_number - 1][3]:
+                    updates.append({
+                        "range": f"{self.sheet_name}!D{row_number}",
+                        "values": [[offer_id]]
+                    })
+                
+                # Обновляем остатки (колонки I, J, K)
+                updates.append({
+                    "range": f"{self.sheet_name}!I{row_number}",
+                    "values": [[stocks_data["total"]]]
+                })
+                updates.append({
+                    "range": f"{self.sheet_name}!J{row_number}",
+                    "values": [[stocks_data["fbo"]]]
+                })
+                updates.append({
+                    "range": f"{self.sheet_name}!K{row_number}",
+                    "values": [[stocks_data["fbs"]]]
+                })
+                
+                # Обновляем цену (колонка Q), если получена
+                if price:
+                    updates.append({
+                        "range": f"{self.sheet_name}!Q{row_number}",
+                        "values": [[price]]
+                    })
+                
+                # Выполняем пакетное обновление
+                if updates:
+                    spreadsheet = await self.sheets_api.open_spreadsheet(self.spreadsheet_id)
+                    if spreadsheet:
+                        worksheet = spreadsheet.worksheet(self.sheet_name)
+                        worksheet.batch_update(updates)
+                        logger.info(f"Обновлено {len(updates)} ячеек для товара {offer_id}")
+                    else:
+                        return {"success": False, "error": "Не удалось открыть таблицу для обновления"}
+            
+            return {
+                "success": True,
+                "offer_id": offer_id,
+                "product_id": product_id,
+                "name": product_name,
+                "stock": stocks_data["total"],
+                "stock_fbo": stocks_data["fbo"],
+                "stock_fbs": stocks_data["fbs"],
+                "price": price,
+                "row": row_number
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка автозаполнения товара: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+    
     def get_status(self) -> Dict[str, Any]:
         """Возвращает статус всех API"""
         return {
