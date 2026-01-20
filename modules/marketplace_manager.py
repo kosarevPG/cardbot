@@ -1009,7 +1009,11 @@ class MarketplaceManager:
             return {
                 "success": True,
                 "ozon_prices_count": len(ozon_prices),
-                "wb_prices_count": len(wb_prices)
+                "wb_prices_count": len(wb_prices),
+                # Отдаём данные вызывающему коду (например, /get_prices), чтобы можно было показать пользователю список цен.
+                # Это не используется на фронте таблицы, только для вывода в Telegram.
+                "ozon_prices": ozon_prices,
+                "wb_prices": wb_prices,
             }
             
         except Exception as e:
