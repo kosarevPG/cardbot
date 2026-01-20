@@ -1109,10 +1109,11 @@ class MarketplaceManager:
             async with httpx.AsyncClient(timeout=20.0) as client:
                 # Получаем детальную информацию о каждом продукте
                 for product_id in product_ids:
+                    # Сначала пробуем получить через /v3/product/list
                     payload = {
                         "filter": {
                             "product_id": [product_id],
-                            "visibility": "ALL"  # ✅ Обязательное поле согласно документации Ozon
+                            "visibility": "ALL"
                         },
                         "limit": 1000
                     }
@@ -1123,25 +1124,57 @@ class MarketplaceManager:
                         json=payload
                     )
                     
+                    product_name = None
+                    product_data = {}
+                    
                     if response.status_code == 200:
                         data = response.json()
                         if data.get("result", {}).get("items"):
-                            item = data["result"]["items"][0]  # Берем первый (и единственный) продукт
-                            products[str(product_id)] = {
+                            item = data["result"]["items"][0]
+                            
+                            # Пробуем получить название из разных полей
+                            product_name = item.get("name") or item.get("title")
+                            
+                            product_data = {
                                 "archived": item.get("archived", False),
                                 "has_fbo_stocks": item.get("has_fbo_stocks", False),
                                 "has_fbs_stocks": item.get("has_fbs_stocks", False),
                                 "is_discounted": item.get("is_discounted", False),
                                 "offer_id": item.get("offer_id", ""),
                                 "product_id": item.get("product_id", 0),
-                                "name": item.get("name", "Без названия"),  # Добавляем название продукта
                                 "quants": item.get("quants", [])
                             }
-                        else:
-                            products[str(product_id)] = {}
-                    else:
-                        logger.warning(f"Ошибка API для product_id {product_id}: {response.status_code}")
-                        products[str(product_id)] = {}
+                    
+                    # Если название не получено, пробуем через /v2/product/info
+                    if not product_name:
+                        try:
+                            info_response = await client.post(
+                                f"{self.ozon_base_url}/v2/product/info",
+                                headers=self._get_ozon_headers(),
+                                json={"product_id": [product_id]}
+                            )
+                            
+                            if info_response.status_code == 200:
+                                info_data = info_response.json()
+                                if info_data.get("result"):
+                                    result_item = info_data["result"][0] if isinstance(info_data["result"], list) else info_data["result"]
+                                    product_name = (
+                                        result_item.get("name") or 
+                                        result_item.get("title") or 
+                                        result_item.get("offer_name") or
+                                        product_data.get("offer_id", "Без названия")
+                                    )
+                                    logger.info(f"Название получено через /v2/product/info для product_id {product_id}: {product_name}")
+                        except Exception as e:
+                            logger.warning(f"Не удалось получить название через /v2/product/info для product_id {product_id}: {e}")
+                    
+                    # Если название все еще не получено, используем offer_id
+                    if not product_name:
+                        product_name = product_data.get("offer_id", "Без названия")
+                        logger.warning(f"Название не найдено для product_id {product_id}, используется offer_id: {product_name}")
+                    
+                    product_data["name"] = product_name
+                    products[str(product_id)] = product_data
                 
                 return {
                     "success": True,
