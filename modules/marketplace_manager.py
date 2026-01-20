@@ -1227,12 +1227,13 @@ class MarketplaceManager:
             wb_stocks = []
             
             # Индексы колонок (0-based): A=0 (название), C=2 (nm_id WB), D=3 (offer_id Ozon), F=5 (остаток WB), I=8 (остаток Ozon)
+            # Индексы колонок (0-based): A=0 (SKU), B=1 (название), C=2 (nm_id WB), D=3 (offer_id Ozon), F=5 (остаток WB), I=8 (остаток Ozon)
             for row in sheet_data[1:]:  # Пропускаем заголовок
                 if not isinstance(row, list):
                     continue
                 
-                # Базовые данные
-                name = str((row[0] if len(row) > 0 else "") or "").strip()
+                # Базовые данные: название из колонки B (индекс 1)
+                name = str((row[1] if len(row) > 1 else "") or "").strip()
                 
                 # Ozon: offer_id (D=3), остаток (I=8)
                 offer_id = str((row[3] if len(row) > 3 else "") or "").strip()
@@ -1288,13 +1289,13 @@ class MarketplaceManager:
             ozon_prices = []
             wb_prices = []
             
-            # Индексы колонок (0-based): A=0 (название), C=2 (nm_id WB), D=3 (offer_id Ozon), P=15 (цена WB), Q=16 (цена Ozon)
+            # Индексы колонок (0-based): A=0 (SKU), B=1 (название), C=2 (nm_id WB), D=3 (offer_id Ozon), P=15 (цена WB), Q=16 (цена Ozon)
             for row in sheet_data[1:]:  # Пропускаем заголовок
                 if not isinstance(row, list):
                     continue
                 
-                # Базовые данные
-                name = str((row[0] if len(row) > 0 else "") or "").strip()
+                # Базовые данные: название из колонки B (индекс 1)
+                name = str((row[1] if len(row) > 1 else "") or "").strip()
                 
                 # Ozon: offer_id (D=3), цена (Q=16)
                 offer_id = str((row[3] if len(row) > 3 else "") or "").strip()
