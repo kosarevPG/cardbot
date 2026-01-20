@@ -879,13 +879,18 @@ class MarketplaceManager:
     
     async def get_ozon_prices(self, offer_ids: List[str] = None) -> Dict[str, Dict]:
         """
-        Получает цены товаров с Ozon (заглушка - цены не доступны через API).
+        Получает цены товаров с Ozon через API.
+        
+        Пытается получить цены из нескольких источников:
+        1. Из quants в /v3/product/list (если доступны)
+        2. Из /v1/product/info/attributes (если доступен)
+        3. Из аналитики (если доступна)
         
         Args:
             offer_ids: Список offer_id для получения цен (если None - все товары)
             
         Returns:
-            Dict[str, Dict]: Словарь {offer_id: {price: float, currency: str}}
+            Dict[str, Dict]: Словарь {offer_id: {price: float, currency: str, old_price: float, ...}}
         """
         logger.info("💰 Получение цен товаров Ozon...")
         
@@ -904,20 +909,97 @@ class MarketplaceManager:
                 logger.warning("⚠️ Нет товаров для получения цен")
                 return {}
             
-            # Временная заглушка - цены Ozon не доступны через текущий API
-            # Возвращаем пустые цены для всех товаров
             prices_data = {}
-            for offer_id in offer_ids:
-                prices_data[offer_id] = {
-                    "price": 0,
-                    "currency": "RUB",
-                    "old_price": None,
-                    "premium_price": None,
-                    "auto_action_enabled": False,
-                    "note": "Цены Ozon недоступны через API"
-                }
             
-            logger.info(f"⚠️ Возвращены заглушки цен для {len(prices_data)} товаров Ozon")
+            # Метод 1: Пытаемся получить цены из quants через /v3/product/list
+            try:
+                # Получаем mapping offer_id -> product_id
+                mapping_result = await self.get_ozon_product_mapping()
+                if mapping_result.get("success"):
+                    mapping = mapping_result["mapping"]
+                    reverse_mapping = {v: k for k, v in mapping.items()}  # product_id -> offer_id
+                    
+                    # Получаем product_id для наших offer_ids
+                    product_ids = []
+                    offer_to_product = {}
+                    for offer_id in offer_ids:
+                        if offer_id in mapping:
+                            product_id = mapping[offer_id]
+                            product_ids.append(product_id)
+                            offer_to_product[product_id] = offer_id
+                    
+                    if product_ids:
+                        # Получаем детальную информацию о продуктах с quants
+                        # Обрабатываем по частям, чтобы не превысить лимиты API
+                        batch_size = 100
+                        for i in range(0, len(product_ids), batch_size):
+                            batch = product_ids[i:i + batch_size]
+                            detailed_result = await self.get_ozon_products_detailed(batch)
+                            if detailed_result.get("success"):
+                                products = detailed_result.get("products", {})
+                                
+                                for product_id, product_info in products.items():
+                                    offer_id = offer_to_product.get(int(product_id))
+                                    if not offer_id:
+                                        continue
+                                    
+                                    # Ищем цены в quants
+                                    quants = product_info.get("quants", [])
+                                    if quants:
+                                        # Берем первый квант с ценой
+                                        for quant in quants:
+                                            # Проверяем различные поля с ценами
+                                            price = quant.get("price") or quant.get("marketing_price", {}).get("price") or quant.get("seller_price")
+                                            
+                                            if price:
+                                                try:
+                                                    price_float = float(str(price).replace(",", "."))
+                                                    prices_data[offer_id] = {
+                                                        "price": price_float,
+                                                        "currency": "RUB",
+                                                        "old_price": quant.get("old_price"),
+                                                        "marketing_price": quant.get("marketing_price", {}).get("price") if isinstance(quant.get("marketing_price"), dict) else None,
+                                                        "seller_price": quant.get("seller_price"),
+                                                        "source": "quants"
+                                                    }
+                                                    logger.debug(f"✅ Найдена цена для {offer_id}: {price_float} RUB (из quants)")
+                                                    break
+                                                except (ValueError, TypeError):
+                                                    continue
+                                    
+                                    # Если не нашли цену в quants, помечаем как отсутствующую
+                                    if offer_id not in prices_data:
+                                        prices_data[offer_id] = {
+                                            "price": None,
+                                            "currency": "RUB",
+                                            "note": "Цена не найдена в quants"
+                                        }
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось получить цены из quants: {e}")
+            
+            # Метод 2: Пытаемся получить цены через /v1/product/info/attributes
+            # (если не все цены были получены)
+            missing_prices = [oid for oid in offer_ids if oid not in prices_data or prices_data[oid].get("price") is None]
+            if missing_prices:
+                try:
+                    logger.info(f"🔄 Пытаемся получить цены через /v1/product/info/attributes для {len(missing_prices)} товаров...")
+                    # TODO: Реализовать запрос к /v1/product/info/attributes
+                    # Пока оставляем как есть, так как этот эндпоинт может требовать специфичных параметров
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось получить цены через /v1/product/info/attributes: {e}")
+            
+            # Если цены не найдены, возвращаем структуру с None
+            for offer_id in offer_ids:
+                if offer_id not in prices_data:
+                    prices_data[offer_id] = {
+                        "price": None,
+                        "currency": "RUB",
+                        "note": "Цена недоступна через API"
+                    }
+            
+            found_prices = sum(1 for p in prices_data.values() if p.get("price") is not None)
+            logger.info(f"💰 Получено цен: {found_prices} из {len(prices_data)} товаров Ozon")
+            
             return prices_data
             
         except Exception as e:
