@@ -59,7 +59,7 @@ class MarketplaceManager:
         # Google Sheets настройки
         self.sheets_api = GoogleSheetsAPI(service_account_info=google_creds)
         self.spreadsheet_id = "1RoWWv9BgiwlSu9H-KJNsFItQxlUVhG1WMbyB0eFxzYM"
-        self.sheet_name = "Лист1"
+        self.sheet_name = "marketplaces"  # Имя листа в таблице "Форбс.Учет 2.0"
         
         # Структура таблицы для Ozon (соответствует "Форбс.Учет 2.0")
         self.ozon_columns = {
