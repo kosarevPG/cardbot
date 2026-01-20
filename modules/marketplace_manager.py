@@ -1300,42 +1300,42 @@ class MarketplaceManager:
                 # Обновляем название (колонка B)
                 if len(data_rows[row_number - 1]) <= 1 or not data_rows[row_number - 1][1]:
                     updates.append({
-                        "range": f"{self.sheet_name}!B{row_number}",
+                        "range": f"B{row_number}",
                         "values": [[product_name]]
                     })
                 
                 # Обновляем SKU (колонка A), если пусто
                 if len(data_rows[row_number - 1]) == 0 or not data_rows[row_number - 1][0]:
                     updates.append({
-                        "range": f"{self.sheet_name}!A{row_number}",
+                        "range": f"A{row_number}",
                         "values": [[str(product_id)]]
                     })
                 
                 # Обновляем offer_id (колонка D), если пусто
                 if len(data_rows[row_number - 1]) <= 3 or not data_rows[row_number - 1][3]:
                     updates.append({
-                        "range": f"{self.sheet_name}!D{row_number}",
+                        "range": f"D{row_number}",
                         "values": [[offer_id]]
                     })
                 
                 # Обновляем остатки (колонки I, J, K)
                 updates.append({
-                    "range": f"{self.sheet_name}!I{row_number}",
+                    "range": f"I{row_number}",
                     "values": [[stocks_data["total"]]]
                 })
                 updates.append({
-                    "range": f"{self.sheet_name}!J{row_number}",
+                    "range": f"J{row_number}",
                     "values": [[stocks_data["fbo"]]]
                 })
                 updates.append({
-                    "range": f"{self.sheet_name}!K{row_number}",
+                    "range": f"K{row_number}",
                     "values": [[stocks_data["fbs"]]]
                 })
                 
                 # Обновляем цену (колонка Q), если получена
                 if price:
                     updates.append({
-                        "range": f"{self.sheet_name}!Q{row_number}",
+                        "range": f"Q{row_number}",
                         "values": [[price]]
                     })
                 
