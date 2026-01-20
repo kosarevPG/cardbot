@@ -745,9 +745,15 @@ class MarketplaceManager:
         """Обновляет лист Ozon в Google таблице с помощью пакетного обновления"""
         try:
             # Читаем весь лист, чтобы правильно сопоставить товары
-            sheet_data = await self.sheets_api.read_data(self.spreadsheet_id, self.sheet_name)
+            # Используем get_sheet_data вместо read_data для чтения всего листа
+            result = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
+            if not result.get("success"):
+                logger.warning(f"⚠️ Нет данных в таблице для обновления Ozon: {result.get('error', 'Неизвестная ошибка')}")
+                return
+            
+            sheet_data = result.get("data", [])
             if not sheet_data or len(sheet_data) < 2:
-                logger.warning("⚠️ Нет данных в таблице для обновления Ozon")
+                logger.warning("⚠️ Нет данных в таблице для обновления Ozon (таблица пуста или содержит только заголовок)")
                 return
             
             # Создаем mapping: offer_id -> номер строки (пропускаем заголовок)
@@ -1337,9 +1343,24 @@ class MarketplaceManager:
         try:
             resp = await self._wb_request("/api/v3/warehouses", suppliers=True)
             if resp.status_code == 200:
-                return {"success": True, "warehouses": resp.json()}
+                warehouses = resp.json()
+                # Проверяем, что warehouses - это список
+                if not isinstance(warehouses, list):
+                    logger.warning(f"⚠️ Неожиданный формат ответа от WB API warehouses: {type(warehouses)}")
+                    warehouses = []
+                
+                if not warehouses:
+                    logger.warning("⚠️ API Wildberries вернул пустой список складов. Возможно, у вас нет складов в системе WB.")
+                    return {
+                        "success": False, 
+                        "error": "warehouses empty - у вас нет складов в системе Wildberries. Проверьте настройки в личном кабинете WB.",
+                        "warehouses": []
+                    }
+                
+                return {"success": True, "warehouses": warehouses}
             return {"success": False, "error": f"{resp.status_code} - {resp.text}"}
         except Exception as e:
+            logger.error(f"Ошибка получения складов WB: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     async def get_wb_product_barcodes(self) -> Dict[str, Union[bool, str, List[str]]]:
