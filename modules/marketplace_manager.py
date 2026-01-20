@@ -88,6 +88,7 @@ class MarketplaceManager:
             "analytics": "/v1/analytics/data",      # ✅ Аналитика
             "stocks": "/v4/product/info/stocks",    # ✅ Остатки конкретных товаров
             "product_info": "/v3/product/list",     # ✅ Информация о товарах (требует visibility)
+            "product_info_v2": "/v2/product/info",  # ✅ Полная информация о товаре (включая title)
             "prices": "/v1/product/info/attributes" # ✅ Информация о товарах (включая цены)
         }
         
@@ -1132,8 +1133,14 @@ class MarketplaceManager:
                         if data.get("result", {}).get("items"):
                             item = data["result"]["items"][0]
                             
-                            # Пробуем получить название из разных полей
-                            product_name = item.get("name") or item.get("title")
+                            # Логируем все доступные ключи для отладки
+                            logger.debug(f"Доступные ключи в ответе /v3/product/list для product_id {product_id}: {list(item.keys())}")
+                            
+                            # Пробуем получить название из разных полей (title имеет приоритет)
+                            product_name = item.get("title") or item.get("name")
+                            
+                            if product_name:
+                                logger.info(f"Название получено из /v3/product/list для product_id {product_id}: {product_name}")
                             
                             product_data = {
                                 "archived": item.get("archived", False),
@@ -1144,29 +1151,45 @@ class MarketplaceManager:
                                 "product_id": item.get("product_id", 0),
                                 "quants": item.get("quants", [])
                             }
+                        else:
+                            logger.warning(f"Нет items в ответе /v3/product/list для product_id {product_id}")
+                    else:
+                        logger.warning(f"Ошибка /v3/product/list для product_id {product_id}: {response.status_code} - {response.text}")
                     
-                    # Если название не получено, пробуем через /v2/product/info
-                    if not product_name:
-                        try:
-                            info_response = await client.post(
-                                f"{self.ozon_base_url}/v2/product/info",
-                                headers=self._get_ozon_headers(),
-                                json={"product_id": [product_id]}
-                            )
+                    # Всегда пробуем получить title через /v2/product/info (более полная информация)
+                    try:
+                        info_response = await client.post(
+                            f"{self.ozon_base_url}{self.ozon_endpoints['product_info_v2']}",
+                            headers=self._get_ozon_headers(),
+                            json={"product_id": [product_id]}
+                        )
+                        
+                        if info_response.status_code == 200:
+                            info_data = info_response.json()
+                            logger.debug(f"Ответ /v2/product/info для product_id {product_id}: {info_data}")
                             
-                            if info_response.status_code == 200:
-                                info_data = info_response.json()
-                                if info_data.get("result"):
-                                    result_item = info_data["result"][0] if isinstance(info_data["result"], list) else info_data["result"]
-                                    product_name = (
-                                        result_item.get("name") or 
-                                        result_item.get("title") or 
-                                        result_item.get("offer_name") or
-                                        product_data.get("offer_id", "Без названия")
-                                    )
+                            if info_data.get("result"):
+                                result_item = info_data["result"][0] if isinstance(info_data["result"], list) else info_data["result"]
+                                
+                                # Логируем доступные ключи
+                                if isinstance(result_item, dict):
+                                    logger.debug(f"Доступные ключи в /v2/product/info: {list(result_item.keys())}")
+                                
+                                # Пробуем получить title (имеет приоритет над name)
+                                title_from_v2 = (
+                                    result_item.get("title") or 
+                                    result_item.get("name") or 
+                                    result_item.get("offer_name")
+                                )
+                                
+                                # Используем title из /v2/product/info, если он есть
+                                if title_from_v2:
+                                    product_name = title_from_v2
                                     logger.info(f"Название получено через /v2/product/info для product_id {product_id}: {product_name}")
-                        except Exception as e:
-                            logger.warning(f"Не удалось получить название через /v2/product/info для product_id {product_id}: {e}")
+                        else:
+                            logger.warning(f"Ошибка /v2/product/info для product_id {product_id}: {info_response.status_code} - {info_response.text}")
+                    except Exception as e:
+                        logger.warning(f"Не удалось получить название через /v2/product/info для product_id {product_id}: {e}", exc_info=True)
                     
                     # Если название все еще не получено, используем offer_id
                     if not product_name:
