@@ -1203,7 +1203,131 @@ class MarketplaceManager:
             results["google_sheets"] = f"Ошибка: {str(e)}"
         
         return results
-
+    
+    async def read_stocks_from_sheet(self) -> Dict[str, Any]:
+        """Читает остатки товаров из Google-таблицы
+        
+        Returns:
+            Dict с ключами:
+            - success: bool
+            - ozon_stocks: List[Dict] - список товаров Ozon с остатками
+            - wb_stocks: List[Dict] - список товаров WB с остатками
+            - error: str (если success=False)
+        """
+        try:
+            result = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
+            if not result.get("success"):
+                return {"success": False, "error": result.get("error", "Не удалось прочитать таблицу")}
+            
+            sheet_data = result.get("data", [])
+            if not sheet_data or len(sheet_data) < 2:
+                return {"success": False, "error": "Таблица пуста или содержит только заголовок"}
+            
+            ozon_stocks = []
+            wb_stocks = []
+            
+            # Индексы колонок (0-based): A=0 (название), C=2 (nm_id WB), D=3 (offer_id Ozon), F=5 (остаток WB), I=8 (остаток Ozon)
+            for row in sheet_data[1:]:  # Пропускаем заголовок
+                if not isinstance(row, list):
+                    continue
+                
+                # Базовые данные
+                name = str((row[0] if len(row) > 0 else "") or "").strip()
+                
+                # Ozon: offer_id (D=3), остаток (I=8)
+                offer_id = str((row[3] if len(row) > 3 else "") or "").strip()
+                ozon_stock = str((row[8] if len(row) > 8 else "") or "").strip()
+                
+                if offer_id:
+                    ozon_stocks.append({
+                        "name": name or offer_id,
+                        "offer_id": offer_id,
+                        "stock": ozon_stock if ozon_stock else "0"
+                    })
+                
+                # WB: nm_id (C=2), остаток (F=5)
+                nm_id = str((row[2] if len(row) > 2 else "") or "").strip()
+                wb_stock = str((row[5] if len(row) > 5 else "") or "").strip()
+                
+                if nm_id:
+                    wb_stocks.append({
+                        "name": name or nm_id,
+                        "nm_id": nm_id,
+                        "stock": wb_stock if wb_stock else "0"
+                    })
+            
+            return {
+                "success": True,
+                "ozon_stocks": ozon_stocks,
+                "wb_stocks": wb_stocks
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка чтения остатков из таблицы: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+    
+    async def read_prices_from_sheet(self) -> Dict[str, Any]:
+        """Читает цены товаров из Google-таблицы
+        
+        Returns:
+            Dict с ключами:
+            - success: bool
+            - ozon_prices: List[Dict] - список товаров Ozon с ценами
+            - wb_prices: List[Dict] - список товаров WB с ценами
+            - error: str (если success=False)
+        """
+        try:
+            result = await self.sheets_api.get_sheet_data(self.spreadsheet_id, self.sheet_name)
+            if not result.get("success"):
+                return {"success": False, "error": result.get("error", "Не удалось прочитать таблицу")}
+            
+            sheet_data = result.get("data", [])
+            if not sheet_data or len(sheet_data) < 2:
+                return {"success": False, "error": "Таблица пуста или содержит только заголовок"}
+            
+            ozon_prices = []
+            wb_prices = []
+            
+            # Индексы колонок (0-based): A=0 (название), C=2 (nm_id WB), D=3 (offer_id Ozon), P=15 (цена WB), Q=16 (цена Ozon)
+            for row in sheet_data[1:]:  # Пропускаем заголовок
+                if not isinstance(row, list):
+                    continue
+                
+                # Базовые данные
+                name = str((row[0] if len(row) > 0 else "") or "").strip()
+                
+                # Ozon: offer_id (D=3), цена (Q=16)
+                offer_id = str((row[3] if len(row) > 3 else "") or "").strip()
+                ozon_price = str((row[16] if len(row) > 16 else "") or "").strip()
+                
+                if offer_id:
+                    ozon_prices.append({
+                        "name": name or offer_id,
+                        "offer_id": offer_id,
+                        "price": ozon_price if ozon_price else "н/д"
+                    })
+                
+                # WB: nm_id (C=2), цена (P=15)
+                nm_id = str((row[2] if len(row) > 2 else "") or "").strip()
+                wb_price = str((row[15] if len(row) > 15 else "") or "").strip()
+                
+                if nm_id:
+                    wb_prices.append({
+                        "name": name or nm_id,
+                        "nm_id": nm_id,
+                        "price": wb_price if wb_price else "н/д"
+                    })
+            
+            return {
+                "success": True,
+                "ozon_prices": ozon_prices,
+                "wb_prices": wb_prices
+            }
+            
+        except Exception as e:
+            logger.error(f"Ошибка чтения цен из таблицы: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+    
     async def get_wb_warehouses(self) -> Dict[str, Union[bool, str, List[Dict]]]:
         """Получает список складов WB (API v3)"""
         if not self.wb_api_key:

@@ -202,6 +202,76 @@ async def cmd_get_prices(message: types.Message):
         text = get_personalized_text('prices_critical_error', MARKETPLACE_TEXTS, user_id, None)
         await message.reply(text)
 
+async def cmd_get_stocks(message: types.Message):
+    """Получение остатков товаров из Google-таблицы"""
+    if not is_admin(message.from_user.id):
+        user_id = message.from_user.id
+        text = get_personalized_text('errors.access_denied', MARKETPLACE_TEXTS, user_id, None)
+        await message.reply(text)
+        return
+    
+    try:
+        await message.answer("📦 Получаю остатки товаров из таблицы...")
+        
+        manager = MarketplaceManager()
+        result = await manager.read_stocks_from_sheet()
+        
+        if not result.get("success"):
+            await message.answer(f"❌ Ошибка: {result.get('error', 'Неизвестная ошибка')}")
+            return
+        
+        ozon_stocks = result.get("ozon_stocks", [])
+        wb_stocks = result.get("wb_stocks", [])
+        
+        def _chunk_send(title: str, lines: list[str], max_chars: int = 3500) -> list[str]:
+            """Собирает пачки текста под лимит Telegram (4096) и возвращает готовые сообщения."""
+            if not lines:
+                return []
+            chunks: list[str] = []
+            cur = title + "\n"
+            for line in lines:
+                if len(cur) + len(line) + 1 > max_chars:
+                    chunks.append(cur.rstrip())
+                    cur = title + "\n" + line + "\n"
+                else:
+                    cur += line + "\n"
+            if cur.strip():
+                chunks.append(cur.rstrip())
+            return chunks
+        
+        # Формируем список остатков Ozon
+        oz_lines: list[str] = []
+        for item in ozon_stocks:
+            name = item.get("name", "—")
+            offer_id = item.get("offer_id", "")
+            stock = item.get("stock", "0")
+            oz_lines.append(f"• {name} — остаток: {stock} (offer_id: {offer_id})")
+        
+        # Формируем список остатков WB
+        wb_lines: list[str] = []
+        for item in wb_stocks:
+            name = item.get("name", "—")
+            nm_id = item.get("nm_id", "")
+            stock = item.get("stock", "0")
+            wb_lines.append(f"• {name} — остаток: {stock} (nm_id: {nm_id})")
+        
+        # Отправляем аккуратно, чтобы не превысить лимит сообщения
+        if oz_lines:
+            for msg_part in _chunk_send("📦 Остатки Ozon (из таблицы):", oz_lines[:200]):
+                await message.answer(msg_part)
+        else:
+            await message.answer("📦 Ozon: не удалось прочитать таблицу/нет строк с offer_id.")
+        
+        if wb_lines:
+            for msg_part in _chunk_send("📦 Остатки Wildberries (из таблицы):", wb_lines[:200]):
+                await message.answer(msg_part)
+        else:
+            await message.answer("📦 Wildberries: не удалось прочитать таблицу/нет строк с nm_id.")
+            
+    except Exception as e:
+        logger.error(f"Ошибка в команде get_stocks: {e}", exc_info=True)
+        await message.answer(f"❌ Произошла критическая ошибка: {str(e)}")
+
 async def cmd_marketplace_help(message: types.Message):
     """Справка по командам маркетплейсов"""
     help_text = """
@@ -1289,8 +1359,9 @@ def register_marketplace_handlers(dp):
     dp.message.register(cmd_ozon_sync_single, Command("ozon_sync_single"))
     dp.message.register(cmd_ozon_debug_stocks, Command("ozon_debug_stocks"))
     
-    # Команды цен
+    # Команды цен и остатков
     dp.message.register(cmd_get_prices, Command("get_prices"))
+    dp.message.register(cmd_get_stocks, Command("get_stocks"))
     
     # Команды Google Sheets
     dp.message.register(cmd_google_sheets_test, Command("sheets_test"))
