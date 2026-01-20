@@ -1281,9 +1281,8 @@ async def cmd_ozon_fill_by_id(message: types.Message):
             await message.answer(
                 "❌ Укажите offer_id или product_id товара.\n\n"
                 "Примеры:\n"
-                "• `/ozon_fill_by_id KU-3-PVK` - по offer_id\n"
-                "• `/ozon_fill_by_id 2343897353` - по product_id",
-                parse_mode="Markdown"
+                "• /ozon_fill_by_id KU-3-PVK - по offer_id\n"
+                "• /ozon_fill_by_id 2343897353 - по product_id"
             )
             return
         
