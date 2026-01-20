@@ -1154,9 +1154,20 @@ class MarketplaceManager:
                     
                     # Цена Ozon
                     if offer_id and offer_id in ozon_prices:
-                        price = ozon_prices[offer_id]["price"]
-                        ozon_price_updates.append([price])
-                        logger.debug(f"💰 Цена Ozon для {offer_id}: {price}")
+                        price_info = ozon_prices[offer_id]
+                        price = price_info.get("price")
+                        # Если цена есть (не None), используем её, иначе оставляем пустым
+                        if price is not None:
+                            try:
+                                price_float = float(price) if not isinstance(price, (int, float)) else price
+                                ozon_price_updates.append([price_float])
+                                logger.debug(f"💰 Цена Ozon для {offer_id}: {price_float} RUB")
+                            except (ValueError, TypeError):
+                                ozon_price_updates.append([""])
+                                logger.warning(f"⚠️ Некорректная цена для {offer_id}: {price}")
+                        else:
+                            ozon_price_updates.append([""])
+                            logger.debug(f"⚠️ Цена для {offer_id} недоступна: {price_info.get('note', 'неизвестно')}")
                     else:
                         ozon_price_updates.append([""])
                     
