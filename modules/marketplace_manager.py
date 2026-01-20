@@ -745,8 +745,12 @@ class MarketplaceManager:
         
         return results
     
-    async def _update_ozon_sheet(self, data: Dict[str, Dict[str, Any]]) -> None:
-        """Обновляет лист Ozon в Google таблице с помощью пакетного обновления"""
+    async def _update_ozon_sheet(self, data: Dict[tuple, Dict[str, Any]]) -> None:
+        """Обновляет лист Ozon в Google таблице с помощью пакетного обновления
+        
+        Args:
+            data: Словарь с ключами (offer_id, product_id) и значениями - данными для обновления
+        """
         try:
             # Читаем весь лист, чтобы правильно сопоставить товары
             # Используем get_sheet_data вместо read_data для чтения всего листа
@@ -760,26 +764,33 @@ class MarketplaceManager:
                 logger.warning("⚠️ Нет данных в таблице для обновления Ozon (таблица пуста или содержит только заголовок)")
                 return
             
-            # Создаем mapping: offer_id -> номер строки (пропускаем заголовок)
-            offer_to_row = {}
+            # Создаем mapping: (offer_id, product_id) -> номер строки
+            # Используем комбинацию offer_id (колонка D, индекс 3) и SKU (колонка A, индекс 0) для точного сопоставления
+            key_to_row = {}
             for i, row in enumerate(sheet_data[1:], start=2):  # Пропускаем заголовок, начинаем с строки 2
-                if len(row) > 3 and row[3]:  # Колонка D (Арт. Ozon)
-                    offer_id = row[3].strip()
-                    offer_to_row[offer_id] = i
+                if len(row) > 3:
+                    offer_id = str((row[3] if len(row) > 3 else "") or "").strip()
+                    sku = str((row[0] if len(row) > 0 else "") or "").strip()  # Колонка A (SKU = product_id)
+                    
+                    if offer_id and sku:
+                        # Используем комбинацию offer_id и SKU для уникальной идентификации
+                        key_to_row[(offer_id, sku)] = i
             
-            logger.info(f"📋 Найдено {len(offer_to_row)} товаров в таблице: {list(offer_to_row.keys())}")
-            logger.info(f"📦 Данных для обновления: {list(data.keys())}")
+            logger.info(f"📋 Найдено {len(key_to_row)} товаров в таблице")
+            logger.info(f"📦 Данных для обновления: {len(data)}")
             
             # Подготавливаем данные для пакетного обновления
             updates = []
             matched_count = 0
             
-            for offer_id, info in data.items():
-                if offer_id in offer_to_row:
-                    row = offer_to_row[offer_id]
+            for (offer_id, product_id), info in data.items():
+                # Ищем строку по комбинации offer_id и product_id (SKU)
+                key = (offer_id, str(product_id))
+                if key in key_to_row:
+                    row = key_to_row[key]
                     matched_count += 1
                     
-                    logger.info(f"📦 Обновляю товар {offer_id} в строке {row}: остаток={info.get('total_stock', 0)}")
+                    logger.info(f"📦 Обновляю товар offer_id={offer_id}, product_id={product_id} в строке {row}: остаток={info.get('total_stock', 0)}")
                     
                     # Обновляем остатки, продажи, выручку
                     updates.append({
@@ -807,7 +818,7 @@ class MarketplaceManager:
                             "values": [[info.get("revenue", 0)]]
                         })
                 else:
-                    logger.warning(f"⚠️ Товар {offer_id} не найден в таблице")
+                    logger.warning(f"⚠️ Товар offer_id={offer_id}, product_id={product_id} не найден в таблице")
             
             logger.info(f"✅ Сопоставлено {matched_count} из {len(data)} товаров")
 
