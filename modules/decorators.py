@@ -5,8 +5,11 @@
 
 import logging
 import functools
+import asyncio
 from typing import Callable, Any
 from aiogram import types
+from aiogram.exceptions import TelegramNetworkError, TelegramAPIError
+from aiohttp.client_exceptions import ClientConnectorError
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +18,7 @@ def safe_handler(func: Callable) -> Callable:
     """
     Декоратор для безопасной обработки исключений в хендлерах.
     Логирует ошибки и предотвращает падение бота.
+    Специальная обработка сетевых ошибок Telegram - не пытается отправлять сообщения при проблемах с сетью.
     
     Usage:
         @safe_handler
@@ -25,6 +29,29 @@ def safe_handler(func: Callable) -> Callable:
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)
+        except (TelegramNetworkError, ClientConnectorError) as e:
+            # Сетевые ошибки - не пытаемся отправлять сообщения, только логируем
+            logger.warning(
+                f"Network error in handler {func.__name__}: {e}. "
+                f"This is usually a temporary connectivity issue with Telegram API. "
+                f"Handler will retry on next update."
+            )
+            # Не пытаемся отправлять сообщения при сетевых ошибках
+            return None
+        except TelegramAPIError as e:
+            # Ошибки API Telegram (не сетевые) - логируем и пытаемся уведомить
+            logger.error(f"Telegram API error in handler {func.__name__}: {e}", exc_info=True)
+            # Пытаемся уведомить пользователя только если это не сетевой сбой
+            try:
+                for arg in args:
+                    if isinstance(arg, types.Message):
+                        await arg.answer("Произошла ошибка. Попробуйте позже или обратитесь к администратору.")
+                        break
+                    elif isinstance(arg, types.CallbackQuery):
+                        await arg.answer("Произошла ошибка. Попробуйте позже.", show_alert=True)
+                        break
+            except Exception as notify_err:
+                logger.error(f"Failed to notify user about Telegram API error: {notify_err}")
         except Exception as e:
             logger.error(f"Error in handler {func.__name__}: {e}", exc_info=True)
             # Пытаемся уведомить пользователя
@@ -126,6 +153,7 @@ def with_user_data(db_key: str = 'db'):
 def answer_on_error(error_message: str = "Произошла ошибка. Попробуйте позже."):
     """
     Декоратор для автоматического ответа пользователю при ошибке.
+    Специальная обработка сетевых ошибок Telegram - не пытается отправлять сообщения при проблемах с сетью.
     
     Args:
         error_message: Сообщение, которое будет отправлено при ошибке
@@ -140,6 +168,31 @@ def answer_on_error(error_message: str = "Произошла ошибка. По�
         async def wrapper(*args, **kwargs):
             try:
                 return await func(*args, **kwargs)
+            except (TelegramNetworkError, ClientConnectorError) as e:
+                # Сетевые ошибки - не пытаемся отправлять сообщения, только логируем
+                logger.warning(
+                    f"Network error in {func.__name__}: {e}. "
+                    f"This is usually a temporary connectivity issue with Telegram API."
+                )
+                # Не пытаемся отправлять сообщения при сетевых ошибках
+                return None
+            except TelegramAPIError as e:
+                # Ошибки API Telegram (не сетевые) - логируем и пытаемся уведомить
+                logger.error(f"Telegram API error in {func.__name__}: {e}", exc_info=True)
+                # Пытаемся отправить сообщение об ошибке только если это не сетевой сбой
+                for arg in args:
+                    if isinstance(arg, types.Message):
+                        try:
+                            await arg.answer(error_message)
+                        except Exception:
+                            pass
+                        break
+                    elif isinstance(arg, types.CallbackQuery):
+                        try:
+                            await arg.answer(error_message, show_alert=True)
+                        except Exception:
+                            pass
+                        break
             except Exception as e:
                 logger.error(f"Error in {func.__name__}: {e}", exc_info=True)
                 # Пытаемся отправить сообщение об ошибке
