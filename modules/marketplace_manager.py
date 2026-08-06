@@ -546,6 +546,11 @@ class MarketplaceManager:
     async def sync_ozon_data(self) -> Dict[str, Union[bool, str, Dict]]:
         """Синхронизация данных Ozon с Google таблицами"""
         try:
+            # Кеш offer_id → sku наполняется ниже в get_ozon_stocks_by_offer.
+            # Сбрасываем его, чтобы общий экземпляр вёл себя так же, как свежесозданный,
+            # и в таблицу не попал sku, оставшийся от предыдущей синхронизации.
+            self.offer_id_to_sku = {}
+
             # Получаем mapping offer_id → product_id
             mapping_result = await self.get_ozon_product_mapping()
             if not mapping_result["success"]:
@@ -1555,6 +1560,24 @@ class MarketplaceManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-# Временное логирование для проверки загрузки WB_API_KEY
-logger.info(f"WB_API_KEY: {os.getenv('WB_API_KEY')}")
-"# Force redeploy" 
+# Ранее здесь логировалось значение WB_API_KEY — секрет попадал в логи Amvera при
+# каждом импорте модуля. Для диагностики достаточно факта наличия ключа: см. _validate_config().
+
+
+_manager_instance: Optional["MarketplaceManager"] = None
+
+
+def get_manager() -> "MarketplaceManager":
+    """
+    Возвращает общий экземпляр MarketplaceManager.
+
+    Конструктор авторизует service-account Google Sheets (сетевой запрос), поэтому
+    создавать его заново в каждой из ~20 команд — лишний round-trip перед началом работы.
+    Экземпляр кешируется только при успешном создании: если ключи не настроены,
+    исключение прокидывается наверх, и следующий вызов попробует снова.
+    """
+    global _manager_instance
+    if _manager_instance is None:
+        _manager_instance = MarketplaceManager()
+        logger.info("MarketplaceManager инициализирован (общий экземпляр)")
+    return _manager_instance

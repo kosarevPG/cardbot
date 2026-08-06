@@ -5,7 +5,7 @@ from aiogram import types, Dispatcher
 import logging
 import json
 import html
-from .marketplace_manager import MarketplaceManager
+from .marketplace_manager import MarketplaceManager, get_manager
 from .google_sheets import test_google_sheets_connection, get_sheets_info, read_sheet_data
 from modules.texts import get_personalized_text, MARKETPLACE_TEXTS
 
@@ -34,7 +34,7 @@ async def cmd_wb_test(message: types.Message):
     await message.answer("🔄 Тестирую подключение к Wildberries API...")
 
     try:
-        manager = MarketplaceManager()
+        manager = get_manager()
         result = await manager.get_wb_warehouses()
 
         if result.get("success"):
@@ -55,7 +55,7 @@ async def cmd_wb_stats(message: types.Message):
     await message.answer("📊 Получаю остатки Wildberries...")
 
     try:
-        manager = MarketplaceManager()
+        manager = get_manager()
 
         warehouses_result = await manager.get_wb_warehouses()
         if not warehouses_result.get("success") or not warehouses_result.get("warehouses"):
@@ -107,7 +107,7 @@ async def cmd_get_prices(message: types.Message):
         text = get_personalized_text('getting_prices', MARKETPLACE_TEXTS, user_id, None)
         await message.reply(text)
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         result = await manager.update_prices_in_sheets()
         
         if result.get("success"):
@@ -255,7 +255,7 @@ async def cmd_wb_products(message: types.Message):
     await message.answer("📦 Получаю список артикулов Wildberries...")
 
     try:
-        manager = MarketplaceManager()
+        manager = get_manager()
         barcodes_result = await manager.get_wb_product_barcodes()
 
         if barcodes_result.get("success"):
@@ -291,7 +291,7 @@ async def cmd_wb_sync_all(message: types.Message):
     await message.answer("🔄 Синхронизирую остатки Wildberries с таблицей…")
 
     try:
-        mgr = MarketplaceManager()
+        mgr = get_manager()
         res = await mgr.sync_wb_stock_to_sheet()
         if res.get("success"):
             await message.answer(f"✅ Обновлены остатки для {res.get('updated',0)} товаров")
@@ -313,7 +313,7 @@ async def cmd_wb_get_warehouses(message: types.Message):
     await message.answer("🔍 Получаю список складов Wildberries...")
 
     try:
-        manager = MarketplaceManager()
+        manager = get_manager()
         result = await manager.get_wb_warehouses()
 
         if result.get("success"):
@@ -343,7 +343,7 @@ async def cmd_wb_warehouses_json(message: types.Message):
     if not is_admin(message.from_user.id):
         await message.answer("❌ Нет прав"); return
 
-    mgr = MarketplaceManager()
+    mgr = get_manager()
     res = await mgr.get_wb_warehouses()
     await message.answer(f"```json\n{json.dumps(res, ensure_ascii=False, indent=2)[:3500]}\n```", parse_mode="Markdown")
 # ------------------------------------------------------------------
@@ -358,7 +358,7 @@ async def cmd_ozon_test(message: types.Message):
     try:
         await message.answer("🔄 Тестирую подключение к Ozon API...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         # Показываем статус конфигурации
         status = manager.get_status()
@@ -401,7 +401,7 @@ async def cmd_ozon_debug(message: types.Message):
     try:
         await message.answer("🔍 Запускаю детальную диагностику Ozon API...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         # Проверяем переменные окружения
         import os
@@ -476,7 +476,7 @@ async def cmd_ozon_simple_test(message: types.Message):
     try:
         await message.answer("🔍 Тестирую простое получение списка товаров...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         # Проверяем простое получение товаров из /v3/product/list
         try:
@@ -532,7 +532,7 @@ async def cmd_ozon_stats(message: types.Message):
     try:
         await message.answer("📊 Получаю статистику Ozon...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         # Получаем mapping товаров
         mapping_result = await manager.get_ozon_product_mapping()
@@ -583,7 +583,7 @@ async def cmd_ozon_products(message: types.Message):
     try:
         await message.answer("📦 Получаю список товаров Ozon...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         result = await manager.get_ozon_product_mapping()
         if result["success"]:
@@ -655,7 +655,7 @@ async def cmd_ozon_products_all(message: types.Message):
     try:
         await message.answer("📦 Получаю полный список товаров Ozon...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         result = await manager.get_ozon_product_mapping()
         if result["success"]:
@@ -732,7 +732,7 @@ async def cmd_ozon_products_detailed(message: types.Message):
     try:
         await message.answer("📦 Получаю детальную информацию о всех товарах Ozon...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         result = await manager.get_ozon_product_mapping()
         if result["success"]:
@@ -841,7 +841,7 @@ async def cmd_ozon_stocks(message: types.Message):
 
     try:
         await message.answer("📊 Считаю остатки Ozon…")
-        mgr = MarketplaceManager()
+        mgr = get_manager()
         res = await mgr.sync_ozon_data()
         if not res.get("success"):
             await message.answer(f"❌ Ошибка: {res.get('error')}"); return
@@ -982,7 +982,7 @@ async def cmd_ozon_sync_all(message: types.Message):
     try:
         await message.answer("🔄 Начинаю синхронизацию всех данных Ozon с Google таблицей...\n\n⚠️ Это может занять несколько минут.")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         result = await manager.sync_ozon_data()
         
         if result["success"]:
@@ -1019,7 +1019,7 @@ async def cmd_ozon_sync_single(message: types.Message):
         await message.answer(f"🔄 Синхронизирую данные для {offer_id}...")
         
         # TODO: Реализовать функцию sync_single_ozon_offer в marketplace_manager
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         # Временно используем синхронизацию всех товаров
         result = await manager.sync_ozon_data()
@@ -1043,7 +1043,7 @@ async def cmd_ozon_stocks_detailed(message: types.Message):
     try:
         await message.answer("📊 Получаю детальную информацию об остатках товаров Ozon...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         # Получаем mapping товаров
         mapping_result = await manager.get_ozon_product_mapping()
@@ -1187,7 +1187,7 @@ async def cmd_ozon_debug_stocks(message: types.Message):
     try:
         await message.answer("🔍 Запускаю детальную диагностику остатков Ozon...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         
         # Шаг 1: Получаем список товаров
         result = await manager.get_ozon_product_mapping()
@@ -1290,7 +1290,7 @@ async def cmd_ozon_fill_by_id(message: types.Message):
         
         await message.answer(f"🔄 Получаю данные о товаре {product_id} из Ozon...")
         
-        manager = MarketplaceManager()
+        manager = get_manager()
         result = await manager.fill_ozon_product_by_id(product_id)
         
         if result.get("success"):
