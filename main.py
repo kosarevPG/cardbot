@@ -1,7 +1,11 @@
 # ==== GITHUB BOOTSTRAP (place at very top of main.py) ====
 import os
+# shutil и sys нужны и вне блока бутстрапа (проверка sqlite_web + настройка логов ниже),
+# поэтому импортируем безусловно
+import shutil
+import sys
 if os.getenv("BOOTSTRAP_FROM_GITHUB", "0") == "1":
-    import io, sys, shutil, tempfile, zipfile, time
+    import io, sys, tempfile, zipfile, time
     from urllib.request import urlopen, Request
 
     REPO_OWNER = os.getenv("BOOTSTRAP_REPO_OWNER", "kosarevPG")
@@ -216,8 +220,19 @@ class PostCreationStates(StatesGroup):
     waiting_for_confirmation = State()
 
 # --- Настройка логирования ---
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+# Уровень задаётся переменной окружения LOG_LEVEL (DEBUG/INFO/WARNING/ERROR), по умолчанию INFO.
+# На DEBUG в логи попадают тексты пользователей — включать только для отладки.
+_log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
+_log_level = getattr(logging, _log_level_name, logging.INFO)
+if not isinstance(_log_level, int):
+    _log_level = logging.INFO
+logging.basicConfig(
+    level=_log_level,
+    format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+    stream=sys.stdout,
+)
 logger = logging.getLogger(__name__)
+logger.info(f"Logging level set to {logging.getLevelName(_log_level)} (LOG_LEVEL={_log_level_name})")
 
 # --- Инициализация ---
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))

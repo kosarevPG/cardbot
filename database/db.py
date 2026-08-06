@@ -42,6 +42,16 @@ class Database:
             self.conn = sqlite3.connect(path, check_same_thread=False, detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES)
             logger.info(f"Database connection initialized at path: {path}")
 
+            # Соединение шарится между хендлерами, планировщиками рассылок/анализа и sqlite_web.
+            # WAL позволяет читать во время записи, busy_timeout заставляет подождать блокировку
+            # вместо мгновенного "database is locked".
+            try:
+                journal_mode = self.conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+                self.conn.execute("PRAGMA busy_timeout=5000")
+                logger.info(f"SQLite pragmas applied: journal_mode={journal_mode}, busy_timeout=5000ms")
+            except sqlite3.Error as pragma_err:
+                logger.warning(f"Failed to apply SQLite pragmas: {pragma_err}")
+
             # Адаптеры для сохранения datetime и date как ISO строк
             sqlite3.register_adapter(datetime, lambda val: val.isoformat())
             sqlite3.register_adapter(date, lambda val: val.isoformat())
