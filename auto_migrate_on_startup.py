@@ -11,6 +11,43 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _ignored_user_ids() -> list[int]:
+    """
+    ID, исключаемые из метрик. Единый источник правды — config.NO_LOGS_USERS,
+    тот же список, по которому фильтруют python-запросы в database/db.py.
+    Раньше таблица ignored_users заполнялась своим захардкоженным списком из двух ID,
+    из-за чего метрики через VIEW и метрики через db.py считались по разным выборкам.
+    """
+    try:
+        try:
+            from config_local import NO_LOGS_USERS
+        except ImportError:
+            from config import NO_LOGS_USERS
+        return [int(uid) for uid in (NO_LOGS_USERS or [])]
+    except Exception as e:
+        logger.warning(f"Не удалось прочитать NO_LOGS_USERS, ignored_users не обновляется: {e}")
+        return []
+
+
+def _sync_ignored_users(conn) -> None:
+    """Досыпает в ignored_users недостающие ID из конфига. Ничего не удаляет: строки,
+    добавленные вручную, сохраняются, но о расхождении пишем в лог."""
+    ids = _ignored_user_ids()
+    if not ids:
+        return
+
+    existing = {row[0] for row in conn.execute("SELECT user_id FROM ignored_users")}
+    missing = [(uid,) for uid in ids if uid not in existing]
+    if missing:
+        conn.executemany("INSERT OR IGNORE INTO ignored_users(user_id) VALUES (?)", missing)
+        logger.info(f"ignored_users: добавлено {len(missing)} ID из NO_LOGS_USERS")
+
+    extra = existing - set(ids)
+    if extra:
+        logger.warning(f"ignored_users содержит ID вне NO_LOGS_USERS: {sorted(extra)}")
+
+
 def apply_metrics_migration(db_path: str = 'data/bot.db'):
     """
     Применяет SQL миграцию для создания VIEW инфраструктуры.
@@ -28,11 +65,9 @@ def apply_metrics_migration(db_path: str = 'data/bot.db'):
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
     
-    -- Добавляем админов
-    INSERT OR IGNORE INTO ignored_users(user_id) VALUES 
-        (171507422),   -- KosarevPG
-        (6682555021);  -- Admin
-    
+    -- Наполнение ignored_users вынесено в _sync_ignored_users() ниже:
+    -- список берётся из config.NO_LOGS_USERS, чтобы не расходиться с db.py.
+
     -- 2. Таблица настроек
     CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
@@ -152,6 +187,7 @@ def apply_metrics_migration(db_path: str = 'data/bot.db'):
     try:
         conn = sqlite3.connect(db_path)
         conn.executescript(sql_migration)
+        _sync_ignored_users(conn)
         conn.commit()
         conn.close()
         
