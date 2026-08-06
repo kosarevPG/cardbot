@@ -1,26 +1,79 @@
 name: CI
-on: [push]
+
+on: [push, pull_request]
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.PUSH }}  # Используем секрет PUSH
+      - uses: actions/checkout@v4
+
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          # Совпадает с toolchain из amvera.yml
+          python-version: '3.11'
+          cache: pip
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Run migration
-        run: python migrate_json_to_sqlite.py
-      - name: Commit and push SQLite database
+
+      - name: Compile sources
+        run: python -m compileall -q modules database config.py main.py auto_migrate_on_startup.py startup_probe.py
+
+      - name: Import smoke test
         run: |
-          git config --global user.name "GitHub Action"
-          git config --global user.email "action@github.com"
-          git add database/bot.db
-          git commit -m "Update SQLite database after migration" || echo "No changes to commit"
-          git push
+          python - <<'PY'
+          import importlib
+
+          # main.py не импортируем: он создаёт Bot и подключается к БД на импорте.
+          # Его синтаксис покрыт шагом compileall выше.
+          modules = [
+              "config",
+              "database.db",
+              "auto_migrate_on_startup",
+              "modules.admin",
+              "modules.ai_service",
+              "modules.card_of_the_day",
+              "modules.evening_reflection",
+              "modules.learn_cards",
+              "modules.become_author",
+              "modules.marketplace_commands",
+              "modules.marketplace_manager",
+              "modules.google_sheets",
+              "modules.scheduler",
+              "modules.notification_service",
+              "modules.post_management",
+              "modules.purchase_menu",
+              "modules.settings_menu",
+              "modules.training_logger",
+              "modules.user_management",
+              "modules.logging_service",
+              "modules.utils",
+              "modules.constants",
+          ]
+          for name in modules:
+              importlib.import_module(name)
+          print(f"imports OK: {len(modules)} modules")
+          PY
+
+      - name: Database bootstrap test
+        run: |
+          python - <<'PY'
+          import os, sqlite3, tempfile
+          from database.db import Database
+          from auto_migrate_on_startup import apply_metrics_migration
+
+          path = os.path.join(tempfile.mkdtemp(), "bot.db")
+          db = Database(path=path)
+          assert db.conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+          db.close()
+
+          assert apply_metrics_migration(db_path=path) is True
+          conn = sqlite3.connect(path)
+          conn.execute("SELECT COUNT(*) FROM v_events").fetchone()
+          conn.execute("SELECT COUNT(*) FROM v_sessions").fetchone()
+          print("db bootstrap OK")
+          PY
