@@ -12,6 +12,34 @@ logger = logging.getLogger(__name__)
 ADMIN_MENU_VERSION = "2026-01-17T19:10-admin-author-test-details-v2"
 
 
+ADMIN_MENU_TEXT = (
+    "📊 <b>АДМИН ПАНЕЛЬ</b>\n\n"
+    "Выберите раздел для просмотра метрик:\n\n"
+    ""
+)
+
+
+def build_admin_menu_keyboard() -> types.InlineKeyboardMarkup:
+    """
+    Клавиатура главного меню админки — единственный источник правды.
+    Используется и в /admin, и при возврате по кнопке «Назад».
+    """
+    return types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="🔍 Главный дашборд", callback_data="admin_dashboard")],
+        [types.InlineKeyboardButton(text="📈 Метрики удержания", callback_data="admin_retention")],
+        [types.InlineKeyboardButton(text="🔄 Воронка 'Карта дня'", callback_data="admin_funnel")],
+        [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
+        [types.InlineKeyboardButton(text="🃏 Статистика колод", callback_data="admin_decks")],
+        [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
+        [types.InlineKeyboardButton(text="🧑‍💼 Тест «Стать автором»", callback_data="admin_author_test")],
+        [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
+        [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
+        [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
+        [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")],
+        [types.InlineKeyboardButton(text="📚 Логи обучения", callback_data="admin_training_logs")]
+    ])
+
+
 def _admin_menu_cb_list(keyboard: types.InlineKeyboardMarkup) -> list[str]:
     """Безопасный список callback_data (без эмодзи/текста) для диагностики деплоя."""
     out: list[str] = []
@@ -43,26 +71,8 @@ def make_admin_handler(db: Database, logger_service: LoggingService):
             return
         
         # Главное меню админки
-        text = (
-            "📊 <b>АДМИН ПАНЕЛЬ</b>\n\n"
-            "Выберите раздел для просмотра метрик:\n\n"
-            ""
-        )
-        
-        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="🔍 Главный дашборд", callback_data="admin_dashboard")],
-            [types.InlineKeyboardButton(text="📈 Метрики удержания", callback_data="admin_retention")],
-            [types.InlineKeyboardButton(text="🔄 Воронка 'Карта дня'", callback_data="admin_funnel")],
-            [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
-            [types.InlineKeyboardButton(text="🃏 Статистика колод", callback_data="admin_decks")],
-            [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
-            [types.InlineKeyboardButton(text="🧑‍💼 Тест «Стать автором»", callback_data="admin_author_test")],
-            [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
-            [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
-            [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
-            [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")],
-            [types.InlineKeyboardButton(text="📚 Логи обучения", callback_data="admin_training_logs")]
-        ])
+        text = ADMIN_MENU_TEXT
+        keyboard = build_admin_menu_keyboard()
         logger.info(
             f"[admin_menu] version={ADMIN_MENU_VERSION} cb={_admin_menu_cb_list(keyboard)}"
         )
@@ -247,26 +257,8 @@ async def show_admin_main_menu(message: types.Message, db: Database, logger_serv
         return
     
     try:
-        text = (
-            "📊 <b>АДМИН ПАНЕЛЬ</b>\n\n"
-            "Выберите раздел для просмотра метрик:\n\n"
-            ""
-        )
-        
-        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="🔍 Главный дашборд", callback_data="admin_dashboard")],
-            [types.InlineKeyboardButton(text="📈 Метрики удержания", callback_data="admin_retention")],
-            [types.InlineKeyboardButton(text="🔄 Воронка 'Карта дня'", callback_data="admin_funnel")],
-            [types.InlineKeyboardButton(text="💎 Метрики ценности", callback_data="admin_value")],
-            [types.InlineKeyboardButton(text="🃏 Статистика колод", callback_data="admin_decks")],
-            [types.InlineKeyboardButton(text="🌙 Вечерняя рефлексия", callback_data="admin_reflections")],
-            [types.InlineKeyboardButton(text="🧑‍💼 Тест «Стать автором»", callback_data="admin_author_test")],
-            [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
-            [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
-            [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
-            [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")],
-            [types.InlineKeyboardButton(text="📚 Логи обучения", callback_data="admin_training_logs")]
-        ])
+        text = ADMIN_MENU_TEXT
+        keyboard = build_admin_menu_keyboard()
         logger.info(
             f"[admin_menu] version={ADMIN_MENU_VERSION} cb={_admin_menu_cb_list(keyboard)}"
         )
