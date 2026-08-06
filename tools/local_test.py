@@ -27,17 +27,12 @@ os.environ['BOT_TOKEN'] = os.getenv('BOT_TOKEN', 'your_bot_token')
 os.environ['ADMIN_ID'] = os.getenv('ADMIN_ID', 'your_admin_id')
 os.environ['WB_API_TOKEN'] = os.getenv('WB_API_TOKEN', 'your_wb_api_token')
 
-# ---- ЖЁСТКО задаём WB_API_KEY для локального теста (НЕ коммитить в репозиторий) ----
-os.environ['WB_API_KEY'] = (
-    "eyJhbGciOiJFUzI1NiIsImtpZCI6IjIwMjUwNTIwdjEiLCJ0eXAiOiJKV1QifQ."
-    "eyJlbnQiOjEsImV4cCI6MTc3MjQxODc4OSwiaWQiOiIwMTk5MDA4Yi1kOWVjLTcw"
-    "ZTEtOWE1My0xMzMyOWFiNjE4ZjEiLCJpaWQiOjgyMTIyMzE4LCJvaWQiOjI1MDAx"
-    "MzM2OCwicyI6MTYxMjYsInNpZCI6IjBlYzZhYTIxLTQ5YWYtNGQ3MS05Y2E2LTk2"
-    "NjU0MWQwMmZmZSIsInQiOmZhbHNlLCJ1aWQiOjgyMTIyMzE4fQ."
-    "wBX-qYBreCEaQg4pNMV1tJQKcFE3_YmhRI7UMA2LQ29irj0e4mrv1RSIwCM9yde5"
-    "NHJ2JZAonV6puSlmr1kokQ"
-)
-# -------------------------------------------------------------------------------
+# WB_API_KEY берём из окружения. Раньше сюда был вписан реальный JWT-ключ продавца
+# (истёк 02.03.2026) — не вписывайте секреты в файлы репозитория, они остаются в истории git.
+# Перед запуском:  set WB_API_KEY=...  (cmd)  или  $env:WB_API_KEY="..."  (PowerShell)
+os.environ['WB_API_KEY'] = os.getenv('WB_API_KEY', '')
+if not os.environ['WB_API_KEY']:
+    print("ВНИМАНИЕ: WB_API_KEY не задан в окружении — тесты Wildberries работать не будут.")
 
 
 from modules.marketplace_manager import MarketplaceManager

@@ -201,3 +201,7 @@ backup_pre_deploy_*/
 
 # Git directory - НЕ включаем в деплой на Amvera
 .git/
+
+# Ключи сервисного аккаунта Google для локальных тестов (tools/local_test.py)
+google_creds.json
+tools/google_creds.json
