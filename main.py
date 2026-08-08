@@ -341,9 +341,10 @@ class SubscriptionMiddleware:
     как subscription_invite_shown.
     """
 
-    # user_id -> дата последнего показа приглашения. В памяти: после рестарта
-    # предложим снова, это не страшно.
-    _invite_shown_on: dict[int, object] = {}
+    # user_id -> дата последней проверки подписки. Отмечается независимо от результата,
+    # поэтому к Telegram обращаемся не чаще раза в сутки на человека. В памяти:
+    # после рестарта проверим снова, это не страшно.
+    _checked_on: dict[int, object] = {}
 
     async def __call__(self, handler, event, data):
         if isinstance(event, (types.Message, types.CallbackQuery)):
@@ -358,49 +359,52 @@ class SubscriptionMiddleware:
                     logger.error("Database not found in middleware data")
                     return await handler(event, data)
                 
-                # Проверяем, завершил ли пользователь сценарий "Карта дня" впервые
-                has_completed_card_scenario = db.has_completed_scenario_first_time(user_id, 'card_of_day')
-                
-                # Если пользователь еще не завершил сценарий "Карта дня" впервые, пропускаем проверку подписки
-                if not has_completed_card_scenario:
+                today = datetime.now(TIMEZONE).date() if TIMEZONE else date.today()
+
+                # Дешёвые отсечки ДО обращения к Telegram. Приглашение показывается
+                # не чаще раза в сутки и только на обычных сообщениях — значит для
+                # всех прочих апдейтов проверять подписку незачем. Раньше
+                # get_chat_member вызывался на каждый апдейт: лишний round-trip
+                # в каждом хендлере и точка отказа при проблемах со связью.
+                if (not isinstance(event, types.Message)
+                        or self._checked_on.get(user_id) == today):
                     return await handler(event, data)
-                
-                # Проверяем подписку только после первого успешного завершения сценария "Карта дня"
+
+                # Не трогаем тех, кто ещё не дошёл до первого завершённого сценария
+                if not db.has_completed_scenario_first_time(user_id, 'card_of_day'):
+                    return await handler(event, data)
+
+                # Отмечаем проверку сделанной независимо от результата, иначе для
+                # подписанных пользователей запрос повторялся бы на каждом сообщении.
+                self._checked_on[user_id] = today
+
                 user_status = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
                 allowed_statuses = ["member", "administrator", "creator"]
                 if user_status.status not in allowed_statuses:
-                    today = datetime.now(TIMEZONE).date() if TIMEZONE else date.today()
+                    from modules.texts.common import COMMON_TEXTS
 
-                    # Показываем приглашение не чаще раза в сутки и только на обычных
-                    # сообщениях: перебивать нажатие кнопки посреди сценария не нужно.
-                    if (self._invite_shown_on.get(user_id) != today
-                            and isinstance(event, types.Message)):
-                        self._invite_shown_on[user_id] = today
+                    user_db_data = db.get_user(user_id)
+                    name = user_db_data.get("name") if user_db_data else None
+                    link = f"https://t.me/{CHANNEL_ID.lstrip('@')}"
 
-                        from modules.texts.common import COMMON_TEXTS
+                    if name:
+                        text_template = f"{name}, " + COMMON_TEXTS["subscription_check"]["not_subscribed_with_name"]
+                    else:
+                        text_template = COMMON_TEXTS["subscription_check"]["not_subscribed"]
+                    text = text_template.replace('{link}', link)
 
-                        user_db_data = db.get_user(user_id)
-                        name = user_db_data.get("name") if user_db_data else None
-                        link = f"https://t.me/{CHANNEL_ID.lstrip('@')}"
+                    try:
+                        await event.answer(text, disable_web_page_preview=True)
+                        db.save_action(
+                            user_id, user.username or "", (name or ""),
+                            "subscription_invite_shown", {"channel": CHANNEL_ID},
+                            datetime.now(TIMEZONE).isoformat(),
+                        )
+                    except Exception as invite_err:
+                        logger.warning(f"Failed to show subscription invite to {user_id}: {invite_err}")
 
-                        if name:
-                            text_template = f"{name}, " + COMMON_TEXTS["subscription_check"]["not_subscribed_with_name"]
-                        else:
-                            text_template = COMMON_TEXTS["subscription_check"]["not_subscribed"]
-                        text = text_template.replace('{link}', link)
-
-                        try:
-                            await event.answer(text, disable_web_page_preview=True)
-                            db.save_action(
-                                user_id, user.username or "", (name or ""),
-                                "subscription_invite_shown", {"channel": CHANNEL_ID},
-                                datetime.now(TIMEZONE).isoformat(),
-                            )
-                        except Exception as invite_err:
-                            logger.warning(f"Failed to show subscription invite to {user_id}: {invite_err}")
-
-                    # Пропускаем дальше в любом случае — подписка больше не турникет.
-                    return await handler(event, data)
+                # Пропускаем дальше в любом случае — подписка больше не турникет.
+                return await handler(event, data)
             except Exception as e:
                 # Раньше сбой проверки (сеть, бот не админ в канале) съедал сообщение
                 # пользователя и отвечал ошибкой. Подписка необязательна, поэтому
