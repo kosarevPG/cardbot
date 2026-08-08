@@ -20,23 +20,32 @@ class LoggingService:
         self.logger = logging.getLogger('app_logger')
         self.logger.setLevel(logging.INFO)
 
-    async def log_action(self, user_id, action, details=None):
-        try:
-            chat = await self.db.bot.get_chat(user_id)
-            username = chat.username or ""
-        except Exception as e:
-            logging.warning(f"Could not get chat info for user {user_id}: {e}")
-            username = ""
-        
+    async def log_action(self, user_id, action, details=None, username=None):
+        """
+        Записывает действие пользователя.
+
+        Раньше здесь на КАЖДОЕ действие делался запрос bot.get_chat(user_id) — только
+        чтобы узнать username. Это лишний round-trip к Telegram в каждом хендлере, а при
+        проблемах со связью он вешал обработку апдейта на таймаут в 60 секунд.
+        Username и так есть в таблице users (обновляется в обработчике /start), и его же
+        можно передать из апдейта параметром. К Telegram больше не ходим.
+        """
+        name = "Unknown"
+        db_username = ""
         try:
             user_data = self.db.get_user(user_id)
-            name = user_data.get("name", "Unknown") if user_data else "Unknown"
+            if user_data:
+                name = user_data.get("name") or "Unknown"
+                db_username = user_data.get("username") or ""
         except Exception as e:
             logging.warning(f"Could not get user data for user {user_id}: {e}")
-            name = "Unknown"
-        
+
         timestamp = datetime.now(TIMEZONE).isoformat()
-        self.db.save_action(user_id, username, name, action, details or {}, timestamp)
+        self.db.save_action(
+            user_id,
+            username if username is not None else db_username,
+            name, action, details or {}, timestamp,
+        )
         logging.info(f"User {user_id}: {action}, details: {details}")
 
     def get_logs_for_today(self):

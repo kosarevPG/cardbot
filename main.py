@@ -423,7 +423,9 @@ def make_start_handler(db, logger_service, user_manager):
         user_id = message.from_user.id
         username = message.from_user.username or ""
         args = command.args if command else ""
-        await logger_service.log_action(user_id, "start_command", {"args": args})
+        # username передаём из апдейта: в БД он обновляется ниже по коду, и для
+        # нового пользователя на этот момент его там ещё нет.
+        await logger_service.log_action(user_id, "start_command", {"args": args}, username=username)
         user_data = db.get_user(user_id)
         
         # Проверяем, новый ли это пользователь (нет first_seen)
