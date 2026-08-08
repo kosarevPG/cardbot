@@ -16,6 +16,14 @@ async def get_purchase_menu() -> InlineKeyboardMarkup:
 async def handle_purchase_menu(message: types.Message, db: Database, logging_service):
     """Отправляет меню для приобретения МАК."""
     await message.answer("Выберите, где приобрести МАК:", reply_markup=await get_purchase_menu())
+    # Раздел был полной аналитической слепой зоной: нельзя было сказать даже,
+    # открывает ли меню хоть кто-нибудь. Сам переход на Ozon/WB отследить нельзя —
+    # это url-кнопки, Telegram не присылает по ним callback.
+    if logging_service:
+        try:
+            await logging_service.log_action(message.from_user.id, "purchase_menu_opened", {})
+        except Exception:
+            pass
 
 # --- Обработчик callback-ов меню "Приобрести МАК" ---
 async def handle_purchase_callbacks(query: types.CallbackQuery, db: Database):

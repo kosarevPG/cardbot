@@ -330,6 +330,21 @@ user_manager = UserManager(db)
 
 # --- Middleware ---
 class SubscriptionMiddleware:
+    """
+    Приглашает подписаться на канал, но НЕ блокирует работу с ботом.
+
+    Раньше здесь стоял турникет: после первого завершённого сценария «Карта дня»
+    неподписанный пользователь переставал получать ответы вообще. Это инверсия —
+    человек получал ценность, а потом с него требовали плату за возвращение,
+    причём срабатывание нигде не логировалось, и оценить урон было нечем.
+    Теперь приглашение показывается не чаще раза в сутки и пишется в actions
+    как subscription_invite_shown.
+    """
+
+    # user_id -> дата последнего показа приглашения. В памяти: после рестарта
+    # предложим снова, это не страшно.
+    _invite_shown_on: dict[int, object] = {}
+
     async def __call__(self, handler, event, data):
         if isinstance(event, (types.Message, types.CallbackQuery)):
             user = event.from_user
@@ -354,42 +369,44 @@ class SubscriptionMiddleware:
                 user_status = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
                 allowed_statuses = ["member", "administrator", "creator"]
                 if user_status.status not in allowed_statuses:
-                    from modules.texts.common import COMMON_TEXTS
-                    from modules.texts.gender_utils import get_user_info_for_text, personalize_text
-                    
-                    user_db_data = db.get_user(user_id)
-                    name = user_db_data.get("name") if user_db_data else None
-                    link = f"https://t.me/{CHANNEL_ID.lstrip('@')}"
-                    
-                    # Используем централизованный текст
-                    if name:
-                        text_template = f"{name}, " + COMMON_TEXTS["subscription_check"]["not_subscribed_with_name"]
-                    else:
-                        text_template = COMMON_TEXTS["subscription_check"]["not_subscribed"]
-                    text = text_template.replace('{link}', link)
-                    
-                    if isinstance(event, types.Message):
-                        await event.answer(text, disable_web_page_preview=True)
-                    elif isinstance(event, types.CallbackQuery):
-                        await event.answer(COMMON_TEXTS["subscription_check"]["please_subscribe"], show_alert=True)
-                        await event.message.answer(text, disable_web_page_preview=True)
-                    return
+                    today = datetime.now(TIMEZONE).date() if TIMEZONE else date.today()
+
+                    # Показываем приглашение не чаще раза в сутки и только на обычных
+                    # сообщениях: перебивать нажатие кнопки посреди сценария не нужно.
+                    if (self._invite_shown_on.get(user_id) != today
+                            and isinstance(event, types.Message)):
+                        self._invite_shown_on[user_id] = today
+
+                        from modules.texts.common import COMMON_TEXTS
+
+                        user_db_data = db.get_user(user_id)
+                        name = user_db_data.get("name") if user_db_data else None
+                        link = f"https://t.me/{CHANNEL_ID.lstrip('@')}"
+
+                        if name:
+                            text_template = f"{name}, " + COMMON_TEXTS["subscription_check"]["not_subscribed_with_name"]
+                        else:
+                            text_template = COMMON_TEXTS["subscription_check"]["not_subscribed"]
+                        text = text_template.replace('{link}', link)
+
+                        try:
+                            await event.answer(text, disable_web_page_preview=True)
+                            db.save_action(
+                                user_id, user.username or "", (name or ""),
+                                "subscription_invite_shown", {"channel": CHANNEL_ID},
+                                datetime.now(TIMEZONE).isoformat(),
+                            )
+                        except Exception as invite_err:
+                            logger.warning(f"Failed to show subscription invite to {user_id}: {invite_err}")
+
+                    # Пропускаем дальше в любом случае — подписка больше не турникет.
+                    return await handler(event, data)
             except Exception as e:
-                logger.error(f"Subscription check failed for user {user_id}: {e}")
-                from modules.texts.common import COMMON_TEXTS
-                from modules.texts.gender_utils import get_user_info_for_text, personalize_text
-                
-                user_info = get_user_info_for_text(user_id, db)
-                error_text = personalize_text(
-                    COMMON_TEXTS["subscription_check"]["check_failed"].replace('{channel}', CHANNEL_ID),
-                    user_info
-                )
-                if isinstance(event, types.Message): 
-                    await event.answer(error_text)
-                elif isinstance(event, types.CallbackQuery): 
-                    await event.answer(COMMON_TEXTS["subscription_check"]["check_failed_short"], show_alert=False)
-                    await event.message.answer(error_text)
-                return
+                # Раньше сбой проверки (сеть, бот не админ в канале) съедал сообщение
+                # пользователя и отвечал ошибкой. Подписка необязательна, поэтому
+                # любая проблема здесь должна оставаться незаметной для человека.
+                logger.warning(f"Subscription check failed for user {user_id}, passing through: {e}")
+                return await handler(event, data)
         return await handler(event, data)
 
 
@@ -443,6 +460,16 @@ def make_start_handler(db, logger_service, user_manager):
             start_arg = (args or "").strip().lower()
         except Exception:
             start_arg = ""
+        # https://t.me/<bot>?start=card — сразу в «Карту дня», минуя главное меню.
+        # Нужно для реактивационных рассылок: ссылка ведёт прямо в сценарий.
+        if start_arg in ("card", "card_of_day"):
+            try:
+                await logger_service.log_action(user_id, "deeplink_card_opened", {"arg": start_arg})
+                await handle_card_request(message, state, db, logger_service)
+                return
+            except Exception as e:
+                logger.error(f"Failed to start card flow from deep-link: {e}", exc_info=True)
+
         if start_arg in ("author_test", "author"):
             try:
                 from modules.become_author import start_author_test_flow

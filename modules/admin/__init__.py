@@ -29,6 +29,10 @@ from modules.admin.users import (
     show_admin_requests_full
 )
 
+from modules.admin.user_segments import (
+    show_admin_user_segments
+)
+
 from modules.admin.posts import (
     show_admin_posts,
     start_post_creation,
@@ -69,7 +73,8 @@ __all__ = [
     'show_admin_users_list',
     'show_admin_requests',
     'show_admin_requests_full',
-    
+    'show_admin_user_segments',
+
     # Posts
     'show_admin_posts',
     'start_post_creation',

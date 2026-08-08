@@ -117,6 +117,7 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
             show_admin_users, show_admin_users_list,
             show_admin_requests, show_admin_requests_full
         )
+        from modules.admin.user_segments import show_admin_user_segments
         from modules.admin.posts import (
             show_admin_posts, start_post_creation, show_posts_list,
             show_mailings_list, process_mailings_now
@@ -193,6 +194,8 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
         
         elif action == "admin_users":
             await show_admin_users(callback.message, db, logger_service, user_id)
+        elif action == "admin_user_segments":
+            await show_admin_user_segments(callback.message, db, logger_service, user_id)
         elif action == "admin_users_list":
             await show_admin_users_list(callback.message, db, logger_service, user_id)
         elif action.startswith("admin_users_page_"):

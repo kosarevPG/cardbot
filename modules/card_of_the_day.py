@@ -492,6 +492,12 @@ async def draw_card_direct(message: types.Message, state: FSMContext, db: Databa
             ],
             [
                 types.InlineKeyboardButton(text="✍️ Написать свой вариант", callback_data="emotion_custom")
+            ],
+            [
+                # Явный выход: по данным ~38% сессий заканчиваются сразу после карты.
+                # Это не брошенный сценарий, а законченный сценарий другого типа —
+                # человек пришёл за образом на день. Даём ему нормальный финал.
+                types.InlineKeyboardButton(text="✓ На сегодня всё", callback_data="emotion_done")
             ]
         ])
         
@@ -1073,6 +1079,31 @@ async def process_emotion_choice(callback: types.CallbackQuery, state: FSMContex
         "emotion_calm": "Спокойствие"
     }
     
+    if emotion_choice == "emotion_done":
+        # Пользователь взял карту и на сегодня закончил — это валидный финал,
+        # а не обрыв. Закрываем сессию отдельным событием card_only_finished,
+        # чтобы не смешивать с полным разбором (completed).
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception as e:
+            logger.warning(f"Could not clear keyboard on card-only finish for user {user_id}: {e}")
+
+        db.log_scenario_step(user_id, 'card_of_day', 'card_only_finished', {
+            'session_id': session_id,
+            'card_number': data.get("card_number"),
+        })
+        db.complete_user_scenario(user_id, 'card_of_day', session_id)
+        await logger_service.log_action(user_id, "card_only_finished", {"session_id": session_id})
+
+        user_data = db.get_user(user_id) or {}
+        name = (user_data.get("name") or "").strip()
+        text = (f"{name}, пусть карта побудет с тобой сегодня. 🌿" if name
+                else "Пусть карта побудет с тобой сегодня. 🌿")
+        await callback.message.answer(text, reply_markup=await get_main_menu(user_id, db))
+        await state.clear()
+        await callback.answer()
+        return
+
     if emotion_choice == "emotion_custom":
         # Пользователь хочет написать свой вариант
         await callback.message.edit_reply_markup(reply_markup=None)

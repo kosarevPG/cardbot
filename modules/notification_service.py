@@ -17,6 +17,27 @@ class NotificationService:
         # Убрал basicConfig отсюда, лучше настраивать в main.py
         self.logger = logging.getLogger(__name__) # Используем именованный логгер
 
+    def _log_reminder(self, user_id: int, kind: str, ok: bool, error: str = None):
+        """
+        Пишет факт отправки напоминания в actions.
+
+        Раньше отправка фиксировалась только в файловый лог, поэтому по базе нельзя
+        было понять, доходят ли напоминания вообще и как они влияют на возвраты —
+        при том, что напоминание оказалось сильнейшим наблюдаемым фактором удержания.
+        Пишем через db.save_action напрямую: logging_service.log_action на каждого
+        адресата делал бы лишний запрос к Telegram API.
+        """
+        try:
+            details = {"kind": kind, "status": "sent" if ok else "failed"}
+            if error:
+                details["error"] = str(error)[:200]
+            self.db.save_action(
+                user_id, "", "", "reminder_sent", details,
+                datetime.now(TIMEZONE).isoformat(),
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to log reminder for user {user_id}: {e}")
+
     async def check_reminders(self):
         """Проверяет и отправляет утренние и вечерние напоминания."""
         while True:
@@ -38,9 +59,10 @@ class NotificationService:
                             # Отправляем с клавиатурой, чтобы сразу можно было нажать
                             await self.bot.send_message(user_id, text, reply_markup=await get_main_menu(user_id, self.db))
                             self.logger.info(f"Morning reminder sent to user {user_id} at {now}")
-                            # Возможно, стоит добавить лог действия через logger_service?
+                            self._log_reminder(user_id, "morning", True)
                         except Exception as e:
                             self.logger.error(f"Failed to send MORNING reminder to user {user_id}: {e}")
+                            self._log_reminder(user_id, "morning", False, e)
 
                     # Проверка вечернего напоминания (Итог Дня)
                     evening_time = times.get('evening')
@@ -54,8 +76,10 @@ class NotificationService:
                             # Отправляем с клавиатурой
                             await self.bot.send_message(user_id, text, reply_markup=await get_main_menu(user_id, self.db))
                             self.logger.info(f"Evening reminder sent to user {user_id} at {now}")
+                            self._log_reminder(user_id, "evening", True)
                         except Exception as e:
                             self.logger.error(f"Failed to send EVENING reminder to user {user_id}: {e}")
+                            self._log_reminder(user_id, "evening", False, e)
 
             except Exception as loop_err:
                 self.logger.error(f"Error in reminder check loop: {loop_err}", exc_info=True)

@@ -136,6 +136,7 @@ async def show_admin_users(message: types.Message, db: Database, logger_service:
 • /user_profile [ID] - профиль пользователя"""
         
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="🔥 Сегменты и ядро", callback_data="admin_user_segments")],
             [types.InlineKeyboardButton(text="📋 Список пользователей", callback_data="admin_users_list")],
             [types.InlineKeyboardButton(text="💬 Запросы пользователей", callback_data="admin_requests")],
             [types.InlineKeyboardButton(text="🔄 Обновить", callback_data="admin_users")],
