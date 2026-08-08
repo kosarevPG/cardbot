@@ -359,23 +359,29 @@ class SubscriptionMiddleware:
                     logger.error("Database not found in middleware data")
                     return await handler(event, data)
                 
-                today = datetime.now(TIMEZONE).date() if TIMEZONE else date.today()
+                # Порядок проверок важен: к Telegram обращаемся в самую последнюю
+                # очередь, после всех дешёвых отсечек. Раньше get_chat_member
+                # вызывался на каждый апдейт — лишний round-trip в каждом хендлере
+                # и точка отказа при проблемах со связью.
 
-                # Дешёвые отсечки ДО обращения к Telegram. Приглашение показывается
-                # не чаще раза в сутки и только на обычных сообщениях — значит для
-                # всех прочих апдейтов проверять подписку незачем. Раньше
-                # get_chat_member вызывался на каждый апдейт: лишний round-trip
-                # в каждом хендлере и точка отказа при проблемах со связью.
-                if (not isinstance(event, types.Message)
-                        or self._checked_on.get(user_id) == today):
-                    return await handler(event, data)
-
-                # Не трогаем тех, кто ещё не дошёл до первого завершённого сценария
+                # Тех, кто ещё не дошёл до первого завершённого сценария, не трогаем
                 if not db.has_completed_scenario_first_time(user_id, 'card_of_day'):
                     return await handler(event, data)
 
-                # Отмечаем проверку сделанной независимо от результата, иначе для
-                # подписанных пользователей запрос повторялся бы на каждом сообщении.
+                # Приглашение показывается только в обычных сообщениях, поэтому на
+                # callback'ах в Telegram не ходим вовсе. Важно, что отметку о проверке
+                # здесь НЕ ставим: иначе нажатие кнопки «съело» бы приглашение,
+                # которое человек должен увидеть на следующем сообщении.
+                if not isinstance(event, types.Message):
+                    return await handler(event, data)
+
+                today = datetime.now(TIMEZONE).date() if TIMEZONE else date.today()
+                if self._checked_on.get(user_id) == today:
+                    return await handler(event, data)
+
+                # Отмечаем до запроса, а не после: тогда даже при сетевой ошибке
+                # повторных попыток сегодня не будет, и для подписанных пользователей
+                # запрос не повторится на каждом сообщении.
                 self._checked_on[user_id] = today
 
                 user_status = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
