@@ -139,7 +139,18 @@ def apply_metrics_migration(db_path: str = 'data/bot.db'):
         COUNT(*) AS step_count  -- Количество шагов в сессии
     FROM v_events
     WHERE session_id IS NOT NULL
-    GROUP BY scenario, session_id;
+      -- Корзина, куда попадали события с очищенным состоянием (unknown_post_session):
+      -- это не сессия, а свалка из сотен событий разных людей.
+      AND session_id NOT LIKE 'unknown%'
+    GROUP BY scenario, session_id
+    -- До исправления session_id событие scenario_started писалось со своим uuid4,
+    -- не связанным с остальным сценарием. Такие «сессии» состоят ровно из одного
+    -- события старта и никогда не могут завершиться — они вдвое раздували знаменатель.
+    -- Новые сессии пишутся в формате {user_id}_card_of_day_{дата} и под фильтр не попадают.
+    HAVING NOT (
+        session_id LIKE '%-%'
+        AND SUM(CASE WHEN event = 'scenario_started' THEN 1 ELSE 0 END) = COUNT(*)
+    );
     
     -- 5. VIEW DAU по дням
     DROP VIEW IF EXISTS v_dau_daily;

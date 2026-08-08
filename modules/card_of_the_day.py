@@ -2,7 +2,6 @@
 
 import random
 import os
-import uuid  # <--- ДОБАВЛЕНО
 from aiogram import types
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -116,9 +115,12 @@ async def handle_card_request(message: types.Message, state: FSMContext, db: Dat
     now = datetime.now(TIMEZONE)
     today = now.date()
 
-    # Генерируем уникальный session_id для всей сессии
-    session_id = str(uuid.uuid4())
-    
+    # Генерируем session_id для всей сессии в том же формате, что и start_user_scenario,
+    # и дальше передаём его по цепочке. Раньше тут был uuid4, который затирался при выборе
+    # колоды, — из-за этого событие scenario_started оставалось в своей одиночной сессии,
+    # не связанной с остальным сценарием, и воронка считалась по двум разным множествам.
+    session_id = f"{user_id}_card_of_day_{now.strftime('%Y%m%d_%H%M%S')}"
+
     # Логируем старт сценария (обязательное событие)
     db.log_scenario_step(user_id, 'card_of_day', 'scenario_started', {
         'session_id': session_id,
@@ -156,7 +158,7 @@ async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, 
     
     # Получаем session_id из состояния
     state_data = await state.get_data()
-    session_id = state_data.get('session_id', str(uuid.uuid4()))
+    session_id = state_data.get('session_id') or f"{user_id}_card_of_day_{datetime.now(TIMEZONE).strftime('%Y%m%d_%H%M%S')}"
 
     if user_id not in NO_CARD_LIMIT_USERS and not db.is_deck_available(user_id, deck_name, today):
         # Получаем данные пользователя для формирования сообщения
@@ -193,8 +195,9 @@ async def process_deck_choice(callback: types.CallbackQuery, state: FSMContext, 
         return
     # сохраняем выбранную колоду
     await state.update_data(deck_name=deck_name)
-    # создаём сессию после выбора колоды
-    session_id = db.start_user_scenario(user_id, f"card_of_day_{deck_name}")
+    # создаём сессию после выбора колоды, сохраняя session_id, под которым уже
+    # записан scenario_started, — иначе событие старта осиротеет
+    session_id = db.start_user_scenario(user_id, f"card_of_day_{deck_name}", session_id=session_id) or session_id
     await state.update_data(session_id=session_id)
     
     # Логируем выбор колоды

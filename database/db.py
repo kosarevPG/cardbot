@@ -1034,8 +1034,9 @@ class Database:
     def get_scenario_stats(self, scenario: str = 'card_of_day', days: int = 7):
         """Получает статистику по сценарию через VIEW (v_sessions_daily)."""
         try:
-            # Для совместимости с главным дашбордом (за сегодня)
-            if days == 7:
+            # Раньше при days == 7 (значение по умолчанию на дашборде) отдавалась статистика
+            # ТОЛЬКО за сегодня, хотя подпись гласила «7 дней». Теперь период честный.
+            if days == 0:  # Сегодня
                 period_filter = "d_local = date('now', '+3 hours')"
             else:
                 period_filter = f"d_local >= date('now', '+3 hours', '-{days} days')"
@@ -1470,21 +1471,22 @@ class Database:
             if include_excluded_users:
                 # Используем scenario_logs с JSON_EXTRACT для session_id
                 cursor = self.conn.execute(f"""
-                    SELECT 
+                    SELECT
                         step,
                         COUNT(DISTINCT JSON_EXTRACT(metadata, '$.session_id')) as count
                     FROM scenario_logs
-                    WHERE scenario = 'card_of_day' AND DATE(timestamp, '+3 hours') = DATE('now', '+3 hours')
+                    WHERE scenario = 'card_of_day'
+                      AND {period_filter.replace('d_local', "DATE(timestamp, '+3 hours')")}
                     GROUP BY step
                 """)
             else:
                 # Используем v_events (по умолчанию)
                 cursor = self.conn.execute(f"""
-                    SELECT 
+                    SELECT
                         event,
                         COUNT(DISTINCT session_id) as count
                     FROM v_events
-                    WHERE scenario = 'card_of_day' AND d_local = date('now', '+3 hours')
+                    WHERE scenario = 'card_of_day' AND {period_filter}
                     GROUP BY event
                 """)
             
@@ -1501,9 +1503,22 @@ class Database:
             # Извлекаем конкретные шаги
             step1 = step_counts.get('scenario_started', step_counts.get('initial_resource_selected', 0))
             step2 = step_counts.get('initial_resource_selected', 0)
-            step3 = step_counts.get('request_type_selected', 0)
+            # Шаг «запрос». Событие request_type_selected в текущем сценарии почти не пишется:
+            # пользователь либо пропускает запрос, либо вводит его текстом.
+            step3 = max(
+                step_counts.get('request_type_selected', 0),
+                step_counts.get('request_skipped', 0) + step_counts.get('text_request_provided', 0),
+            )
             step4 = step_counts.get('card_drawn', 0)
-            step5 = step_counts.get('initial_response_provided', 0)
+            # Шаг «первая реакция на карту». Старое событие initial_response_provided
+            # практически не пишется (заменено на выбор эмоции / свой вариант),
+            # поэтому берём максимум из фактически используемых событий.
+            # Выбор эмоции и свой вариант взаимоисключающие (проверено на боевых данных:
+            # пересечение 0 сессий), поэтому складываем.
+            step5 = max(
+                step_counts.get('initial_response_provided', 0),
+                step_counts.get('emotion_choice_provided', 0) + step_counts.get('custom_response_provided', 0),
+            )
             step6 = step_counts.get('ai_reflection_choice', 0)
             step7 = step_counts.get('completed', 0)
             
