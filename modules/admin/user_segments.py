@@ -12,6 +12,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 from database.db import Database
 from modules.logging_service import LoggingService
+from modules.constants import BOT_INITIATED_ACTIONS
 
 try:
     from config_local import NO_LOGS_USERS
@@ -41,6 +42,7 @@ def _excluded_sql(db: Database) -> str:
 def get_user_segments(db: Database) -> dict:
     """Считает сегменты пользователей по активности в сценарии «Карта дня»."""
     excluded = _excluded_sql(db)
+    bot_actions = "(" + ",".join(f"'{a}'" for a in BOT_INITIATED_ACTIONS) + ")"
 
     # Профиль каждого пользователя: сколько разных дней тянул карту,
     # сколько всего карт, когда был последний раз, доходил ли до полного разбора.
@@ -67,7 +69,12 @@ def get_user_segments(db: Database) -> dict:
             GROUP BY user_id
         ) d ON d.user_id = u.user_id
         LEFT JOIN (
-            SELECT user_id, MAX(timestamp) last_seen FROM actions GROUP BY user_id
+            -- Только действия самого человека: отправку напоминания инициирует бот,
+            -- и без этого фильтра вся утренняя рассылка выглядела бы как всплеск
+            -- активности, переводя десятки уснувших пользователей в «ядро».
+            SELECT user_id, MAX(timestamp) last_seen FROM actions
+            WHERE action NOT IN {bot_actions}
+            GROUP BY user_id
         ) a ON a.user_id = u.user_id
         WHERE u.user_id NOT IN {excluded}
     """).fetchall()

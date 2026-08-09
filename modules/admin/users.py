@@ -9,6 +9,7 @@ from datetime import datetime
 from database.db import Database
 from modules.logging_service import LoggingService
 from modules.ai_service import build_user_profile
+from modules.constants import BOT_INITIATED_ACTIONS
 
 try:
     from config_local import NO_LOGS_USERS, TIMEZONE, ADMIN_IDS
@@ -204,8 +205,13 @@ async def show_admin_users_list(message: types.Message, db: Database, logger_ser
                 username = user_data.get("username", "")
                 last_action_time = "Нет действий"
                 
-                # Получаем последнее действие
-                user_actions = db.get_actions(uid)
+                # Получаем последнее действие ЧЕЛОВЕКА: отправку напоминания и показ
+                # приглашения инициирует бот, и без фильтра у всех адресатов утренней
+                # рассылки «последним действием» становится одно и то же время.
+                user_actions = [
+                    a for a in db.get_actions(uid)
+                    if a.get("action") not in BOT_INITIATED_ACTIONS
+                ]
                 if user_actions:
                     last_action = user_actions[-1]
                     raw_timestamp = last_action.get("timestamp")
