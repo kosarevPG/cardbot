@@ -2022,6 +2022,47 @@ class Database:
             logger.error(f"Error logging mailing result: {e}")
             return False
     
+    def get_unreachable_user_ids(self) -> set:
+        """
+        Пользователи, до которых бот достучаться не может: заблокировали его или
+        удалили аккаунт. Нужно, чтобы не тратить на них рассылку и не портить
+        статистику доставки — в прошлых рассылках треть «неудач» была именно такой.
+
+        Признак берём из двух источников: журнала рассылок и журнала напоминаний.
+        Напоминания уходят ежедневно, поэтому дают куда более свежую картину, чем
+        рассылки. Человек мог заблокировать бота и вернуться, поэтому по каждому
+        смотрим только самый последний сигнал.
+
+        Время в двух таблицах хранится по-разному ('2025-12-02 10:17:41' против
+        '2026-08-08T19:00:39.342977+03:00'), поэтому перед сравнением приводим обе
+        отметки к одному виду, иначе сортировка по свежести врёт.
+        """
+        try:
+            cursor = self.conn.execute("""
+                WITH signals AS (
+                    SELECT user_id,
+                           replace(substr(sent_at, 1, 19), 'T', ' ') AS ts,
+                           CASE WHEN status = 'blocked'
+                                  OR COALESCE(error_message, '') LIKE '%Forbidden%'
+                                THEN 0 ELSE 1 END AS ok
+                    FROM mailing_logs
+                    UNION ALL
+                    SELECT user_id,
+                           replace(substr(timestamp, 1, 19), 'T', ' ') AS ts,
+                           CASE WHEN details LIKE '%Forbidden%' THEN 0 ELSE 1 END AS ok
+                    FROM actions
+                    WHERE action = 'reminder_sent'
+                )
+                SELECT s.user_id
+                FROM signals s
+                WHERE s.ok = 0
+                  AND s.ts = (SELECT MAX(ts) FROM signals x WHERE x.user_id = s.user_id)
+            """)
+            return {row[0] for row in cursor.fetchall()}
+        except sqlite3.Error as e:
+            logger.error(f"Error getting unreachable users: {e}")
+            return set()
+
     def get_mailing_stats(self, mailing_id: int) -> dict:
         """Получает статистику рассылки."""
         try:

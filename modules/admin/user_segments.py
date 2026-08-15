@@ -120,6 +120,41 @@ def get_user_segments(db: Database) -> dict:
     }
 
 
+# Сегменты, которым осмысленно слать рассылку, и их человеческие названия.
+# «Без карты» намеренно отсутствует: эти люди не дошли даже до первой карты,
+# и звать их обратно тем же сообщением, что и постоянников, бессмысленно.
+SENDABLE_SEGMENTS = {
+    "asleep": "уснувшие постоянники",
+    "oneshot": "разовые",
+    "core": "ядро",
+    "fresh": "присматриваются",
+}
+
+
+def get_segment_recipients(db: Database, segment: str) -> dict:
+    """
+    Кому реально уйдёт рассылка по сегменту: состав сегмента минус те, кто
+    заблокировал бота или удалил аккаунт.
+
+    Возвращает и отсеянных тоже — админу перед отправкой важно видеть не только
+    «кому уйдёт», но и сколько человек отсеялось, иначе непонятно, почему число
+    получателей меньше, чем в отчёте по сегментам.
+    """
+    if segment not in SENDABLE_SEGMENTS:
+        raise ValueError(f"Неизвестный сегмент: {segment}")
+
+    members = [r["user_id"] for r in get_user_segments(db)["segments"][segment]]
+    unreachable = db.get_unreachable_user_ids()
+    reachable = [uid for uid in members if uid not in unreachable]
+    return {
+        "segment": segment,
+        "title": SENDABLE_SEGMENTS[segment],
+        "user_ids": reachable,
+        "total": len(members),
+        "skipped": len(members) - len(reachable),
+    }
+
+
 def _fmt_user(db: Database, row) -> str:
     """Строка одного пользователя: имя/username, сколько дней и когда был последний раз."""
     data = db.get_user(row["user_id"]) or {}
@@ -155,6 +190,18 @@ async def show_admin_user_segments(message: types.Message, db: Database, logger_
         core = sorted(seg["core"], key=lambda r: r["cards"], reverse=True)
         asleep = sorted(seg["asleep"], key=lambda r: r["cards"], reverse=True)
 
+        # Сколько из сегмента реально получит рассылку. Считаем один раз на весь
+        # отчёт, чтобы не дёргать базу на каждый сегмент.
+        unreachable = db.get_unreachable_user_ids()
+
+        def mailable(name: str) -> str:
+            ids = [r["user_id"] for r in seg[name]]
+            ok = sum(1 for uid in ids if uid not in unreachable)
+            line = f"\n📬 Дойдёт до <b>{ok}</b>"
+            if len(ids) - ok:
+                line += f", отсеется {len(ids) - ok} (заблокировали бота)"
+            return line + f"\n<code>/send_post ID {name}</code>"
+
         text = f"""👥 <b>СЕГМЕНТЫ ПОЛЬЗОВАТЕЛЕЙ</b>
 Всего в базе (без служебных): <b>{s['total']}</b>
 
@@ -172,11 +219,12 @@ async def show_admin_user_segments(message: types.Message, db: Database, logger_
 <i>возвращались {REGULAR_MIN_DAYS}+ дней, молчат более {ACTIVE_WINDOW_DAYS} дн. — главная аудитория для реактивации</i>
 """
         text += "\n".join(_fmt_user(db, r) for r in asleep[:8]) or "  —"
+        text += mailable("asleep")
 
         text += f"""
 
 👋 <b>Разовые</b> — {len(seg['oneshot'])} ({pct(len(seg['oneshot']))})
-<i>вытянули карту в один день и не вернулись</i>
+<i>вытянули карту в один день и не вернулись</i>{mailable('oneshot')}
 
 💤 <b>Без карты</b> — {len(seg['no_card'])} ({pct(len(seg['no_card']))})
 <i>дошли до бота, но ни одной карты не вытянули</i>

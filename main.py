@@ -717,13 +717,23 @@ def make_send_post_handler(db: Database, logger_service: LoggingService):
 • <code>/send_post ID all</code> - отправить всем пользователям сейчас
 • <code>/send_post ID all 2024-12-31 15:30</code> - отправить всем в указанное время
 • <code>/send_post ID 123456,789012</code> - отправить конкретным пользователям сейчас
-• <code>/send_post ID 123456,789012 2024-12-31 15:30</code> - отправить конкретным пользователям в указанное время
+• <code>/send_post ID СЕГМЕНТ</code> - отправить сегменту пользователей
+
+<b>Сегменты</b> (заблокировавшие бота отсеиваются сами):
+• <code>asleep</code> - уснувшие постоянники, главная аудитория для возврата
+• <code>oneshot</code> - попробовали один раз и не вернулись
+• <code>core</code> - активное ядро
+• <code>fresh</code> - присматриваются
 
 Формат времени: <code>YYYY-MM-DD HH:MM</code> (московское время)
 
 Примеры:
 • <code>/send_post 1 all</code> - отправить пост 1 всем сейчас
-• <code>/send_post 1 all 2024-12-31 15:30</code> - отправить пост 1 всем 31 декабря в 15:30""", parse_mode="HTML")
+• <code>/send_post 1 asleep</code> - отправить пост 1 уснувшим постоянникам
+• <code>/send_post 1 all 2024-12-31 15:30</code> - отправить пост 1 всем 31 декабря в 15:30
+
+Точный состав сегмента и число получателей смотрите в
+админ-панели: «Пользователи» → «Сегменты».""", parse_mode="HTML")
             return
         
         parts = text.split()
@@ -752,15 +762,37 @@ def make_send_post_handler(db: Database, logger_service: LoggingService):
                 return
             
             # Определяем получателей
+            from modules.admin.user_segments import SENDABLE_SEGMENTS, get_segment_recipients
+
+            segment_note = ""
             if target.lower() == "all":
                 send_to_all = True
                 target_user_ids = None
+            elif target.lower() in SENDABLE_SEGMENTS:
+                # Отправка по сегменту: состав считается на лету, заблокировавшие
+                # бота отсеиваются автоматически.
+                send_to_all = False
+                recipients = get_segment_recipients(db, target.lower())
+                target_user_ids = recipients["user_ids"]
+                if not target_user_ids:
+                    await message.reply(
+                        f"❌ В сегменте «{recipients['title']}» некому отправлять: "
+                        f"{recipients['total']} чел., все недоступны.")
+                    return
+                segment_note = f"\n🎯 <b>Сегмент:</b> {recipients['title']}"
+                if recipients["skipped"]:
+                    segment_note += (f"\n🚫 <b>Отсеяно:</b> {recipients['skipped']} "
+                                     f"(заблокировали бота или удалили аккаунт)")
             else:
                 send_to_all = False
                 try:
                     target_user_ids = [int(uid.strip()) for uid in target.split(",")]
                 except ValueError:
-                    await message.reply("❌ Неверный формат ID пользователей. Используйте: <code>123456,789012</code>", parse_mode="HTML")
+                    segments_hint = ", ".join(f"<code>{s}</code>" for s in SENDABLE_SEGMENTS)
+                    await message.reply(
+                        "❌ Неверный формат получателей. Используйте <code>all</code>, "
+                        f"список <code>123456,789012</code> или сегмент: {segments_hint}",
+                        parse_mode="HTML")
                     return
             
             # Валидируем данные рассылки
@@ -789,7 +821,7 @@ def make_send_post_handler(db: Database, logger_service: LoggingService):
                 await message.reply(f"""⏰ <b>Пост запланирован!</b>
 
 📝 <b>Пост:</b> {post['title']}
-👥 <b>Получатели:</b> {target_text}
+👥 <b>Получатели:</b> {target_text}{segment_note}
 📅 <b>Время отправки:</b> {scheduled_at}
 🆔 <b>ID рассылки:</b> {mailing_id}
 
@@ -802,7 +834,7 @@ def make_send_post_handler(db: Database, logger_service: LoggingService):
                 await message.reply(f"""✅ <b>Пост отправлен!</b>
 
 📝 <b>Пост:</b> {post['title']}
-👥 <b>Получатели:</b> {target_text}
+👥 <b>Получатели:</b> {target_text}{segment_note}
 📊 <b>Результат:</b>
 • Отправлено: {result['sent']}
 • Ошибок: {result['failed']}

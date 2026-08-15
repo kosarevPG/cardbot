@@ -62,6 +62,9 @@ jobs:
       - name: Subscription middleware regression test
         run: python tests/test_subscription_middleware.py
 
+      - name: Segment recipients regression test
+        run: python tests/test_segment_recipients.py
+
       - name: Database bootstrap test
         run: |
           python - <<'PY'
