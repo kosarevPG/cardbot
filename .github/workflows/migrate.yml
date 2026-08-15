@@ -65,6 +65,9 @@ jobs:
       - name: Segment recipients regression test
         run: python tests/test_segment_recipients.py
 
+      - name: Reminder retry regression test
+        run: python tests/test_reminder_retry.py
+
       - name: Database bootstrap test
         run: |
           python - <<'PY'
