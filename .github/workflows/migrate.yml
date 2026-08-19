@@ -68,6 +68,9 @@ jobs:
       - name: Reminder retry regression test
         run: python tests/test_reminder_retry.py
 
+      - name: Reminder schedule regression test
+        run: python tests/test_reminder_schedule.py
+
       - name: Database bootstrap test
         run: |
           python - <<'PY'

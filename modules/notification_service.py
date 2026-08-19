@@ -25,6 +25,13 @@ RETRY_WINDOW_MINUTES = 60
 # ради которой стоит ждать так долго.
 SEND_TIMEOUT_SECONDS = 20
 
+# Насколько минут цикл готов догонять пропущенное, если проход затянулся. Дальше —
+# уже не догон, а пачка несвоевременных напоминаний за прошедшее время.
+CATCHUP_LIMIT_MINUTES = 5
+
+# Отступ от начала минуты, чтобы не проснуться за мгновение до неё.
+TICK_OFFSET_SECONDS = 0.5
+
 
 def _is_temporary(error: Exception) -> bool:
     """
@@ -167,41 +174,95 @@ class NotificationService:
                                    attempts=item["attempts"], delayed_minutes=delayed)
                 del self._pending[key]
 
+    async def _process_minute(self, moment: datetime):
+        """
+        Отправляет напоминания, назначенные на одну конкретную минуту.
+
+        Имя запрашивается только у тех, кому действительно пора слать. Раньше оно
+        бралось на каждого адресата каждую минуту — около восьмидесяти тысяч лишних
+        запросов к базе в сутки, и именно они раскачивали цикл (см. check_reminders).
+        """
+        current_time_str = moment.strftime("%H:%M")
+        today = moment.date()
+        reminders_data = self.db.get_reminder_times() # {user_id: {'morning': t1, 'evening': t2}}
+
+        for user_id, times in reminders_data.items():
+            morning_time = times.get('morning')
+            evening_time = times.get('evening')
+            if morning_time != current_time_str and evening_time != current_time_str:
+                continue
+
+            name = (self.db.get_user(user_id) or {}).get("name", "")
+
+            # Проверка утреннего напоминания (Карта Дня)
+            if morning_time == current_time_str and self.db.is_card_available(user_id, today):
+                text = f"{name}, привет! Пришло время вытянуть свою карту дня. ✨ Изменить настройки напоминаний: /remind, /remind_off" if name else "Привет! Пришло время вытянуть свою карту дня. ✨ Изменить настройки напоминаний: /remind, /remind_off"
+                # Отправляем с клавиатурой, чтобы сразу можно было нажать
+                await self._send_reminder(user_id, "morning", text, moment)
+
+            # Проверка вечернего напоминания (Итог Дня)
+            if evening_time == current_time_str:
+                text = f"{name}, привет! Пришло время подвести итог дня 🌙" if name else "Привет! Пришло время подвести итог дня 🌙"
+                # Отправляем с клавиатурой
+                await self._send_reminder(user_id, "evening", text, moment)
+
+    @staticmethod
+    def _seconds_until_next_minute(now: datetime) -> float:
+        """
+        Сколько спать до начала следующей минуты. Считается от текущего времени, а не
+        прибавлением 60 секунд к моменту пробуждения, поэтому время работы цикла в
+        период не подмешивается и тик не уползает вперёд.
+        """
+        next_minute = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
+        return max(0.1, (next_minute - now).total_seconds() + TICK_OFFSET_SECONDS)
+
+    def _minutes_to_process(self, last_processed, current):
+        """
+        Какие минуты обработать на этом тике. Обычно одна — текущая. Если предыдущий
+        проход затянулся и минута успела смениться дважды, возвращаем и пропущенные:
+        напоминание, назначенное на такую минуту, иначе исчезло бы бесследно.
+        """
+        if last_processed is None:
+            return [current]
+        if current <= last_processed:
+            return []                      # проснулись в той же минуте, слать нечего
+
+        gap = int((current - last_processed).total_seconds() // 60)
+        if gap > CATCHUP_LIMIT_MINUTES:
+            # Бот стоял долго. Догонять всё подряд нельзя: человек получил бы пачку
+            # напоминаний за прошедшее время, и все не вовремя.
+            self.logger.warning(
+                f"Reminder loop resumed after {gap} min gap; skipping missed minutes")
+            return [current]
+        return [last_processed + timedelta(minutes=i) for i in range(1, gap + 1)]
+
     async def check_reminders(self):
-        """Проверяет и отправляет утренние и вечерние напоминания."""
+        """
+        Проверяет и отправляет утренние и вечерние напоминания.
+
+        Цикл засыпает до начала следующей минуты, а не на фиксированные 60 секунд.
+        Разница принципиальная: со сном на 60 секунд к периоду добавлялось время
+        самой работы, тик медленно уползал вперёд и примерно раз в несколько часов
+        перепрыгивал через минутную границу. Совпадение ищется по строке "%H:%M",
+        поэтому перепрыгнутая минута для бота не существовала — назначенные на неё
+        напоминания пропадали молча, без ошибки в логе. По замерам 18.08.2026 период
+        составлял 60.58 с, а за сутки терялось около шести минут.
+        """
+        last_processed = None
         while True:
             try:
                 now = datetime.now(TIMEZONE)
-                current_time_str = now.strftime("%H:%M")
-                today = now.date()
 
                 # Сначала добиваем недоставленное с прошлых тиков, потом рассылаем новое.
                 if self._pending:
                     await self._flush_pending(now)
 
-                reminders_data = self.db.get_reminder_times() # Получаем словарь {user_id: {'morning': t1, 'evening': t2}}
-
-                for user_id, times in reminders_data.items():
-                    user_data = self.db.get_user(user_id) # Получаем имя
-                    name = user_data.get("name", "")
-
-                    # Проверка утреннего напоминания (Карта Дня)
-                    morning_time = times.get('morning')
-                    if morning_time == current_time_str and self.db.is_card_available(user_id, today):
-                        text = f"{name}, привет! Пришло время вытянуть свою карту дня. ✨ Изменить настройки напоминаний: /remind, /remind_off" if name else "Привет! Пришло время вытянуть свою карту дня. ✨ Изменить настройки напоминаний: /remind, /remind_off"
-                        # Отправляем с клавиатурой, чтобы сразу можно было нажать
-                        await self._send_reminder(user_id, "morning", text, now)
-
-                    # Проверка вечернего напоминания (Итог Дня)
-                    evening_time = times.get('evening')
-                    # Дополнительно проверяем, не было ли уже рефлексии сегодня (опционально, но полезно)
-                    # today_str = today.strftime('%Y-%m-%d')
-                    # reflection_exists = await self.db.check_evening_reflection_exists(user_id, today_str) # Нужен новый метод в DB
-                    # if evening_time == current_time_str and not reflection_exists:
-                    if evening_time == current_time_str: # Пока без проверки на существование
-                        text = f"{name}, привет! Пришло время подвести итог дня 🌙" if name else "Привет! Пришло время подвести итог дня 🌙"
-                        # Отправляем с клавиатурой
-                        await self._send_reminder(user_id, "evening", text, now)
+                minutes = self._minutes_to_process(
+                    last_processed, now.replace(second=0, microsecond=0))
+                for moment in minutes:
+                    await self._process_minute(moment)
+                if minutes:
+                    last_processed = minutes[-1]
 
             except Exception as loop_err:
                 self.logger.error(f"Error in reminder check loop: {loop_err}", exc_info=True)
@@ -209,7 +270,9 @@ class NotificationService:
                 await asyncio.sleep(300) # Ждем 5 минут перед повторной попыткой
                 continue # Переходим к следующей итерации цикла
 
-            await asyncio.sleep(60) # Проверяем каждую минуту
+            # Просыпаемся сразу после начала следующей минуты. Небольшой отступ нужен,
+            # чтобы не проснуться за мгновение до неё и не потратить тик впустую.
+            await asyncio.sleep(self._seconds_until_next_minute(datetime.now(TIMEZONE)))
 
     # ... (существующий метод send_broadcast) ...
 
