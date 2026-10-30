@@ -14,6 +14,11 @@
   * повторный клик по кнопке не плодит сообщений и не задваивает согласие;
   * повторный тик планировщика и перезапуск бота не дублируют касания;
   * больше двух касаний не бывает ни при каких обстоятельствах;
+  * отчёт считает доставкой только подтверждённые отправки, а не занятые шаги;
+  * потолок за тик ограничивает обращения к Telegram, а не успехи;
+  * пауза флуд-контроля соблюдается целиком и переживает рестарт;
+  * повторяется только то, что точно не доставлено;
+  * отписка в середине прохода успевает сработать;
   * отказ, /platform_stop и блокировка бота прекращают кампанию;
   * повторный /platform не возвращает подписку без нового клика «Да, присылайте»;
   * временный сбой добивается повторами, постоянный — снимает человека с кампании;
@@ -30,7 +35,17 @@ from datetime import datetime, timedelta
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from aiogram.exceptions import TelegramForbiddenError, TelegramNetworkError  # noqa: E402
+from aiogram.exceptions import (  # noqa: E402
+    TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter,
+)
+
+# Сообщения сетевых ошибок в том виде, в каком их формирует aiogram:
+# f"{type(e).__name__}: {e}" от исходной ошибки aiohttp. По имени класса и
+# различается «соединение не установилось» (точно не доставлено) от «ответ
+# потерялся» (доставка неизвестна).
+CONNECT_FAILED = ("ClientConnectorError: Cannot connect to host "
+                  "api.telegram.org:443 ssl:default [Connect call failed]")
+RESPONSE_LOST = "Request timeout error"
 
 failures = []
 
@@ -52,9 +67,12 @@ class FakeBot:
         self.sent = []
         self.error = None
         self.attempts = 0            # считаем и неудачные попытки тоже
+        self.on_send = None          # хук: что происходит во время отправки
 
     async def send_message(self, chat_id, text, **kwargs):
         self.attempts += 1
+        if self.on_send:
+            await self.on_send(chat_id)
         if self.error:
             raise self.error
         self.sent.append({"chat_id": chat_id, "text": text,
@@ -420,8 +438,11 @@ async def scenario_platform_after_optout(path):
     db.close()
 
 
-async def scenario_retry_temporary_error(path):
-    """Сетевой сбой: касание добивается повторами, но не бесконечно."""
+async def scenario_retry_connect_failure(path):
+    """
+    Соединение не установилось: сообщение точно не ушло, значит повтор безопасен.
+    Повторов всё равно не бесконечно.
+    """
     from modules.platform_campaign import MAX_SEND_ATTEMPTS
     from modules.texts.platform import CB_ROLE_FACILITATOR
 
@@ -432,15 +453,16 @@ async def scenario_retry_temporary_error(path):
     now = datetime.now()
     set_consent_at(db, 701, now - timedelta(days=2, hours=1))
 
-    bot.error = TelegramNetworkError(method=None, message="Cannot connect to host")
+    bot.error = TelegramNetworkError(method=None, message=CONNECT_FAILED)
     first = await campaign.process_due_followups(now=now)
     state = campaign.state(701)
 
-    print("Временный сбой:")
+    print("Соединение не установилось:")
     check("попытка отложена", first["deferred"], 1)
     check("шаг занят, чтобы рестарт его не повторил", state["sent_step_ids"], ["d2"])
     check("счётчик попыток в базе", state["retry_state"]["d2"]["attempts"], 1)
-    check("ошибка записана", "Cannot connect" in (state["last_error"] or ""), True)
+    check("ошибка записана", "ClientConnectorError" in (state["last_error"] or ""), True)
+    check("исход шага — не доставка", state["step_results"]["d2"]["status"], "deferred")
     check("неудача ещё не финальная", len(events_of(logs, "followup_failed")), 0)
 
     # Сеть вернулась — следующий тик добивает
@@ -449,12 +471,13 @@ async def scenario_retry_temporary_error(path):
     check("повтор доставил касание", second["sent"], 1)
     check("отправка одна", len(bot.sent), 1)
     check("повторы сняты с очереди", campaign.state(701)["retry_state"], {})
+    check("исход шага — доставлено", campaign.state(701)["step_results"]["d2"]["status"], "sent")
 
     # Сбой, который не кончается: попытки ограничены
     add_user(db, 702)
     await enter_funnel(campaign, 702, CB_ROLE_FACILITATOR)
     set_consent_at(db, 702, now - timedelta(days=2, hours=1))
-    bot.error = TelegramNetworkError(method=None, message="Cannot connect to host")
+    bot.error = TelegramNetworkError(method=None, message=CONNECT_FAILED)
     bot.attempts = 0
     for i in range(6):
         await campaign.process_due_followups(now=now + timedelta(minutes=5 * i))
@@ -464,6 +487,230 @@ async def scenario_retry_temporary_error(path):
     check("после потолка зафиксирована неудача", len(events_of(logs, "followup_failed")), 1)
     check("повторы сняты", final["retry_state"], {})
     check("шаг остался занятым", final["sent_step_ids"], ["d2"])
+    check("исход шага — неудача", final["step_results"]["d2"]["status"], "failed")
+    db.close()
+
+
+async def scenario_unknown_delivery_not_retried(path):
+    """
+    Ответ Telegram потерялся: принял он сообщение или нет — неизвестно. Повтор
+    мог бы дать человеку второе одинаковое письмо, поэтому повтора нет.
+    """
+    from modules.texts.platform import CB_ROLE_EXPLORER
+
+    db, bot, logs, campaign = make_env(path)
+    db.set_platform_campaign_enabled("platform_launch", True, updated_by=1)
+    add_user(db, 1201)
+    await enter_funnel(campaign, 1201, CB_ROLE_EXPLORER)
+    now = datetime.now()
+    set_consent_at(db, 1201, now - timedelta(days=2, hours=1))
+
+    bot.error = TelegramNetworkError(method=None, message=RESPONSE_LOST)
+    first = await campaign.process_due_followups(now=now)
+    state = campaign.state(1201)
+
+    print("Неопределённая доставка:")
+    check("повтор не планируется", first["deferred"], 0)
+    check("зафиксирована неудача", first["failed"], 1)
+    check("причина названа честно",
+          events_of(logs, "followup_failed")[0]["details"]["reason"], "delivery_unknown")
+    check("повторов в очереди нет", state["retry_state"], {})
+
+    # Следующие тики не делают ни одной новой попытки
+    bot.error = None
+    bot.attempts = 0
+    await campaign.process_due_followups(now=now + timedelta(minutes=5))
+    check("второй раз не отправляем", bot.attempts, 0)
+    check("дубля нет", bot.sent, [])
+    db.close()
+
+
+async def scenario_flood_wait(path):
+    """
+    Флуд-контроль Telegram: ждём именно столько, сколько он просит, даже если это
+    дольше интервала тика.
+    """
+    from modules.platform_campaign import FLOOD_WAIT_MARGIN
+    from modules.texts.platform import CB_ROLE_FACILITATOR
+
+    db, bot, logs, campaign = make_env(path)
+    db.set_platform_campaign_enabled("platform_launch", True, updated_by=1)
+    now = datetime.now()
+    for user_id in (1301, 1302):
+        add_user(db, user_id)
+        await enter_funnel(campaign, user_id, CB_ROLE_FACILITATOR)
+        set_consent_at(db, user_id, now - timedelta(days=2, hours=1))
+
+    retry_after = 600          # вдвое больше интервала тика (300 с)
+    bot.error = TelegramRetryAfter(method=None, message="Flood control exceeded",
+                                   retry_after=retry_after)
+    first = await campaign.process_due_followups(now=now)
+
+    print("Флуд-контроль:")
+    check("проход остановлен сразу", bot.attempts, 1)
+    check("время ожидания запомнено", first["flood_wait"], retry_after)
+    check("пауза записана в базу",
+          bool(db.get_platform_campaign_paused_until("platform_launch")), True)
+
+    # Тик через 300 секунд не должен обращаться к API вообще
+    bot.error = None
+    bot.attempts = 0
+    early = await campaign.process_due_followups(now=now + timedelta(seconds=300))
+    check("раньше срока не отправляем", bot.attempts, 0)
+    check("причина названа", early["reason"], "flood_wait")
+
+    # Пауза переживает рестарт бота
+    db.close()
+    db2, bot2, logs2, campaign2 = make_env(path)
+    after_restart = await campaign2.process_due_followups(now=now + timedelta(seconds=300))
+    check("после рестарта пауза в силе", after_restart["reason"], "flood_wait")
+    check("после рестарта ни одной попытки", bot2.attempts, 0)
+
+    # Срок вышел — отправка возобновляется
+    resumed = await campaign2.process_due_followups(
+        now=now + timedelta(seconds=retry_after) + FLOOD_WAIT_MARGIN + timedelta(seconds=1))
+    check("после паузы касания уходят", resumed["sent"], 2)
+    db2.close()
+
+
+async def scenario_tick_attempt_limit(path):
+    """
+    Потолок за тик считает обращения к Telegram, а не успехи: иначе серия
+    сетевых ошибок пробивала бы лимит.
+    """
+    from modules.platform_campaign import MAX_SEND_ATTEMPTS_PER_TICK
+    from modules.texts.platform import CB_ROLE_EXPLORER
+
+    db, bot, logs, campaign = make_env(path)
+    db.set_platform_campaign_enabled("platform_launch", True, updated_by=1)
+    now = datetime.now()
+    total_users = MAX_SEND_ATTEMPTS_PER_TICK + 7
+    for i in range(total_users):
+        user_id = 1400 + i
+        add_user(db, user_id)
+        await enter_funnel(campaign, user_id, CB_ROLE_EXPLORER)
+        set_consent_at(db, user_id, now - timedelta(days=2, hours=1))
+
+    bot.error = TelegramNetworkError(method=None, message=CONNECT_FAILED)
+    bot.attempts = 0
+    result = await campaign.process_due_followups(now=now)
+
+    print("Потолок обращений за тик:")
+    check("обращений ровно по лимиту", bot.attempts, MAX_SEND_ATTEMPTS_PER_TICK)
+    check("проход помечен как упёршийся в лимит", result.get("throttled"), True)
+    check("счётчик попыток в итогах", result["attempts"], MAX_SEND_ATTEMPTS_PER_TICK)
+
+    # Успешные отправки считаются тем же счётчиком
+    bot.error = None
+    bot.attempts = 0
+    second = await campaign.process_due_followups(now=now + timedelta(minutes=5))
+    check("на следующем тике снова не больше лимита",
+          bot.attempts <= MAX_SEND_ATTEMPTS_PER_TICK, True)
+    check("часть касаний доставлена", second["sent"] > 0, True)
+    db.close()
+
+
+async def scenario_optout_during_pass(path):
+    """
+    Человек отписывается, пока проход уже идёт. Список участников — снимок,
+    поэтому согласие перечитывается и при занятии шага, и прямо перед отправкой.
+    """
+    from modules.texts.platform import CB_ROLE_FACILITATOR
+
+    db, bot, logs, campaign = make_env(path)
+    db.set_platform_campaign_enabled("platform_launch", True, updated_by=1)
+    now = datetime.now()
+    for user_id in (1501, 1502):
+        add_user(db, user_id)
+        await enter_funnel(campaign, user_id, CB_ROLE_FACILITATOR)
+        set_consent_at(db, user_id, now - timedelta(days=2, hours=1))
+
+    # Пока уходит касание первому, второй нажимает «Больше не присылать»
+    async def opt_out_second(chat_id):
+        if chat_id == 1501:
+            await campaign._opt_out(1502, "button")
+
+    bot.on_send = opt_out_second
+    result = await campaign.process_due_followups(now=now)
+
+    print("Отписка во время прохода:")
+    check("первому касание ушло", [m["chat_id"] for m in bot.sent], [1501])
+    check("второму не ушло", 1502 in [m["chat_id"] for m in bot.sent], False)
+    check("второй шаг не занят", campaign.state(1502)["sent_step_ids"], [])
+    check("проход учёл пропуск", result["sent"], 1)
+
+    # Теперь то же самое, но отписка успевает ровно между занятием шага и
+    # отправкой: проверяем страховку непосредственно перед send_message.
+    bot.on_send = None
+    add_user(db, 1503)
+    await enter_funnel(campaign, 1503, CB_ROLE_FACILITATOR)
+    set_consent_at(db, 1503, now - timedelta(days=2, hours=1))
+
+    real_claim = db.claim_platform_campaign_step
+
+    def claim_then_opt_out(user_id, campaign_id, step_id):
+        claimed = real_claim(user_id, campaign_id, step_id)
+        if claimed and user_id == 1503:
+            db.update_platform_campaign_state(
+                user_id, campaign_id, opted_out_at=datetime.now().isoformat(),
+                opted_out_reason="button")
+        return claimed
+
+    db.claim_platform_campaign_step = claim_then_opt_out
+    bot.attempts = 0
+    late = await campaign.process_due_followups(now=now)
+    db.claim_platform_campaign_step = real_claim
+
+    check("к Telegram не обращались", bot.attempts, 0)
+    check("шаг помечен пропущенным", late["skipped"], 1)
+    check("причина пропуска — отписка",
+          campaign.state(1503)["step_results"]["d2"]["reason"], "opted_out")
+    db.close()
+
+
+async def scenario_funnel_counts_only_delivered(path):
+    """
+    Отчёт не считает доставкой пропущенные и неудачные шаги, хотя они и заняты.
+    """
+    from modules.texts.platform import CB_ROLE_FACILITATOR, CB_ROLE_EXPLORER
+
+    db, bot, logs, campaign = make_env(path)
+    db.set_platform_campaign_enabled("platform_launch", True, updated_by=1)
+    now = datetime.now()
+
+    # 1601 — доставлено, 1602 — просрочено, 1603 — заблокировал бота
+    for user_id, role in ((1601, CB_ROLE_FACILITATOR), (1602, CB_ROLE_EXPLORER),
+                          (1603, CB_ROLE_FACILITATOR)):
+        add_user(db, user_id)
+        await enter_funnel(campaign, user_id, role)
+
+    set_consent_at(db, 1601, now - timedelta(days=2, hours=1))
+    set_consent_at(db, 1602, now - timedelta(days=30))        # оба шага просрочены
+    set_consent_at(db, 1603, now - timedelta(days=2, hours=1))
+
+    # Один проход, в котором все три исхода случаются одновременно: доставка,
+    # пропуск по просрочке и блокировка бота.
+    async def block_third(chat_id):
+        if chat_id == 1603:
+            raise TelegramForbiddenError(method=None,
+                                         message="Forbidden: bot was blocked by the user")
+
+    bot.on_send = block_third
+    await campaign.process_due_followups(now=now)
+    bot.on_send = None
+
+    f = db.get_platform_campaign_funnel("platform_launch")
+
+    print("Отчёт по исходам:")
+    check("доставлено только одно касание", f["sent_total"], 1)
+    check("доставка числится за D+2", f["steps_sent"], {"d2": 1})
+    check("просроченные в пропусках", f["steps_skipped"], {"d2": 1, "d5": 1})
+    check("неудача отдельной строкой", f["steps_failed"], {"d2": 1})
+    check("занято шагов больше, чем доставлено",
+          sum(f["steps_claimed"].values()), 4)
+    check("пропущенные и неудачные не считаются доставкой",
+          f["sent_total"] + f["skipped_total"] + f["failed_total"],
+          sum(f["steps_claimed"].values()))
     db.close()
 
 
@@ -568,6 +815,62 @@ async def scenario_audience_dedup(path):
     db.close()
 
 
+async def scenario_migration_is_idempotent(path):
+    """
+    База, созданная предыдущей версией кода, догоняется миграцией: новые колонки
+    добавляются, собранные согласия и отправленные шаги не теряются.
+    """
+    import sqlite3
+    from database.db import Database
+
+    # Схема предыдущей версии: без step_results и paused_until
+    conn = sqlite3.connect(path)
+    conn.executescript("""
+        CREATE TABLE platform_campaign_state (
+            user_id INTEGER NOT NULL, campaign_id TEXT NOT NULL,
+            role TEXT, interest TEXT, consent_at TEXT, opted_out_at TEXT,
+            opted_out_reason TEXT, converted_at TEXT,
+            sent_step_ids TEXT NOT NULL DEFAULT '[]',
+            retry_state TEXT NOT NULL DEFAULT '{}',
+            last_error TEXT, last_error_at TEXT, last_event_at TEXT,
+            first_shown_at TEXT, created_at TEXT, updated_at TEXT,
+            PRIMARY KEY (user_id, campaign_id));
+        CREATE TABLE platform_campaign_settings (
+            campaign_id TEXT PRIMARY KEY,
+            followups_enabled INTEGER NOT NULL DEFAULT 0,
+            updated_by INTEGER, updated_at TEXT);
+    """)
+    conn.execute(
+        "INSERT INTO platform_campaign_state (user_id, campaign_id, role, interest,"
+        " consent_at, sent_step_ids) VALUES (1701, 'platform_launch', 'facilitator',"
+        " 'facilitator', '2026-10-01T10:00:00+03:00', '[\"d2\"]')")
+    conn.execute("INSERT INTO platform_campaign_settings (campaign_id, followups_enabled)"
+                 " VALUES ('platform_launch', 1)")
+    conn.commit()
+    conn.close()
+
+    db = Database(path=path)
+    state = db.get_platform_campaign_state(1701, "platform_launch")
+
+    print("Миграция старой базы:")
+    check("согласие сохранено", state["consent_at"], "2026-10-01T10:00:00+03:00")
+    check("отправленный шаг сохранён", state["sent_step_ids"], ["d2"])
+    check("новая колонка исходов появилась", state["step_results"], {})
+    check("выключатель сохранён", db.is_platform_campaign_enabled("platform_launch"), True)
+    check("пауза читается", db.get_platform_campaign_paused_until("platform_launch"), None)
+
+    # Шаг без записанного исхода доставкой не считается
+    f = db.get_platform_campaign_funnel("platform_launch")
+    check("шаг старой базы не записан в доставку", f["sent_total"], 0)
+    check("но числится занятым", f["steps_claimed"], {"d2": 1})
+
+    # Повторный прогон миграции ничего не ломает
+    db.create_platform_campaign_tables()
+    check("повторная миграция данные не тронула",
+          db.get_platform_campaign_state(1701, "platform_launch")["sent_step_ids"], ["d2"])
+    db.close()
+
+
 async def scenario_admin_screens(path):
     """
     Админские экраны собираются и ничего не отправляют пользователям.
@@ -662,10 +965,16 @@ async def run_all():
         scenario_followups_and_restart,
         scenario_opt_out_stops_series,
         scenario_platform_after_optout,
-        scenario_retry_temporary_error,
+        scenario_retry_connect_failure,
+        scenario_unknown_delivery_not_retried,
+        scenario_flood_wait,
+        scenario_tick_attempt_limit,
+        scenario_optout_during_pass,
+        scenario_funnel_counts_only_delivered,
         scenario_blocked_user,
         scenario_stale_step,
         scenario_audience_dedup,
+        scenario_migration_is_idempotent,
         scenario_admin_screens,
     ]
     for scenario in scenarios:

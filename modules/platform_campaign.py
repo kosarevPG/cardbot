@@ -33,7 +33,9 @@ from modules.texts.platform import (
     FOLLOWUP_SCREENS, PLATFORM_EVENTS, PLATFORM_TEXTS, ROLE_BY_CALLBACK,
     ROLE_EXPLORER, ROLE_FACILITATOR, ROLE_SCREENS, platform_url,
 )
-from modules.utils import is_temporary_error, is_user_unreachable_error
+from modules.utils import (
+    is_certainly_not_delivered, is_temporary_error, is_user_unreachable_error,
+)
 
 try:
     from config_local import TIMEZONE
@@ -62,12 +64,18 @@ STEP_STALE_AFTER = timedelta(days=7)
 # живёт в базе, поэтому рестарт его не обнуляет.
 MAX_SEND_ATTEMPTS = 3
 
-# Сколько ещё пытаться после временного сбоя. Дальше — окончательная неудача.
+# Сколько ещё пытаться после сбоя. Дальше — окончательная неудача.
 RETRY_WINDOW = timedelta(minutes=60)
 
-# Потолок отправок за один тик. Кампания не должна соперничать с продуктовыми
+# Потолок ОБРАЩЕНИЙ к Telegram за один тик, а не успешных отправок: считать
+# только успехи означало бы, что на серии сетевых ошибок проход долбит API
+# сколько угодно раз. Кампания не должна соперничать с продуктовыми
 # уведомлениями за лимиты Telegram API (30 сообщений в секунду на бота).
-MAX_SENDS_PER_TICK = 20
+MAX_SEND_ATTEMPTS_PER_TICK = 20
+
+# Запас к паузе флуд-контроля: Telegram называет минимальное время ожидания,
+# и просыпаться ровно на этой секунде смысла нет.
+FLOOD_WAIT_MARGIN = timedelta(seconds=5)
 
 # Пауза между отправками — как в рассылке постов.
 SEND_PAUSE_SECONDS = 0.05
@@ -400,14 +408,23 @@ class PlatformCampaign:
         должен видеть план и до запуска.
         """
         now = _aware(now) if now else _now()
+        paused_until = _parse_ts(self.db.get_platform_campaign_paused_until(self.campaign_id))
         result = {
             "enabled": bool(self.db.is_platform_campaign_enabled(self.campaign_id)),
             "dry_run": dry_run, "sent": 0, "failed": 0, "deferred": 0,
-            "skipped": 0, "planned": [],
+            "skipped": 0, "attempts": 0, "planned": [],
+            "paused_until": paused_until.isoformat() if paused_until else None,
         }
         if not dry_run and not result["enabled"]:
             # Выключатель — это пауза всей кампании, а не ошибка.
             result["reason"] = "disabled"
+            return result
+
+        if not dry_run and paused_until and now < paused_until:
+            # Флуд-контроль Telegram назвал время ожидания, и оно может быть
+            # больше интервала тика. Пока срок не вышел, к API не обращаемся.
+            result["reason"] = "flood_wait"
+            result["flood_wait"] = int((paused_until - now).total_seconds())
             return result
 
         participants = self.db.get_platform_campaign_participants(self.campaign_id)
@@ -418,7 +435,7 @@ class PlatformCampaign:
         unreachable = self.db.get_unreachable_user_ids()
 
         for state in participants:
-            if result["sent"] + result["failed"] >= MAX_SENDS_PER_TICK:
+            if result["attempts"] >= MAX_SEND_ATTEMPTS_PER_TICK:
                 result["throttled"] = True
                 break
 
@@ -455,7 +472,7 @@ class PlatformCampaign:
                         result["skipped"] += 1
                     continue
 
-                if result["sent"] + result["failed"] >= MAX_SENDS_PER_TICK:
+                if result["attempts"] >= MAX_SEND_ATTEMPTS_PER_TICK:
                     result["throttled"] = True
                     break
 
@@ -483,6 +500,8 @@ class PlatformCampaign:
         if action == "stale":
             # Занимаем шаг, чтобы он не выстрелил позже, и фиксируем пропуск.
             if self.db.claim_platform_campaign_step(user_id, self.campaign_id, step_id):
+                self._record_step_result(user_id, step_id, self.db.PLATFORM_STEP_SKIPPED,
+                                         reason="stale")
                 await self._log(user_id, "FOLLOWUP_SKIPPED", {
                     "step": step_id, "reason": "stale",
                     "overdue_days": (now - item["due_at"]).days,
@@ -490,74 +509,141 @@ class PlatformCampaign:
             return "skipped"
 
         if action == "give_up":
-            await self._finalize_failure(user_id, step_id, item.get("error"), item.get("attempts", 0))
+            await self._finalize_failure(user_id, step_id, item.get("error"),
+                                         item.get("attempts", 0))
             return "failed"
 
         if action == "send":
+            # Занятие шага перечитывает согласие в своей транзакции, поэтому
+            # отписка, прилетевшая во время прохода, здесь уже видна.
             if not self.db.claim_platform_campaign_step(user_id, self.campaign_id, step_id):
-                # Шаг уже заняли: другой тик или прошлый запуск бота. Дубля не делаем.
                 return "skipped"
 
         attempts = item.get("attempts", 0) + 1
-        error = await self._send_step(user_id, role, step_id)
+        result["attempts"] = result.get("attempts", 0) + 1
+        outcome, error = await self._send_step(user_id, role, step_id)
+
+        if outcome == "ineligible":
+            # Человек отписался между планированием и отправкой. Шаг остаётся
+            # занятым: возвращать его в очередь нельзя, он больше не нужен.
+            result["attempts"] -= 1               # до Telegram дело не дошло
+            self._record_step_result(user_id, step_id, self.db.PLATFORM_STEP_SKIPPED,
+                                     reason="opted_out")
+            await self._log(user_id, "FOLLOWUP_SKIPPED",
+                            {"step": step_id, "reason": "opted_out"})
+            return "skipped"
 
         if error is None:
             self._clear_retry(user_id, step_id)
+            self._record_step_result(user_id, step_id, self.db.PLATFORM_STEP_SENT,
+                                     attempts=attempts)
             await self._log(user_id, "FOLLOWUP_SENT", {
                 "step": step_id, "role": role, "attempts": attempts,
-                # Подтверждена доставка Telegram'ом. Переход по ссылке этим не
-                # подтверждается: нажатие URL-кнопки боту не видно.
+                # Подтверждён приём Telegram'ом. Ни прочтение, ни переход по
+                # ссылке этим не подтверждаются: нажатие URL-кнопки боту не видно.
                 "delivery": "telegram_accepted",
             })
             await asyncio.sleep(SEND_PAUSE_SECONDS)
             return "sent"
 
-        if isinstance(error, TelegramRetryAfter):
-            # Лимит Telegram на бота. Ждать внутри тика нельзя — это задержало бы
-            # всё остальное; помечаем и выходим, следующий тик продолжит.
-            result["flood_wait"] = getattr(error, "retry_after", None)
-            self._record_error(user_id, step_id, error, attempts, retryable=True)
-            return "deferred"
-
         if is_user_unreachable_error(error):
+            self._record_error(user_id, step_id, error, attempts, retryable=False)
+            self._record_step_result(user_id, step_id, self.db.PLATFORM_STEP_FAILED,
+                                     attempts=attempts, reason="unreachable", error=error)
             await self._log(user_id, "FOLLOWUP_FAILED", {
                 "step": step_id, "role": role, "attempts": attempts,
                 "error": str(error)[:200], "reason": "unreachable",
             })
-            self._record_error(user_id, step_id, error, attempts, retryable=False)
             await self._opt_out(user_id, "blocked")
             return "failed"
 
-        if is_temporary_error(error) and attempts < MAX_SEND_ATTEMPTS:
+        if isinstance(error, TelegramRetryAfter):
+            # Лимит Telegram на бота. Ждать внутри тика нельзя — это задержало бы
+            # весь проход; запоминаем срок в базе и выходим. Сообщение отклонено
+            # лимитом, то есть точно не доставлено, — повтор безопасен.
+            wait = getattr(error, "retry_after", None) or 0
+            until = now + timedelta(seconds=wait) + FLOOD_WAIT_MARGIN
+            self.db.set_platform_campaign_paused_until(self.campaign_id, until.isoformat())
+            result["flood_wait"] = wait
+            result["paused_until"] = until.isoformat()
             self._record_error(user_id, step_id, error, attempts, retryable=True)
+            self._record_step_result(user_id, step_id, self.db.PLATFORM_STEP_DEFERRED,
+                                     attempts=attempts, reason="flood_wait", error=error)
+            return "deferred"
+
+        # Повторяем только то, что точно не было доставлено. Таймаут ответа,
+        # обрыв на середине и 5xx от этого отличаются: Telegram мог принять
+        # сообщение и потерять ответ, и повтор тогда даст человеку второе
+        # одинаковое письмо. Для маркетинговой серии потеря безопаснее дубля,
+        # поэтому неопределённую доставку считаем окончательной неудачей.
+        if (is_certainly_not_delivered(error) and is_temporary_error(error)
+                and attempts < MAX_SEND_ATTEMPTS):
+            self._record_error(user_id, step_id, error, attempts, retryable=True)
+            self._record_step_result(user_id, step_id, self.db.PLATFORM_STEP_DEFERRED,
+                                     attempts=attempts, reason="not_delivered", error=error)
             logger.warning(f"Platform follow-up {step_id} to user {user_id} deferred: {error}")
             return "deferred"
 
-        await self._finalize_failure(user_id, step_id, error, attempts)
+        reason = "attempts_exhausted" if is_certainly_not_delivered(error) else "delivery_unknown"
+        await self._finalize_failure(user_id, step_id, error, attempts, reason)
         return "failed"
 
     async def _send_step(self, user_id: int, role: str, step_id: str):
-        """Одна попытка отправки касания. Возвращает исключение или None при успехе."""
+        """
+        Одна попытка отправки касания. Возвращает ("sent"|"failed"|"ineligible", ошибку).
+
+        Согласие перечитывается здесь, непосредственно перед обращением к
+        Telegram, и между проверкой и отправкой нет ни одного await: отписка,
+        сделанная во время прохода, успевает сработать.
+        """
+        if not self.db.platform_campaign_consent_is_live(user_id, self.campaign_id):
+            logger.info(f"Platform follow-up {step_id} to user {user_id} cancelled: consent withdrawn")
+            return "ineligible", None
+
         text, keyboard = render(FOLLOWUP_SCREENS[(step_id, role)])
         try:
             await self.bot.send_message(
                 user_id, text, reply_markup=keyboard, parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True, request_timeout=SEND_TIMEOUT_SECONDS)
-            return None
+            return "sent", None
         except TelegramRetryAfter as e:
             logger.warning(f"Platform campaign hit flood control, retry after {e.retry_after}s")
-            return e
+            return "failed", e
         except Exception as e:
-            return e
+            return "failed", e
 
-    async def _finalize_failure(self, user_id: int, step_id: str, error, attempts: int):
-        """Окончательная неудача: попытки исчерпаны или сбой не из повторяемых."""
+    async def _finalize_failure(self, user_id: int, step_id: str, error, attempts: int,
+                                reason: str = "attempts_exhausted"):
+        """Окончательная неудача: попытки исчерпаны или доставка неопределённа."""
         logger.error(f"Giving up on platform follow-up {step_id} to user {user_id} "
-                     f"after {attempts} attempts: {error}")
+                     f"after {attempts} attempts ({reason}): {error}")
         self._record_error(user_id, step_id, error, attempts, retryable=False)
+        self._record_step_result(user_id, step_id, self.db.PLATFORM_STEP_FAILED,
+                                 attempts=attempts, reason=reason, error=error)
         await self._log(user_id, "FOLLOWUP_FAILED", {
-            "step": step_id, "attempts": attempts, "error": str(error)[:200],
+            "step": step_id, "attempts": attempts, "reason": reason,
+            "error": str(error)[:200],
         })
+
+    def _record_step_result(self, user_id: int, step_id: str, status: str,
+                            attempts: int = None, reason: str = None, error=None):
+        """
+        Пишет исход шага. Нужен потому, что «шаг занят» и «сообщение доставлено» —
+        разные вещи: занятым шаг становится до обращения к Telegram и остаётся им
+        при пропуске и при неудаче. Без отдельной записи исхода отчёт считал бы
+        доставкой любой занятый шаг.
+        """
+        state = self.state(user_id) or {}
+        results = dict(state.get("step_results") or {})
+        entry = {"status": status, "at": _now().isoformat()}
+        if attempts is not None:
+            entry["attempts"] = attempts
+        if reason:
+            entry["reason"] = reason
+        if error is not None:
+            entry["error"] = str(error)[:200]
+        results[step_id] = entry
+        self._update(user_id, step_results=results)
 
     def _record_error(self, user_id: int, step_id: str, error, attempts: int, retryable: bool):
         """

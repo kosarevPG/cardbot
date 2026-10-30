@@ -117,11 +117,16 @@ async def show_admin_platform_campaign(message: types.Message, db: Database,
         funnel = db.get_platform_campaign_funnel(CAMPAIGN_ID)
         steps = ", ".join(f"{sid.upper()}: {funnel['steps_sent'].get(sid, 0)}"
                           for sid, _ in FOLLOWUP_DELAYS) or "—"
+        paused_until = db.get_platform_campaign_paused_until(CAMPAIGN_ID)
+        pause_note = ""
+        if paused_until:
+            pause_note = (f"\n⏳ Пауза флуд-контроля Telegram до "
+                          f"<code>{paused_until[:19]}</code>")
 
         text = f"""🃏 <b>КАМПАНИЯ: TOPPSYGAME</b>
 <i>id кампании: <code>{CAMPAIGN_ID}</code></i>
 
-{'▶️ Автоматические касания <b>ВКЛЮЧЕНЫ</b>' if enabled else '⏸ Автоматические касания <b>выключены</b>'}
+{'▶️ Автоматические касания <b>ВКЛЮЧЕНЫ</b>' if enabled else '⏸ Автоматические касания <b>выключены</b>'}{pause_note}
 
 <b>Как работает воронка</b>
 • первое касание делает сам человек: /platform или кнопка в меню;
@@ -135,7 +140,8 @@ async def show_admin_platform_campaign(message: types.Message, db: Database,
 • «не интересно»: <b>{funnel['dismissed']}</b>
 • дали согласие: <b>{funnel['consented']}</b>, из них активны: <b>{funnel['active']}</b>
 • отписались: <b>{funnel['opted_out']}</b>
-• отправлено касаний — {steps}"""
+• доставлено касаний — {steps}
+• пропущено: {funnel['skipped_total']}, с неудачей: {funnel['failed_total']}"""
 
         await _show(message, text, _menu_keyboard(enabled))
         await logger_service.log_action(user_id, "admin_platform_campaign_viewed",
@@ -170,10 +176,19 @@ async def show_platform_report(message: types.Message, db: Database,
    • «не интересно»: {f['dismissed']} ({pct(f['dismissed'])})
 3️⃣ Дали явное согласие на серию: <b>{f['consented']}</b> \
 ({100.0 * f['consented'] / consent_base:.0f}% от выбравших ветку)
-4️⃣ Отправлено касаний:
+4️⃣ Касания по исходам:
 """
         for step_id, delay in FOLLOWUP_DELAYS:
-            text += f"   • D+{delay.days}: {f['steps_sent'].get(step_id, 0)}\n"
+            sent = f['steps_sent'].get(step_id, 0)
+            claimed = f['steps_claimed'].get(step_id, 0)
+            skipped = f['steps_skipped'].get(step_id, 0)
+            failed = f['steps_failed'].get(step_id, 0)
+            pending = f['steps_pending'].get(step_id, 0)
+            text += (f"   • D+{delay.days}: доставлено <b>{sent}</b>"
+                     f" | пропущено {skipped} | неудач {failed}")
+            if pending:
+                text += f" | в работе {pending}"
+            text += f" (занято шагов: {claimed})\n"
 
         text += f"""
 🚪 Отписались: <b>{f['opted_out']}</b>
@@ -181,7 +196,10 @@ async def show_platform_report(message: types.Message, db: Database,
 ✅ Подтверждённых конверсий: <b>{f['converted']}</b>
 
 <b>Что эти числа значат</b>
-• «Отправлено» — Telegram принял сообщение. Это доставка, не прочтение.
+• «Доставлено» — Telegram принял сообщение. Это доставка, не прочтение.
+• «Занято шагов» — сколько шагов израсходовано. Шаг занимается до обращения к
+  Telegram и остаётся занятым при пропуске и при неудаче, поэтому доставкой это
+  число считать нельзя — для неё есть «доставлено».
 • Нажатие кнопки-ссылки боту <b>не видно</b>: Telegram не присылает callback по
   URL-кнопкам. Кликов и посещений сайта здесь нет и не будет — переходы считаются
   по UTM-меткам на стороне платформы (MVP 2).
