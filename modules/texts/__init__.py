@@ -7,6 +7,7 @@ from .cards import CARDS_TEXTS
 from .marketplace import MARKETPLACE_TEXTS
 from .errors import ERROR_TEXTS
 from .common import COMMON_TEXTS
+from .platform import PLATFORM_TEXTS, PLATFORM_EVENTS
 
 __all__ = [
     'personalize_text',
@@ -16,5 +17,7 @@ __all__ = [
     'CARDS_TEXTS', 
     'MARKETPLACE_TEXTS',
     'ERROR_TEXTS',
-    'COMMON_TEXTS'
+    'COMMON_TEXTS',
+    'PLATFORM_TEXTS',
+    'PLATFORM_EVENTS'
 ]

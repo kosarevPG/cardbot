@@ -155,6 +155,34 @@ def get_segment_recipients(db: Database, segment: str) -> dict:
     }
 
 
+def get_author_test_candidates(db: Database) -> list[int]:
+    """
+    Кто дошёл до конца теста «Стать автором». Это отдельная от «Карты дня»
+    аудитория: человек заявил интерес к ведению практики, то есть ближе всех к
+    роли ведущего на платформе.
+
+    Таблиц две — исторически данные писались и в author_test_sessions, и в
+    author_test_sessions_new, — поэтому читаем обе и объединяем. Служебные
+    аккаунты исключаем тем же условием, что и в отчёте по сегментам.
+
+    Это оценка аудитории, а не список для рассылки: согласия на рекламные
+    сообщения завершение теста не даёт.
+    """
+    excluded = _excluded_sql(db)
+    found: set[int] = set()
+    for table in ("author_test_sessions_new", "author_test_sessions"):
+        try:
+            rows = db.conn.execute(f"""
+                SELECT DISTINCT user_id FROM {table}
+                WHERE status = 'completed' AND user_id NOT IN {excluded}
+            """).fetchall()
+            found |= {row[0] for row in rows}
+        except Exception as e:
+            # Таблицы может не быть на старой базе — это не повод валить отчёт.
+            logger.warning(f"Не удалось прочитать {table}: {e}")
+    return sorted(found)
+
+
 def _fmt_user(db: Database, row) -> str:
     """Строка одного пользователя: имя/username, сколько дней и когда был последний раз."""
     data = db.get_user(row["user_id"]) or {}

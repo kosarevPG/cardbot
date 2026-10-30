@@ -30,7 +30,13 @@ from modules.admin.users import (
 )
 
 from modules.admin.user_segments import (
-    show_admin_user_segments
+    show_admin_user_segments,
+    get_author_test_candidates
+)
+
+from modules.admin.platform_campaign import (
+    show_admin_platform_campaign,
+    route_platform_callback
 )
 
 from modules.admin.posts import (
@@ -74,6 +80,11 @@ __all__ = [
     'show_admin_requests',
     'show_admin_requests_full',
     'show_admin_user_segments',
+    'get_author_test_candidates',
+
+    # Кампания знакомства с платформой
+    'show_admin_platform_campaign',
+    'route_platform_callback',
 
     # Posts
     'show_admin_posts',

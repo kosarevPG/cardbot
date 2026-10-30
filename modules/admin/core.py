@@ -35,6 +35,7 @@ def build_admin_menu_keyboard() -> types.InlineKeyboardMarkup:
         [types.InlineKeyboardButton(text="👥 Пользователи", callback_data="admin_users")],
         [types.InlineKeyboardButton(text="📋 Детальные логи", callback_data="admin_logs")],
         [types.InlineKeyboardButton(text="📝 Управление постами", callback_data="admin_posts")],
+        [types.InlineKeyboardButton(text="🃏 Кампания TopPsyGame", callback_data="admin_platform")],
         [types.InlineKeyboardButton(text="🛍️ Маркетплейсы", callback_data="admin_marketplaces")],
         [types.InlineKeyboardButton(text="📚 Логи обучения", callback_data="admin_training_logs")]
     ])
@@ -129,7 +130,15 @@ def make_admin_callback_handler(db: Database, logger_service: LoggingService):
         from modules.admin.author_test_stats import show_admin_author_test_stats
         
         action = callback.data
-        
+
+        # Раздел кампании знакомства с платформой разбирает свои callback'и сам:
+        # их много, и держать их здесь значило бы растить общую лестницу if/elif.
+        if action.startswith("admin_platform"):
+            from modules.admin.platform_campaign import route_platform_callback
+            await route_platform_callback(action, callback.message, db, logger_service, user_id)
+            await callback.answer()
+            return
+
         # Роутинг callback'ов
         if action == "admin_dashboard":
             await show_admin_dashboard(callback.message, db, logger_service, user_id, 7)

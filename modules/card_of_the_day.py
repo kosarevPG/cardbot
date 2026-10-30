@@ -23,6 +23,8 @@ from datetime import datetime, date # Добавили date
 from modules.user_management import UserState
 from database.db import Database
 from modules.constants import DECKS, RESOURCE_LEVELS, BTN_BECOME_AUTHOR, BTN_ADMIN_PANEL
+# Подпись кнопки — часть копирайта кампании, поэтому живёт рядом с её текстами.
+from modules.texts.platform import BTN_PLATFORM
 from modules.texts import get_personalized_text, CARDS_TEXTS
 import logging
 
@@ -80,6 +82,10 @@ async def get_main_menu(user_id, db: Database):
 
     # Кнопка "Стать автором" — доступна всем пользователям
     keyboard.append([types.KeyboardButton(text=BTN_BECOME_AUTHOR)])
+
+    # Приглашение познакомиться с онлайн-платформой. Отдельным пунктом меню, а не
+    # сообщением в сценарии: человек заходит в воронку сам, когда ему интересно.
+    keyboard.append([types.KeyboardButton(text=BTN_PLATFORM)])
 
     # Кнопка "⚒️ Админ-панель" — только админам
     try:

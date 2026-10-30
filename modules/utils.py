@@ -3,11 +3,48 @@
 Вспомогательные функции общего назначения.
 """
 
+import asyncio
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+from aiogram.exceptions import (
+    TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter,
+    TelegramServerError,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def is_temporary_error(error: Exception) -> bool:
+    """
+    Стоит ли повторять отправку. Сеть, таймаут, флуд-контроль и сбой на стороне
+    Telegram — временные. Блокировка и удалённый аккаунт постоянны: повторять их
+    бессмысленно, человек не станет доступнее от второй попытки.
+
+    Общая для всех отправок: напоминания и кампании должны считать «временным»
+    одно и то же, иначе одна из них будет терять сообщения там, где другая их
+    добивает.
+    """
+    return isinstance(error, (
+        TelegramNetworkError, TelegramRetryAfter, TelegramServerError,
+        asyncio.TimeoutError, ConnectionError, OSError,
+    ))
+
+
+def is_user_unreachable_error(error: Exception) -> bool:
+    """
+    Человек недоступен навсегда: заблокировал бота или удалил аккаунт. Такого
+    адресата нужно снимать с рассылок, а не записывать ему сбой доставки.
+
+    Проверяем и тип, и текст: в разных версиях aiogram одна и та же ошибка
+    приходит то как TelegramForbiddenError, то как общий TelegramAPIError.
+    """
+    if isinstance(error, TelegramForbiddenError):
+        return True
+    text = str(error).lower()
+    return ("bot was blocked" in text or "user is deactivated" in text
+            or "forbidden" in text or "chat not found" in text)
 
 
 def get_user_name(user_data: Optional[Dict[str, Any]], default: str = "Друг") -> str:

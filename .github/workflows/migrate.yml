@@ -46,6 +46,8 @@ jobs:
               "modules.scheduler",
               "modules.notification_service",
               "modules.post_management",
+              "modules.platform_campaign",
+              "modules.texts.platform",
               "modules.purchase_menu",
               "modules.settings_menu",
               "modules.training_logger",
@@ -70,6 +72,9 @@ jobs:
 
       - name: Reminder schedule regression test
         run: python tests/test_reminder_schedule.py
+
+      - name: Platform campaign regression test
+        run: python tests/test_platform_campaign.py
 
       - name: Database bootstrap test
         run: |

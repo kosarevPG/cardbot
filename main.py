@@ -183,7 +183,9 @@ from modules.evening_reflection import (
 
 # Модули для работы с постами
 from modules.post_management import PostManager
-from modules.scheduler import MailingScheduler, ReflectionAnalysisScheduler  # Добавляем новый планировщик
+from modules.scheduler import (
+    MailingScheduler, PlatformCampaignScheduler, ReflectionAnalysisScheduler
+)
 from modules.marketplace_commands import register_marketplace_handlers  # Команды маркетплейсов
 
 # Модули покупки и обучения
@@ -193,6 +195,13 @@ from modules.settings_menu import show_settings_menu, handle_settings_callback
 from modules.constants import UNIVERSE_ADVICE
 from modules.become_author import start_author_test_flow, handle_author_callback
 from modules.constants import BTN_ADMIN_PANEL
+
+# Кампания знакомства с платформой TopPsyGame (opt-in воронка)
+from modules.platform_campaign import (
+    PlatformCampaign, make_platform_callback_handler, make_platform_handler,
+    make_platform_stop_handler
+)
+from modules.texts.platform import BTN_PLATFORM, CB_PREFIX as PLATFORM_CB_PREFIX
 
 # Админская панель (рефакторинг - модульная структура)
 from modules.admin import (
@@ -1783,6 +1792,10 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     process_mailings_handler = make_process_mailings_handler(db, logging_service)
     admin_handler = make_admin_handler(db, logging_service)
     admin_callback_handler = make_admin_callback_handler(db, logging_service)
+    platform_handler = make_platform_handler(db, logging_service, source="command")
+    platform_menu_handler = make_platform_handler(db, logging_service, source="main_menu")
+    platform_stop_handler = make_platform_stop_handler(db, logging_service)
+    platform_callback_handler = make_platform_callback_handler(db, logging_service)
 
     dp.message.register(start_handler, Command("start"))
     dp.message.register(share_handler, Command("share"))
@@ -1803,6 +1816,8 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.message.register(send_post_handler, Command("send_post"))
     dp.message.register(process_mailings_handler, Command("process_mailings"))
     dp.message.register(admin_handler, Command("admin"))
+    dp.message.register(platform_handler, Command("platform"))
+    dp.message.register(platform_stop_handler, Command("platform_stop"))
     
     # Регистрируем callback-обработчики для админ-панели
     dp.callback_query.register(admin_callback_handler, F.data.startswith("admin_"))
@@ -1827,6 +1842,16 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         await start_author_test_flow(message, state, db)
 
     dp.message.register(handle_become_author, F.text.contains("Стать автором"))
+
+    # Кнопка знакомства с платформой. Приглашение ненавязчивое: это ещё один
+    # пункт меню, сценарии «Карты дня», рефлексии и теста автора он не задевает.
+    dp.message.register(platform_menu_handler, F.text == BTN_PLATFORM)
+
+    # Кнопки воронки. Регистрируем здесь, вместе с остальными callback'ами
+    # сценариев: иначе нажатие кнопки посреди FSM-состояния перехватил бы
+    # handle_callback_when_waiting_text и человек получил бы «отправь текстом».
+    dp.callback_query.register(platform_callback_handler,
+                               F.data.startswith(PLATFORM_CB_PREFIX))
 
     # Кнопка "⚒️ Админ-панель" в главном меню (видна только админам, но на всякий случай защищаем и хендлером /admin)
     dp.message.register(admin_handler, F.text.contains("Админ-панель"))
@@ -2034,6 +2059,8 @@ async def main():
         types.BotCommand(command="feedback", description="✉️ Оставить отзыв / Идею"),
         types.BotCommand(command="user_profile", description="📊 Мой профиль"),
         types.BotCommand(command="help", description="❓ Помощь и FAQ"),
+        types.BotCommand(command="platform", description="🃏 Онлайн-платформа TopPsyGame"),
+        types.BotCommand(command="platform_stop", description="🔕 Не писать о платформе"),
     ]
 
     # Админские команды (дополнительно показываем только админам)
@@ -2072,6 +2099,13 @@ async def main():
     
     # Инициализация планировщика еженедельного анализа рефлексий
     reflection_scheduler = ReflectionAnalysisScheduler(bot, db, check_interval=3600)  # Проверяем каждый час
+
+    # Кампания знакомства с платформой. Планировщик поднимается всегда, но
+    # отправляет что-либо только после того, как администратор включил кампанию
+    # в админке: по умолчанию выключатель стоит в положении «выключено», поэтому
+    # сам старт бота никому ничего не отправляет.
+    platform_campaign = PlatformCampaign(db, bot, logging_service)
+    platform_campaign_scheduler = PlatformCampaignScheduler(platform_campaign, check_interval=300)
     
     # Инициализируем данные в диспетчере с проверками
     try:
@@ -2084,6 +2118,8 @@ async def main():
         dp["user_manager"] = user_manager
         dp["post_manager"] = post_manager
         dp["scheduler"] = scheduler
+        dp["platform_campaign"] = platform_campaign
+        dp["platform_campaign_scheduler"] = platform_campaign_scheduler
         logger.info("Dispatcher data initialized successfully")
     except Exception as init_err:
         logger.error(f"Error initializing dispatcher data: {init_err}")
@@ -2104,6 +2140,10 @@ async def main():
     # Запускаем планировщик еженедельного анализа рефлексий
     await reflection_scheduler.start()
     logger.info("Reflection analysis scheduler started.")
+
+    await platform_campaign_scheduler.start()
+    logger.info("Platform campaign scheduler started "
+                f"(followups enabled: {db.is_platform_campaign_enabled(platform_campaign.campaign_id)}).")
     
     reminder_task = asyncio.create_task(notifier.check_reminders())
     logger.info("Reminder check task scheduled.")
@@ -2141,7 +2181,15 @@ async def main():
             logger.info("Reflection analysis scheduler stopped.")
         except Exception as reflection_scheduler_err:
             logger.error(f"Error stopping reflection analysis scheduler: {reflection_scheduler_err}")
-        
+
+        # Останавливаем планировщик кампании знакомства с платформой
+        try:
+            await platform_campaign_scheduler.stop()
+            logger.info("Platform campaign scheduler stopped.")
+        except Exception as platform_scheduler_err:
+            logger.error(f"Error stopping platform campaign scheduler: {platform_scheduler_err}")
+
+
         reminder_task.cancel()
         try:
             await reminder_task

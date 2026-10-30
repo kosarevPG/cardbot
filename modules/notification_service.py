@@ -8,9 +8,9 @@ except ImportError:
     from config import TIMEZONE
 import logging
 
-from aiogram.exceptions import (
-    TelegramNetworkError, TelegramRetryAfter, TelegramServerError,
-)
+# Классификатор временных сбоев живёт в modules/utils.py: тем же правилом
+# пользуется кампания знакомства с платформой, и расходиться им нельзя.
+from modules.utils import is_temporary_error as _is_temporary
 
 # Импортируем функцию для получения меню
 from modules.card_of_the_day import get_main_menu
@@ -31,18 +31,6 @@ CATCHUP_LIMIT_MINUTES = 5
 
 # Отступ от начала минуты, чтобы не проснуться за мгновение до неё.
 TICK_OFFSET_SECONDS = 0.5
-
-
-def _is_temporary(error: Exception) -> bool:
-    """
-    Стоит ли повторять отправку. Сеть, таймаут, флуд-контроль и сбой на стороне
-    Telegram — временные. Блокировка и удалённый аккаунт постоянны: повторять их
-    бессмысленно, человек не станет доступнее от второй попытки.
-    """
-    return isinstance(error, (
-        TelegramNetworkError, TelegramRetryAfter, TelegramServerError,
-        asyncio.TimeoutError, ConnectionError, OSError,
-    ))
 
 
 class NotificationService:
