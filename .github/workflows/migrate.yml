@@ -53,6 +53,7 @@ jobs:
               "modules.post_management",
               "modules.platform_campaign",
               "modules.texts.platform",
+              "modules.texts.announcement",
               "modules.purchase_menu",
               "modules.settings_menu",
               "modules.training_logger",
@@ -80,6 +81,9 @@ jobs:
 
       - name: Platform campaign regression test
         run: python tests/test_platform_campaign.py
+
+      - name: Announcement post regression test
+        run: python tests/test_announcement_post.py
 
       - name: Database bootstrap test
         run: |
