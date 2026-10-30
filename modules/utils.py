@@ -3,11 +3,80 @@
 Вспомогательные функции общего назначения.
 """
 
+import asyncio
 import logging
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+from aiogram.exceptions import (
+    TelegramForbiddenError, TelegramNetworkError, TelegramRetryAfter,
+    TelegramServerError,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def is_temporary_error(error: Exception) -> bool:
+    """
+    Стоит ли повторять отправку. Сеть, таймаут, флуд-контроль и сбой на стороне
+    Telegram — временные. Блокировка и удалённый аккаунт постоянны: повторять их
+    бессмысленно, человек не станет доступнее от второй попытки.
+
+    Общая для всех отправок: напоминания и кампании должны считать «временным»
+    одно и то же, иначе одна из них будет терять сообщения там, где другая их
+    добивает.
+    """
+    return isinstance(error, (
+        TelegramNetworkError, TelegramRetryAfter, TelegramServerError,
+        asyncio.TimeoutError, ConnectionError, OSError,
+    ))
+
+
+# Классы ошибок aiohttp, означающие, что соединение с Telegram вообще не
+# установилось: запрос не ушёл, сообщение не доставлено. Имя класса приходит в
+# тексте ошибки — aiogram оборачивает ClientError как f"{type(e).__name__}: {e}"
+# (aiogram/client/session/aiohttp.py), поэтому исходный тип не теряется.
+_CONNECT_FAILED_ERRORS = (
+    "ClientConnectorError",
+    "ClientConnectorDNSError",
+    "ClientConnectorCertificateError",
+    "ClientConnectorSSLError",
+    "ClientProxyConnectionError",
+    "ServerConnectionError",
+)
+
+
+def is_certainly_not_delivered(error: Exception) -> bool:
+    """
+    Точно ли сообщение НЕ доставлено. Это не то же самое, что «ошибка временная».
+
+    Разница важна для рассылок, где дубль хуже потери. Флуд-контроль и
+    неустановленное соединение означают, что Telegram сообщения не принимал —
+    повтор безопасен. А вот таймаут ответа, обрыв соединения на середине и 5xx
+    неотличимы от «сообщение приняли, но ответ потерялся»: повторять их нельзя,
+    иначе человек получит два одинаковых письма.
+    """
+    if isinstance(error, TelegramRetryAfter):
+        return True                        # запрос отклонён лимитом, не доставлен
+    if isinstance(error, TelegramNetworkError):
+        text = str(error)
+        return any(name in text for name in _CONNECT_FAILED_ERRORS)
+    return isinstance(error, (ConnectionRefusedError,))
+
+
+def is_user_unreachable_error(error: Exception) -> bool:
+    """
+    Человек недоступен навсегда: заблокировал бота или удалил аккаунт. Такого
+    адресата нужно снимать с рассылок, а не записывать ему сбой доставки.
+
+    Проверяем и тип, и текст: в разных версиях aiogram одна и та же ошибка
+    приходит то как TelegramForbiddenError, то как общий TelegramAPIError.
+    """
+    if isinstance(error, TelegramForbiddenError):
+        return True
+    text = str(error).lower()
+    return ("bot was blocked" in text or "user is deactivated" in text
+            or "forbidden" in text or "chat not found" in text)
 
 
 def get_user_name(user_data: Optional[Dict[str, Any]], default: str = "Друг") -> str:

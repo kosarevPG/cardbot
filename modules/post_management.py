@@ -15,6 +15,13 @@ logger = logging.getLogger(__name__)
 # Московское время
 MOSCOW_TZ = pytz.timezone('Europe/Moscow')
 
+# Лимиты Telegram. Пост с картинкой уходит подписью к фото, а подпись обрезана
+# вчетверо жёстче обычного сообщения. Раньше это было неважно (медиа никто не
+# прикреплял), но теперь пост с картинкой и текстом на 2000 символов упал бы уже
+# на отправке, в середине рассылки, а не при создании.
+TEXT_LIMIT = 4096
+MEDIA_CAPTION_LIMIT = 1024
+
 class PostManager:
     """Менеджер для работы с постами и рассылками."""
     
@@ -236,22 +243,34 @@ class PostManager:
         
         return f"{emoji} {mailing['title']}\n👥 {target}{scheduled_text}"
     
-    def validate_post_data(self, title: str, content: str) -> Dict[str, Any]:
-        """Валидирует данные поста."""
+    def validate_post_data(self, title: str, content: str, has_media: bool = False) -> Dict[str, Any]:
+        """
+        Валидирует данные поста.
+
+        has_media меняет лимит длины: с картинкой текст уходит подписью к фото,
+        а это 1024 символа вместо 4096. Считаем по сырому содержимому вместе с
+        HTML-разметкой, хотя Telegram меряет уже разобранный текст: запас в нашу
+        сторону лучше, чем падение на отправке.
+        """
         errors = []
-        
+
         if not title or not title.strip():
             errors.append("Заголовок не может быть пустым")
-        
+
         if not content or not content.strip():
             errors.append("Содержание поста не может быть пустым")
-        
+
         if len(title) > 100:
             errors.append("Заголовок слишком длинный (максимум 100 символов)")
-        
-        if len(content) > 4096:
-            errors.append("Содержание поста слишком длинное (максимум 4096 символов)")
-        
+
+        limit = MEDIA_CAPTION_LIMIT if has_media else TEXT_LIMIT
+        if len(content) > limit:
+            where = "подпись к картинке" if has_media else "сообщение"
+            errors.append(
+                f"Содержание поста слишком длинное: {len(content)} символов, "
+                f"а {where} вмещает {limit}"
+            )
+
         return {
             'valid': len(errors) == 0,
             'errors': errors

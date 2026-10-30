@@ -1,6 +1,11 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  # Ручной запуск: без него включённый workflow ждёт нового пуша, и у уже
+  # отправленного коммита проверки не появляются.
+  workflow_dispatch:
 
 jobs:
   build:
@@ -46,6 +51,9 @@ jobs:
               "modules.scheduler",
               "modules.notification_service",
               "modules.post_management",
+              "modules.platform_campaign",
+              "modules.texts.platform",
+              "modules.texts.announcement",
               "modules.purchase_menu",
               "modules.settings_menu",
               "modules.training_logger",
@@ -70,6 +78,12 @@ jobs:
 
       - name: Reminder schedule regression test
         run: python tests/test_reminder_schedule.py
+
+      - name: Platform campaign regression test
+        run: python tests/test_platform_campaign.py
+
+      - name: Announcement post regression test
+        run: python tests/test_announcement_post.py
 
       - name: Database bootstrap test
         run: |

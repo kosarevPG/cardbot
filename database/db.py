@@ -66,6 +66,7 @@ class Database:
 
             self.create_tables()
             self.create_author_tables()
+            self.create_platform_campaign_tables()
             self._run_migrations()
             self.create_indexes()
 
@@ -3167,6 +3168,394 @@ class Database:
                     pass
         except sqlite3.Error as e:
             logger.error(f"Error cancelling author test for {user_id}: {e}", exc_info=True)
+
+    @staticmethod
+    def _now_iso() -> str:
+        """Текущее время в ISO с учётом таймзоны бота — как его пишут остальные таблицы."""
+        return (datetime.now(TIMEZONE) if TIMEZONE else datetime.now()).isoformat()
+
+    # === КАМПАНИЯ ЗНАКОМСТВА С ПЛАТФОРМОЙ ===
+    #
+    # Состояние воронки хранится в разрезе (user_id, campaign_id): следующая
+    # кампания получит новый id и не затрёт историю этой.
+    #
+    # Ключевое свойство — защита от повторной отправки. Шаг «занимается»
+    # (claim_platform_campaign_step) ДО обращения к Telegram и в той же
+    # транзакции, что и проверка «не отправляли ли уже». Поэтому падение
+    # процесса посреди отправки не приводит к дублю после рестарта: шаг уже
+    # помечен как использованный. Цена известна и выбрана осознанно — при
+    # потере ответа Telegram сообщение может не уйти; задвоение маркетингового
+    # сообщения хуже, чем его потеря.
+
+    PLATFORM_CAMPAIGN_FIELDS = (
+        'role', 'interest', 'consent_at', 'opted_out_at', 'opted_out_reason',
+        'converted_at', 'sent_step_ids', 'step_results', 'retry_state',
+        'last_error', 'last_error_at', 'last_event_at', 'first_shown_at',
+    )
+
+    # Исходы шага. «Занят» (sent_step_ids) и «доставлен» — разные вещи: шаг
+    # занимается до обращения к Telegram, и занятым он остаётся и при пропуске,
+    # и при неудаче. Отчёт обязан их различать, иначе «отправлено» врёт.
+    PLATFORM_STEP_SENT = 'sent'                      # Telegram принял сообщение
+    PLATFORM_STEP_FAILED = 'failed'                  # отправить не удалось
+    PLATFORM_STEP_DEFERRED = 'deferred'              # попытка будет повторена
+    PLATFORM_STEP_SKIPPED = 'skipped'                # отправлять не стали
+
+    def create_platform_campaign_tables(self):
+        """
+        Создаёт таблицы кампании. Идемпотентно: повторный запуск ничего не
+        перезаписывает и не теряет уже собранные согласия.
+        """
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS platform_campaign_state (
+                        user_id INTEGER NOT NULL,
+                        campaign_id TEXT NOT NULL,
+                        role TEXT,                      -- facilitator | explorer
+                        interest TEXT,                  -- facilitator | explorer | dismissed
+                        consent_at TEXT,                -- явное согласие на серию подсказок
+                        opted_out_at TEXT,              -- отказ, /platform_stop или блокировка
+                        opted_out_reason TEXT,          -- declined | dismissed | command | button | blocked
+                        converted_at TEXT,              -- задел под MVP 2: подтверждённая конверсия
+                        sent_step_ids TEXT NOT NULL DEFAULT '[]',   -- JSON: занятые шаги (не равно «доставлено»)
+                        step_results TEXT DEFAULT '{}',             -- JSON: {step: {status, at, attempts, error}}
+                        retry_state TEXT NOT NULL DEFAULT '{}',     -- JSON: {step: {attempts, error}}
+                        last_error TEXT,
+                        last_error_at TEXT,
+                        last_event_at TEXT,
+                        first_shown_at TEXT,
+                        created_at TEXT,
+                        updated_at TEXT,
+                        PRIMARY KEY (user_id, campaign_id)
+                    )""")
+
+                # Kill switch. Отдельной таблицей, а не переменной окружения:
+                # пауза должна включаться из админки на живом боте и переживать
+                # рестарт. По умолчанию автоматические касания ВЫКЛЮЧЕНЫ — ни
+                # миграция, ни старт бота не должны приводить к отправкам.
+                self.conn.execute("""
+                    CREATE TABLE IF NOT EXISTS platform_campaign_settings (
+                        campaign_id TEXT PRIMARY KEY,
+                        followups_enabled INTEGER NOT NULL DEFAULT 0,
+                        -- До какого момента отправка запрещена. Сюда попадает
+                        -- retry_after из флуд-контроля Telegram: интервал тика
+                        -- короче требуемой паузы, и без этой отметки следующий
+                        -- проход начал бы долбить API раньше срока.
+                        paused_until TEXT,
+                        updated_by INTEGER,
+                        updated_at TEXT
+                    )""")
+
+                self.conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_platform_campaign_consent "
+                    "ON platform_campaign_state (campaign_id, consent_at)")
+
+            # Таблицы могли быть созданы предыдущей версией кода: CREATE TABLE
+            # IF NOT EXISTS схему существующей таблицы не обновляет.
+            self._add_columns_if_not_exist('platform_campaign_state',
+                                           {'step_results': "TEXT DEFAULT '{}'"})
+            self._add_columns_if_not_exist('platform_campaign_settings',
+                                           {'paused_until': 'TEXT'})
+            logger.info("Platform campaign tables checked/created.")
+        except sqlite3.Error as e:
+            logger.error(f"Error creating platform campaign tables: {e}", exc_info=True)
+
+    @staticmethod
+    def _decode_platform_state(row) -> dict:
+        """Разбирает строку состояния: JSON-поля — в list/dict."""
+        state = dict(row)
+        try:
+            state['sent_step_ids'] = json.loads(state.get('sent_step_ids') or '[]')
+        except (TypeError, ValueError):
+            state['sent_step_ids'] = []
+        try:
+            state['retry_state'] = json.loads(state.get('retry_state') or '{}')
+        except (TypeError, ValueError):
+            state['retry_state'] = {}
+        try:
+            state['step_results'] = json.loads(state.get('step_results') or '{}')
+        except (TypeError, ValueError):
+            state['step_results'] = {}
+        return state
+
+    def get_platform_campaign_state(self, user_id: int, campaign_id: str):
+        """Состояние пользователя в кампании или None, если он в неё не входил."""
+        try:
+            row = self.conn.execute(
+                "SELECT * FROM platform_campaign_state WHERE user_id = ? AND campaign_id = ?",
+                (user_id, campaign_id)).fetchone()
+            return self._decode_platform_state(row) if row else None
+        except sqlite3.Error as e:
+            logger.error(f"Error reading platform campaign state for {user_id}: {e}")
+            return None
+
+    def ensure_platform_campaign_state(self, user_id: int, campaign_id: str) -> dict:
+        """
+        Возвращает состояние, создавая пустую запись при первом контакте.
+        Существующую запись не трогает: повторный /platform не обнуляет ни
+        согласие, ни отказ, ни список отправленных шагов.
+        """
+        now = self._now_iso()
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO platform_campaign_state "
+                    "(user_id, campaign_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                    (user_id, campaign_id, now, now))
+        except sqlite3.Error as e:
+            logger.error(f"Error creating platform campaign state for {user_id}: {e}")
+        return self.get_platform_campaign_state(user_id, campaign_id) or {
+            'user_id': user_id, 'campaign_id': campaign_id,
+            'sent_step_ids': [], 'retry_state': {},
+        }
+
+    def update_platform_campaign_state(self, user_id: int, campaign_id: str, **fields) -> bool:
+        """
+        Обновляет перечисленные поля состояния. Список колонок закрыт
+        (PLATFORM_CAMPAIGN_FIELDS), имена в SQL не подставляются из внешних данных.
+        """
+        unknown = set(fields) - set(self.PLATFORM_CAMPAIGN_FIELDS)
+        if unknown:
+            raise ValueError(f"Неизвестные поля состояния кампании: {sorted(unknown)}")
+        if not fields:
+            return False
+
+        payload = {}
+        for key, value in fields.items():
+            payload[key] = (json.dumps(value, ensure_ascii=False)
+                            if isinstance(value, (list, dict)) else value)
+
+        assignments = ", ".join(f"{key} = ?" for key in payload)
+        try:
+            self.ensure_platform_campaign_state(user_id, campaign_id)
+            with self.conn:
+                self.conn.execute(
+                    f"UPDATE platform_campaign_state SET {assignments}, updated_at = ? "
+                    "WHERE user_id = ? AND campaign_id = ?",
+                    (*payload.values(), self._now_iso(), user_id, campaign_id))
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error updating platform campaign state for {user_id}: {e}")
+            return False
+
+    @staticmethod
+    def _platform_consent_is_live(row) -> bool:
+        """Действует ли согласие прямо сейчас: есть, не отозвано, не конвертировался."""
+        return bool(row['consent_at']) and not row['opted_out_at'] and not row['converted_at']
+
+    def platform_campaign_consent_is_live(self, user_id: int, campaign_id: str) -> bool:
+        """
+        Свежая проверка права на отправку. Нужна перед каждой отправкой, включая
+        повторную: список участников — это снимок, а между его чтением и
+        обращением к Telegram человек успевает нажать «Больше не присылать».
+        """
+        try:
+            row = self.conn.execute(
+                "SELECT consent_at, opted_out_at, converted_at FROM platform_campaign_state "
+                "WHERE user_id = ? AND campaign_id = ?", (user_id, campaign_id)).fetchone()
+            return bool(row) and self._platform_consent_is_live(row)
+        except sqlite3.Error as e:
+            # Не смогли проверить — считаем, что отправлять нельзя.
+            logger.error(f"Error checking platform consent for {user_id}: {e}")
+            return False
+
+    def claim_platform_campaign_step(self, user_id: int, campaign_id: str, step_id: str) -> bool:
+        """
+        Занимает шаг за пользователем. True — шаг занят именно этим вызовом и его
+        можно отправлять; False — шаг уже был занят раньше либо согласие больше
+        не действует, отправлять нельзя.
+
+        Проверка и запись идут одной транзакцией, поэтому второй тик планировщика
+        (и повторный запуск бота) получит False и дубля не создаст. В той же
+        транзакции перечитывается согласие: отписка, прилетевшая во время прохода,
+        не должна проскочить между чтением списка участников и отправкой.
+        """
+        try:
+            with self.conn:
+                row = self.conn.execute(
+                    "SELECT sent_step_ids, consent_at, opted_out_at, converted_at "
+                    "FROM platform_campaign_state WHERE user_id = ? AND campaign_id = ?",
+                    (user_id, campaign_id)).fetchone()
+                if row is None:
+                    logger.warning(
+                        f"Claim for unknown platform campaign state: user={user_id}, step={step_id}")
+                    return False
+                if not self._platform_consent_is_live(row):
+                    logger.info(
+                        f"Platform step {step_id} not claimed for user {user_id}: consent is not live")
+                    return False
+                try:
+                    steps = json.loads(row['sent_step_ids'] or '[]')
+                except (TypeError, ValueError):
+                    steps = []
+                if step_id in steps:
+                    return False
+                steps.append(step_id)
+                self.conn.execute(
+                    "UPDATE platform_campaign_state SET sent_step_ids = ?, updated_at = ? "
+                    "WHERE user_id = ? AND campaign_id = ?",
+                    (json.dumps(steps), self._now_iso(), user_id, campaign_id))
+                return True
+        except sqlite3.Error as e:
+            # Не смогли записать — считаем шаг незанятым и ничего не отправляем.
+            logger.error(f"Error claiming platform step {step_id} for {user_id}: {e}")
+            return False
+
+    def get_platform_campaign_participants(self, campaign_id: str, consented_only: bool = True) -> list:
+        """
+        Участники кампании. По умолчанию — только те, кто дал явное согласие, не
+        отписался и не конвертировался: именно им планировщик вправе что-то
+        отправлять.
+        """
+        sql = "SELECT * FROM platform_campaign_state WHERE campaign_id = ?"
+        if consented_only:
+            sql += (" AND consent_at IS NOT NULL AND opted_out_at IS NULL"
+                    " AND converted_at IS NULL")
+        sql += " ORDER BY consent_at"
+        try:
+            rows = self.conn.execute(sql, (campaign_id,)).fetchall()
+            return [self._decode_platform_state(r) for r in rows]
+        except sqlite3.Error as e:
+            logger.error(f"Error reading platform campaign participants: {e}")
+            return []
+
+    def is_platform_campaign_enabled(self, campaign_id: str) -> bool:
+        """Включены ли автоматические касания. По умолчанию — нет."""
+        try:
+            row = self.conn.execute(
+                "SELECT followups_enabled FROM platform_campaign_settings WHERE campaign_id = ?",
+                (campaign_id,)).fetchone()
+            return bool(row and row['followups_enabled'])
+        except sqlite3.Error as e:
+            logger.error(f"Error reading platform campaign settings: {e}")
+            return False
+
+    def get_platform_campaign_paused_until(self, campaign_id: str):
+        """До какого момента отправка запрещена флуд-контролем. None — запрета нет."""
+        try:
+            row = self.conn.execute(
+                "SELECT paused_until FROM platform_campaign_settings WHERE campaign_id = ?",
+                (campaign_id,)).fetchone()
+            return row['paused_until'] if row else None
+        except sqlite3.Error as e:
+            logger.error(f"Error reading platform campaign pause: {e}")
+            return None
+
+    def set_platform_campaign_paused_until(self, campaign_id: str, until: str) -> bool:
+        """
+        Запрещает отправку до указанного момента. Отметка живёт в базе, а не в
+        памяти: пауза флуд-контроля должна переживать и смену тика, и рестарт.
+        """
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    INSERT INTO platform_campaign_settings
+                        (campaign_id, followups_enabled, paused_until, updated_at)
+                    VALUES (?, 0, ?, ?)
+                    ON CONFLICT(campaign_id) DO UPDATE SET
+                        paused_until = excluded.paused_until,
+                        updated_at = excluded.updated_at
+                    """, (campaign_id, until, self._now_iso()))
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error setting platform campaign pause: {e}")
+            return False
+
+    def set_platform_campaign_enabled(self, campaign_id: str, enabled: bool, updated_by: int = None) -> bool:
+        """Включает или ставит на паузу автоматические касания."""
+        try:
+            with self.conn:
+                self.conn.execute("""
+                    INSERT INTO platform_campaign_settings
+                        (campaign_id, followups_enabled, updated_by, updated_at)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(campaign_id) DO UPDATE SET
+                        followups_enabled = excluded.followups_enabled,
+                        updated_by = excluded.updated_by,
+                        updated_at = excluded.updated_at
+                    """, (campaign_id, 1 if enabled else 0, updated_by, self._now_iso()))
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Error updating platform campaign settings: {e}")
+            return False
+
+    def mark_platform_campaign_converted(self, user_id: int, campaign_id: str, when: str = None) -> bool:
+        """
+        Отмечает подтверждённую конверсию: дальше приглашения этому человеку не
+        уходят. Задел под MVP 2 — сейчас никто не вызывается автоматически,
+        конверсии по событиям бота не угадываются.
+        """
+        return self.update_platform_campaign_state(
+            user_id, campaign_id, converted_at=when or self._now_iso())
+
+    def get_platform_campaign_funnel(self, campaign_id: str) -> dict:
+        """
+        Воронка кампании по состоянию пользователей: сколько видели приглашение,
+        выбрали ветку, дали согласие, отписались, сколько шагов чем закончилось.
+
+        Считается по таблице состояния, а не по журналу событий: состояние —
+        единственный источник правды о том, что человеку уже отправлено.
+
+        Шаги разложены по исходам, и это не формальность. Шаг попадает в
+        sent_step_ids до обращения к Telegram и остаётся там при пропуске и при
+        неудаче, поэтому «занято» (steps_claimed) считать доставкой нельзя:
+        доставка — только steps_sent, где Telegram подтвердил приём.
+        """
+        stats = {
+            'total': 0, 'facilitator': 0, 'explorer': 0, 'dismissed': 0,
+            'consented': 0, 'opted_out': 0, 'active': 0, 'converted': 0,
+            'steps_claimed': {}, 'steps_sent': {}, 'steps_failed': {},
+            'steps_skipped': {}, 'steps_pending': {},
+            'sent_total': 0, 'failed_total': 0, 'skipped_total': 0,
+            'failed': 0,
+        }
+        try:
+            rows = self.conn.execute(
+                "SELECT * FROM platform_campaign_state WHERE campaign_id = ?",
+                (campaign_id,)).fetchall()
+        except sqlite3.Error as e:
+            logger.error(f"Error reading platform campaign funnel: {e}")
+            return stats
+
+        for raw in rows:
+            row = self._decode_platform_state(raw)
+            stats['total'] += 1
+            if row.get('interest') in ('facilitator', 'explorer', 'dismissed'):
+                stats[row['interest']] += 1
+            if row.get('consent_at'):
+                stats['consented'] += 1
+            if row.get('opted_out_at'):
+                stats['opted_out'] += 1
+            if row.get('converted_at'):
+                stats['converted'] += 1
+            if row.get('consent_at') and not row.get('opted_out_at') and not row.get('converted_at'):
+                stats['active'] += 1
+            if row.get('last_error'):
+                stats['failed'] += 1
+
+            results = row.get('step_results') or {}
+            for step in row.get('sent_step_ids') or []:
+                stats['steps_claimed'][step] = stats['steps_claimed'].get(step, 0) + 1
+                status = (results.get(step) or {}).get('status')
+                bucket = {
+                    self.PLATFORM_STEP_SENT: 'steps_sent',
+                    self.PLATFORM_STEP_FAILED: 'steps_failed',
+                    self.PLATFORM_STEP_SKIPPED: 'steps_skipped',
+                    self.PLATFORM_STEP_DEFERRED: 'steps_pending',
+                }.get(status)
+                if bucket is None:
+                    # Исход неизвестен: процесс упал между занятием шага и записью
+                    # результата. В доставку такой шаг не записываем.
+                    bucket = 'steps_pending'
+                stats[bucket][step] = stats[bucket].get(step, 0) + 1
+
+        stats['sent_total'] = sum(stats['steps_sent'].values())
+        stats['failed_total'] = sum(stats['steps_failed'].values())
+        stats['skipped_total'] = sum(stats['steps_skipped'].values())
+        stats['pending_total'] = sum(stats['steps_pending'].values())
+        return stats
+
 # --- КОНЕЦ КЛАССА ---
 
 # Импорт pytz

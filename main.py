@@ -183,7 +183,9 @@ from modules.evening_reflection import (
 
 # Модули для работы с постами
 from modules.post_management import PostManager
-from modules.scheduler import MailingScheduler, ReflectionAnalysisScheduler  # Добавляем новый планировщик
+from modules.scheduler import (
+    MailingScheduler, PlatformCampaignScheduler, ReflectionAnalysisScheduler
+)
 from modules.marketplace_commands import register_marketplace_handlers  # Команды маркетплейсов
 
 # Модули покупки и обучения
@@ -193,6 +195,13 @@ from modules.settings_menu import show_settings_menu, handle_settings_callback
 from modules.constants import UNIVERSE_ADVICE
 from modules.become_author import start_author_test_flow, handle_author_callback
 from modules.constants import BTN_ADMIN_PANEL
+
+# Кампания знакомства с платформой TopPsyGame (opt-in воронка)
+from modules.platform_campaign import (
+    PlatformCampaign, make_platform_callback_handler, make_platform_handler,
+    make_platform_stop_handler
+)
+from modules.texts.platform import BTN_PLATFORM, CB_PREFIX as PLATFORM_CB_PREFIX
 
 # Админская панель (рефакторинг - модульная структура)
 from modules.admin import (
@@ -607,6 +616,31 @@ def make_broadcast_handler(db: Database, logger_service: LoggingService):
         await logger_service.log_action(message.from_user.id, "broadcast_test_finished", {"success": success_count, "failed": fail_count})
     return wrapped_handler
 
+def extract_command_photo_id(message: types.Message) -> str | None:
+    """
+    file_id картинки для команды: либо команда пришла подписью к самому фото,
+    либо ответом на фото. Оба варианта удобны, и оба ловит фильтр Command —
+    он читает message.text or message.caption.
+
+    Telegram присылает фото набором превью разного размера, последний элемент —
+    самый большой. Перезаливать файл не нужно: file_id уже лежит на серверах
+    Telegram, и рассылка переиспользует его для всех получателей — картинка
+    загружается один раз, а не по разу на адресата.
+    """
+    if message.photo:
+        return message.photo[-1].file_id
+    replied = message.reply_to_message
+    if replied and replied.photo:
+        return replied.photo[-1].file_id
+    return None
+
+
+def command_args(message: types.Message, command: str) -> str:
+    """Аргументы команды. Команда могла прийти и подписью к фото, а не текстом."""
+    raw = message.text or message.caption or ""
+    return raw[len(command):].strip()
+
+
 def make_create_post_handler(db: Database, logger_service: LoggingService):
     """Создает обработчик для создания постов."""
     async def wrapped_handler(message: types.Message):
@@ -616,7 +650,7 @@ def make_create_post_handler(db: Database, logger_service: LoggingService):
             return
         
         # Парсим команду: /create_post "Заголовок" "Содержание"
-        text = message.text[len("/create_post"):].strip()
+        text = command_args(message, "/create_post")
         
         if not text:
             await message.reply("""📝 <b>СОЗДАНИЕ ПОСТА</b>
@@ -624,7 +658,11 @@ def make_create_post_handler(db: Database, logger_service: LoggingService):
 Использование: <code>/create_post "Заголовок" "Содержание"</code>
 
 Пример:
-<code>/create_post "Новости бота" "Привет! У нас обновления..."</code>""", parse_mode="HTML")
+<code>/create_post "Новости бота" "Привет! У нас обновления..."</code>
+
+<b>С картинкой:</b> пришлите фото боту, затем <b>ответом на это фото</b>
+отправьте ту же команду. Картинка прикрепится к посту, а текст уйдёт
+подписью к ней (подпись вмещает 1024 символа вместо 4096).""", parse_mode="HTML")
             return
         
         # Пытаемся найти заголовок и содержание в кавычках
@@ -637,30 +675,36 @@ def make_create_post_handler(db: Database, logger_service: LoggingService):
         
         title = matches[0]
         content = matches[1]
-        
+        media_file_id = extract_command_photo_id(message)
+
         # Валидируем данные
         from modules.post_management import PostManager
         post_manager = PostManager(db, message.bot, logger_service)
-        validation = post_manager.validate_post_data(title, content)
-        
+        validation = post_manager.validate_post_data(title, content, has_media=bool(media_file_id))
+
         if not validation['valid']:
             errors = "\n".join([f"• {error}" for error in validation['errors']])
             await message.reply(f"❌ <b>Ошибки валидации:</b>\n{errors}", parse_mode="HTML")
             return
-        
+
         try:
             # Создаем пост
-            post_id = post_manager.create_post(title, content, user_id)
-            
+            post_id = post_manager.create_post(title, content, user_id, media_file_id)
+
+            media_line = "🖼 <b>Картинка:</b> прикреплена\n" if media_file_id else ""
             await message.reply(f"""✅ <b>Пост создан успешно!</b>
 
 📝 <b>Заголовок:</b> {title}
 📄 <b>Содержание:</b> {content[:100]}{'...' if len(content) > 100 else ''}
-🆔 <b>ID поста:</b> {post_id}
+{media_line}🆔 <b>ID поста:</b> {post_id}
 
-Теперь используйте команду <code>/send_post {post_id} all</code> для отправки всем пользователям или <code>/send_post {post_id} 123456,789012</code> для отправки конкретным пользователям.""", parse_mode="HTML")
-            
-            await logger_service.log_action(user_id, "post_created", {"post_id": post_id, "title": title})
+Сначала посмотрите, как это выглядит в Telegram: <code>/preview_post {post_id}</code> — пост придёт только вам и в статистику рассылок не попадёт.
+
+Потом <code>/send_post {post_id} all</code> для отправки всем пользователям или <code>/send_post {post_id} 123456,789012</code> для отправки конкретным пользователям.""", parse_mode="HTML")
+
+            await logger_service.log_action(user_id, "post_created", {
+                "post_id": post_id, "title": title, "has_media": bool(media_file_id)
+            })
             
         except Exception as e:
             logger.error(f"Error creating post: {e}", exc_info=True)
@@ -698,6 +742,190 @@ def make_list_posts_handler(db: Database, logger_service: LoggingService):
             await message.reply("❌ Ошибка при получении списка постов")
     
     return wrapped_handler
+
+def make_post_media_handler(db: Database, logger_service: LoggingService):
+    """Создает обработчик для прикрепления картинки к уже созданному посту."""
+    async def wrapped_handler(message: types.Message):
+        user_id = message.from_user.id
+        if str(user_id) not in ADMIN_IDS:
+            await message.reply("Эта команда доступна только администратору.")
+            return
+
+        args = command_args(message, "/post_media").split()
+        media_file_id = extract_command_photo_id(message)
+
+        if not args or not media_file_id:
+            await message.reply("""🖼 <b>КАРТИНКА ДЛЯ ПОСТА</b>
+
+Пришлите фото боту и <b>ответьте на него</b> командой <code>/post_media ID</code>
+(либо отправьте фото сразу с этой командой в подписи).
+
+С картинкой текст поста уходит подписью к фото, а подпись вмещает
+1024 символа вместо 4096 — длинный пост придётся сократить.""", parse_mode="HTML")
+            return
+
+        try:
+            post_id = int(args[0])
+        except ValueError:
+            await message.reply("❌ ID поста должен быть числом")
+            return
+
+        from modules.post_management import PostManager
+        post_manager = PostManager(db, message.bot, logger_service)
+
+        post = post_manager.get_post(post_id)
+        if not post:
+            await message.reply(f"❌ Пост с ID {post_id} не найден")
+            return
+
+        # Текст уже лежит в базе и мог создаваться без картинки — с ней лимит
+        # вчетверо меньше, поэтому проверяем ещё раз, а не доверяем прошлой проверке.
+        validation = post_manager.validate_post_data(post['title'], post['content'], has_media=True)
+        if not validation['valid']:
+            errors = "\n".join([f"• {error}" for error in validation['errors']])
+            await message.reply(
+                f"❌ <b>С картинкой этот пост отправить нельзя:</b>\n{errors}",
+                parse_mode="HTML"
+            )
+            return
+
+        if post_manager.update_post(post_id, media_file_id=media_file_id):
+            await message.reply(
+                f"✅ Картинка прикреплена к посту {post_id}.\n\n"
+                f"Проверьте, как это выглядит: <code>/preview_post {post_id}</code>",
+                parse_mode="HTML"
+            )
+            await logger_service.log_action(user_id, "post_media_attached", {"post_id": post_id})
+        else:
+            await message.reply("❌ Не удалось сохранить картинку")
+
+    return wrapped_handler
+
+
+def make_preview_post_handler(db: Database, logger_service: LoggingService):
+    """
+    Создает обработчик предпросмотра: пост уходит ровно в том виде, в каком его
+    увидят получатели, но только самому админу.
+
+    Получатель не параметр, а всегда автор команды: перепутать адресата нельзя
+    в принципе. Рассылка не создаётся, поэтому проверка не попадает в статистику.
+    """
+    async def wrapped_handler(message: types.Message):
+        user_id = message.from_user.id
+        if str(user_id) not in ADMIN_IDS:
+            await message.reply("Эта команда доступна только администратору.")
+            return
+
+        args = command_args(message, "/preview_post").split()
+        if not args:
+            await message.reply("""👀 <b>ПРЕДПРОСМОТР ПОСТА</b>
+
+Использование: <code>/preview_post ID</code>
+
+Пост придёт только вам, ровно в том виде, в каком его увидят получатели.
+Рассылка при этом не создаётся и в статистику проверка не попадает.""", parse_mode="HTML")
+            return
+
+        try:
+            post_id = int(args[0])
+        except ValueError:
+            await message.reply("❌ ID поста должен быть числом")
+            return
+
+        from modules.post_management import PostManager
+        post_manager = PostManager(db, message.bot, logger_service)
+
+        post = post_manager.get_post(post_id)
+        if not post:
+            await message.reply(f"❌ Пост с ID {post_id} не найден")
+            return
+
+        # mailing_id не передаём: это проверка, а не рассылка.
+        sent = await post_manager.send_post_to_user(user_id, post)
+        await logger_service.log_action(user_id, "post_previewed", {"post_id": post_id, "sent": sent})
+
+        if sent:
+            media_note = "с картинкой" if post.get('media_file_id') else "без картинки"
+            await message.reply(
+                f"👆 Так пост {post_id} ({media_note}) увидят получатели.\n\n"
+                f"Отправка по базе — отдельной командой <code>/send_post {post_id} СЕГМЕНТ</code>.",
+                parse_mode="HTML"
+            )
+        else:
+            await message.reply(
+                "❌ Отправить предпросмотр не удалось — смотрите логи. "
+                "Рассылку запускать рано."
+            )
+
+    return wrapped_handler
+
+
+def make_create_announcement_handler(db: Database, logger_service: LoggingService):
+    """
+    Создает обработчик для разового анонса TopPsyGame.
+
+    Текст анонса и ссылки с UTM-метками лежат в modules/texts/announcement.py,
+    а не набираются руками: в тексте HTML-ссылки и длинные query-строки, и
+    единственная опечатка в них сломала бы либо разметку, либо аналитику.
+    Команда только собирает пост, отправку по-прежнему запускает человек.
+    """
+    async def wrapped_handler(message: types.Message):
+        user_id = message.from_user.id
+        if str(user_id) not in ADMIN_IDS:
+            await message.reply("Эта команда доступна только администратору.")
+            return
+
+        from modules.texts.announcement import (
+            ANNOUNCEMENT_TITLE, announcement_text, app_url, site_url,
+        )
+        from modules.post_management import PostManager
+
+        media_file_id = extract_command_photo_id(message)
+        content = announcement_text()
+
+        post_manager = PostManager(db, message.bot, logger_service)
+        validation = post_manager.validate_post_data(
+            ANNOUNCEMENT_TITLE, content, has_media=bool(media_file_id)
+        )
+        if not validation['valid']:
+            errors = "\n".join([f"• {error}" for error in validation['errors']])
+            await message.reply(f"❌ <b>Ошибки валидации:</b>\n{errors}", parse_mode="HTML")
+            return
+
+        try:
+            post_id = post_manager.create_post(ANNOUNCEMENT_TITLE, content, user_id, media_file_id)
+        except Exception as e:
+            logger.error(f"Error creating announcement post: {e}", exc_info=True)
+            await message.reply("❌ Ошибка при создании анонса")
+            return
+
+        await logger_service.log_action(user_id, "announcement_post_created", {
+            "post_id": post_id, "has_media": bool(media_file_id)
+        })
+
+        if media_file_id:
+            media_line = "🖼 Картинка: прикреплена"
+        else:
+            media_line = ("🖼 Картинка: <b>нет</b> — пришлите фото и повторите команду "
+                          "ответом на него, либо прикрепите позже: "
+                          f"<code>/post_media {post_id}</code>")
+
+        await message.reply(
+            "✅ <b>Анонс создан</b>\n\n"
+            f"🆔 ID поста: <b>{post_id}</b>\n"
+            f"{media_line}\n\n"
+            "🔗 <b>Ссылки с метками:</b>\n"
+            f"• лендинг: <code>{site_url()}</code>\n"
+            f"• приложение: <code>{app_url()}</code>\n\n"
+            f"Проверьте вид сообщения: <code>/preview_post {post_id}</code> — придёт только вам.\n\n"
+            "⚠️ Анонс — рекламное сообщение. Отправлять его можно только тем, "
+            "чьё согласие такие сообщения покрывает (ст. 18 № 38-ФЗ); "
+            "сам факт пользования ботом согласием на рекламу не является.",
+            parse_mode="HTML"
+        )
+
+    return wrapped_handler
+
 
 def make_send_post_handler(db: Database, logger_service: LoggingService):
     """Создает обработчик для отправки постов."""
@@ -1778,11 +2006,18 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     scenario_stats_handler = make_scenario_stats_handler(db, logging_service)
     broadcast_handler = make_broadcast_handler(db, logging_service)
     create_post_handler = make_create_post_handler(db, logging_service)
+    post_media_handler = make_post_media_handler(db, logging_service)
+    preview_post_handler = make_preview_post_handler(db, logging_service)
+    create_announcement_handler = make_create_announcement_handler(db, logging_service)
     list_posts_handler = make_list_posts_handler(db, logging_service)
     send_post_handler = make_send_post_handler(db, logging_service)
     process_mailings_handler = make_process_mailings_handler(db, logging_service)
     admin_handler = make_admin_handler(db, logging_service)
     admin_callback_handler = make_admin_callback_handler(db, logging_service)
+    platform_handler = make_platform_handler(db, logging_service, source="command")
+    platform_menu_handler = make_platform_handler(db, logging_service, source="main_menu")
+    platform_stop_handler = make_platform_stop_handler(db, logging_service)
+    platform_callback_handler = make_platform_callback_handler(db, logging_service)
 
     dp.message.register(start_handler, Command("start"))
     dp.message.register(share_handler, Command("share"))
@@ -1799,10 +2034,17 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
     dp.message.register(scenario_stats_handler, Command("scenario_stats"))
     dp.message.register(broadcast_handler, Command("broadcast"))
     dp.message.register(create_post_handler, Command("create_post"))
+    # Эти три команды могут прийти подписью к фото, а не текстом: фильтр Command
+    # читает message.text or message.caption, поэтому регистрация обычная.
+    dp.message.register(post_media_handler, Command("post_media"))
+    dp.message.register(preview_post_handler, Command("preview_post"))
+    dp.message.register(create_announcement_handler, Command("create_announcement"))
     dp.message.register(list_posts_handler, Command("list_posts"))
     dp.message.register(send_post_handler, Command("send_post"))
     dp.message.register(process_mailings_handler, Command("process_mailings"))
     dp.message.register(admin_handler, Command("admin"))
+    dp.message.register(platform_handler, Command("platform"))
+    dp.message.register(platform_stop_handler, Command("platform_stop"))
     
     # Регистрируем callback-обработчики для админ-панели
     dp.callback_query.register(admin_callback_handler, F.data.startswith("admin_"))
@@ -1827,6 +2069,16 @@ def register_handlers(dp: Dispatcher, db: Database, logging_service: LoggingServ
         await start_author_test_flow(message, state, db)
 
     dp.message.register(handle_become_author, F.text.contains("Стать автором"))
+
+    # Кнопка знакомства с платформой. Приглашение ненавязчивое: это ещё один
+    # пункт меню, сценарии «Карты дня», рефлексии и теста автора он не задевает.
+    dp.message.register(platform_menu_handler, F.text == BTN_PLATFORM)
+
+    # Кнопки воронки. Регистрируем здесь, вместе с остальными callback'ами
+    # сценариев: иначе нажатие кнопки посреди FSM-состояния перехватил бы
+    # handle_callback_when_waiting_text и человек получил бы «отправь текстом».
+    dp.callback_query.register(platform_callback_handler,
+                               F.data.startswith(PLATFORM_CB_PREFIX))
 
     # Кнопка "⚒️ Админ-панель" в главном меню (видна только админам, но на всякий случай защищаем и хендлером /admin)
     dp.message.register(admin_handler, F.text.contains("Админ-панель"))
@@ -2034,12 +2286,17 @@ async def main():
         types.BotCommand(command="feedback", description="✉️ Оставить отзыв / Идею"),
         types.BotCommand(command="user_profile", description="📊 Мой профиль"),
         types.BotCommand(command="help", description="❓ Помощь и FAQ"),
+        types.BotCommand(command="platform", description="🃏 Онлайн-платформа TopPsyGame"),
+        types.BotCommand(command="platform_stop", description="🔕 Не писать о платформе"),
     ]
 
     # Админские команды (дополнительно показываем только админам)
     admin_commands = [
         types.BotCommand(command="admin", description="🛠️ Админ-панель"),
         types.BotCommand(command="create_post", description="📝 Создать пост (админ)"),
+        types.BotCommand(command="create_announcement", description="🃏 Создать анонс TopPsyGame (админ)"),
+        types.BotCommand(command="post_media", description="🖼 Картинка к посту (админ)"),
+        types.BotCommand(command="preview_post", description="👀 Показать пост себе (админ)"),
         types.BotCommand(command="list_posts", description="📋 Список постов (админ)"),
         types.BotCommand(command="send_post", description="📤 Отправить пост (админ)"),
         types.BotCommand(command="process_mailings", description="🔄 Обработать рассылки (админ)"),
@@ -2072,6 +2329,13 @@ async def main():
     
     # Инициализация планировщика еженедельного анализа рефлексий
     reflection_scheduler = ReflectionAnalysisScheduler(bot, db, check_interval=3600)  # Проверяем каждый час
+
+    # Кампания знакомства с платформой. Планировщик поднимается всегда, но
+    # отправляет что-либо только после того, как администратор включил кампанию
+    # в админке: по умолчанию выключатель стоит в положении «выключено», поэтому
+    # сам старт бота никому ничего не отправляет.
+    platform_campaign = PlatformCampaign(db, bot, logging_service)
+    platform_campaign_scheduler = PlatformCampaignScheduler(platform_campaign, check_interval=300)
     
     # Инициализируем данные в диспетчере с проверками
     try:
@@ -2084,6 +2348,8 @@ async def main():
         dp["user_manager"] = user_manager
         dp["post_manager"] = post_manager
         dp["scheduler"] = scheduler
+        dp["platform_campaign"] = platform_campaign
+        dp["platform_campaign_scheduler"] = platform_campaign_scheduler
         logger.info("Dispatcher data initialized successfully")
     except Exception as init_err:
         logger.error(f"Error initializing dispatcher data: {init_err}")
@@ -2104,6 +2370,10 @@ async def main():
     # Запускаем планировщик еженедельного анализа рефлексий
     await reflection_scheduler.start()
     logger.info("Reflection analysis scheduler started.")
+
+    await platform_campaign_scheduler.start()
+    logger.info("Platform campaign scheduler started "
+                f"(followups enabled: {db.is_platform_campaign_enabled(platform_campaign.campaign_id)}).")
     
     reminder_task = asyncio.create_task(notifier.check_reminders())
     logger.info("Reminder check task scheduled.")
@@ -2141,7 +2411,15 @@ async def main():
             logger.info("Reflection analysis scheduler stopped.")
         except Exception as reflection_scheduler_err:
             logger.error(f"Error stopping reflection analysis scheduler: {reflection_scheduler_err}")
-        
+
+        # Останавливаем планировщик кампании знакомства с платформой
+        try:
+            await platform_campaign_scheduler.stop()
+            logger.info("Platform campaign scheduler stopped.")
+        except Exception as platform_scheduler_err:
+            logger.error(f"Error stopping platform campaign scheduler: {platform_scheduler_err}")
+
+
         reminder_task.cancel()
         try:
             await reminder_task

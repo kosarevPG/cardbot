@@ -91,4 +91,7 @@ BTN_ADMIN_PANEL = "⚒️ Админ-панель"
 BOT_INITIATED_ACTIONS = (
     "reminder_sent",
     "subscription_invite_shown",
+    # Follow-up кампании знакомства с платформой: отправку инициирует планировщик,
+    # а не человек. Иначе рассылка подсказок переводила бы уснувших в «ядро».
+    "platform_followup_sent",
 )

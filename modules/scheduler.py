@@ -8,38 +8,49 @@ import pytz
 
 logger = logging.getLogger(__name__)
 
-class MailingScheduler:
-    """Планировщик для обработки запланированных рассылок."""
-    
-    def __init__(self, post_manager, check_interval: int = 60):
+class PeriodicProcessor:
+    """
+    Общий цикл периодической обработки: раз в check_interval вызывает переданный
+    обработчик и не падает от его ошибок.
+
+    Выделен из MailingScheduler, когда у бота появился второй такой цикл
+    (касания кампании знакомства с платформой). Логика запуска, остановки и
+    устойчивости к ошибкам у них одна и та же, и расходиться ей незачем.
+    """
+
+    def __init__(self, process, name: str, check_interval: int = 60,
+                 describe=None):
         """
-        Инициализация планировщика.
-        
         Args:
-            post_manager: Экземпляр PostManager
-            check_interval: Интервал проверки в секундах (по умолчанию 60)
+            process: корутина без аргументов — один проход обработки
+            name: имя для логов
+            check_interval: интервал проверки в секундах
+            describe: функция, превращающая результат прохода в строку для лога
+                      (None — ничего не логируем)
         """
-        self.post_manager = post_manager
+        self._process = process
+        self.name = name
         self.check_interval = check_interval
+        self._describe = describe
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
-    
+
     async def start(self):
         """Запускает планировщик."""
         if self.is_running:
-            logger.warning("Scheduler is already running")
+            logger.warning(f"{self.name} scheduler is already running")
             return
-        
+
         self.is_running = True
         self.task = asyncio.create_task(self._run_scheduler())
-        logger.info(f"Mailing scheduler started with {self.check_interval}s interval")
-    
+        logger.info(f"{self.name} scheduler started with {self.check_interval}s interval")
+
     async def stop(self):
         """Останавливает планировщик."""
         if not self.is_running:
-            logger.warning("Scheduler is not running")
+            logger.warning(f"{self.name} scheduler is not running")
             return
-        
+
         self.is_running = False
         if self.task:
             self.task.cancel()
@@ -47,30 +58,61 @@ class MailingScheduler:
                 await self.task
             except asyncio.CancelledError:
                 pass
-        logger.info("Mailing scheduler stopped")
-    
+        logger.info(f"{self.name} scheduler stopped")
+
     async def _run_scheduler(self):
         """Основной цикл планировщика."""
         while self.is_running:
             try:
-                # Обрабатываем ожидающие рассылки
-                result = await self.post_manager.process_pending_mailings()
-                
-                if result['processed'] > 0:
-                    logger.info(f"Processed {result['processed']} mailings: "
-                              f"{result['total_sent']} sent, {result['total_failed']} failed")
-                
+                result = await self._process()
+
+                if self._describe:
+                    message = self._describe(result)
+                    if message:
+                        logger.info(f"[{self.name}] {message}")
+
                 # Ждем следующей проверки
                 await asyncio.sleep(self.check_interval)
-                
+
             except asyncio.CancelledError:
-                logger.info("Scheduler task cancelled")
+                logger.info(f"{self.name} scheduler task cancelled")
                 break
             except Exception as e:
-                logger.error(f"Error in scheduler loop: {e}", exc_info=True)
+                logger.error(f"Error in {self.name} scheduler loop: {e}", exc_info=True)
                 # Ждем немного перед повторной попыткой
                 await asyncio.sleep(min(self.check_interval, 10))
-    
+
+    def get_status(self) -> dict:
+        """Возвращает статус планировщика."""
+        return {
+            'is_running': self.is_running,
+            'check_interval': self.check_interval,
+            'task_running': self.task is not None and not self.task.done()
+        }
+
+
+def _describe_mailings(result: dict) -> Optional[str]:
+    if result.get('processed'):
+        return (f"Processed {result['processed']} mailings: "
+                f"{result['total_sent']} sent, {result['total_failed']} failed")
+    return None
+
+
+class MailingScheduler(PeriodicProcessor):
+    """Планировщик для обработки запланированных рассылок."""
+
+    def __init__(self, post_manager, check_interval: int = 60):
+        """
+        Инициализация планировщика.
+
+        Args:
+            post_manager: Экземпляр PostManager
+            check_interval: Интервал проверки в секундах (по умолчанию 60)
+        """
+        super().__init__(post_manager.process_pending_mailings, "Mailing",
+                         check_interval, describe=_describe_mailings)
+        self.post_manager = post_manager
+
     async def process_mailings_now(self) -> dict:
         """Принудительно обрабатывает все ожидающие рассылки."""
         try:
@@ -80,14 +122,36 @@ class MailingScheduler:
         except Exception as e:
             logger.error(f"Error in manual processing: {e}", exc_info=True)
             return {'processed': 0, 'total_sent': 0, 'total_failed': 0, 'error': str(e)}
-    
-    def get_status(self) -> dict:
-        """Возвращает статус планировщика."""
-        return {
-            'is_running': self.is_running,
-            'check_interval': self.check_interval,
-            'task_running': self.task is not None and not self.task.done()
-        }
+
+
+def _describe_platform_campaign(result: dict) -> Optional[str]:
+    """
+    Что писать в лог по итогам прохода кампании. Молчим, когда ничего не
+    происходит: тик идёт часто, а выключенная кампания — норма, а не событие.
+    """
+    if not result.get('enabled'):
+        return None
+    counts = {k: result.get(k, 0) for k in ('sent', 'failed', 'deferred', 'skipped')}
+    if not any(counts.values()):
+        return None
+    return (f"follow-ups: sent={counts['sent']}, failed={counts['failed']}, "
+            f"deferred={counts['deferred']}, skipped={counts['skipped']}")
+
+
+class PlatformCampaignScheduler(PeriodicProcessor):
+    """
+    Планировщик касаний кампании знакомства с платформой.
+
+    Сам по себе ничего не отправляет: пока администратор не включил кампанию,
+    проход возвращает «disabled» и выходит. Интервал пять минут — касания
+    привязаны к дням, минута точности здесь не нужна.
+    """
+
+    def __init__(self, campaign, check_interval: int = 300):
+        super().__init__(campaign.process_due_followups, "PlatformCampaign",
+                         check_interval, describe=_describe_platform_campaign)
+        self.campaign = campaign
+
 
 # --- НОВЫЙ КЛАСС: Планировщик еженедельного анализа рефлексий ---
 class ReflectionAnalysisScheduler:
